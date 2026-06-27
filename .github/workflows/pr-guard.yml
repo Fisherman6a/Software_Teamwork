@@ -1,0 +1,75 @@
+name: PR Guard
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce collaboration rules
+        uses: actions/github-script@v7
+        env:
+          REQUIRED_BASE_BRANCH: develop
+          OWNER_DIRECT_BRANCH_USERS: Sakayori-Iroha-168
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const requiredBase = process.env.REQUIRED_BASE_BRANCH;
+            const ownerDirectBranchUsers = process.env.OWNER_DIRECT_BRANCH_USERS
+              .split(',')
+              .map((login) => login.trim())
+              .filter(Boolean);
+            const failures = [];
+
+            if (pr.base.ref !== requiredBase) {
+              failures.push(`PR base must be '${requiredBase}', got '${pr.base.ref}'.`);
+            }
+
+            if (!pr.head.repo) {
+              failures.push('PR head repository is unavailable.');
+            } else {
+              const isForkPr = pr.head.repo.fork;
+              const isSameRepoPr = pr.head.repo.full_name === pr.base.repo.full_name;
+              const isOwnerDirectBranchPr =
+                isSameRepoPr && ownerDirectBranchUsers.includes(pr.user.login);
+
+              if (!isForkPr && !isOwnerDirectBranchPr) {
+                failures.push(
+                  'PR must come from a personal fork. ' +
+                  `Only repository owner(s) may open same-repository branch PRs: ${ownerDirectBranchUsers.join(', ')}.`
+                );
+              }
+            }
+
+            if (pr.head.repo) {
+              try {
+                const basehead = `${context.repo.owner}:${pr.base.ref}...${pr.head.repo.owner.login}:${pr.head.ref}`;
+                const { data: comparison } = await github.rest.repos.compareCommitsWithBasehead({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  basehead,
+                });
+
+                if (!['ahead', 'identical'].includes(comparison.status)) {
+                  failures.push(
+                    `PR branch must include the latest '${requiredBase}'. ` +
+                    `Current comparison status is '${comparison.status}'. ` +
+                    `Run: git fetch upstream && git rebase upstream/${requiredBase}`
+                  );
+                }
+              } catch (error) {
+                failures.push(`Could not compare PR branch with '${requiredBase}': ${error.message}`);
+              }
+            }
+
+            if (failures.length > 0) {
+              core.setFailed(`Collaboration rules failed:\n- ${failures.join('\n- ')}`);
+            } else {
+              core.info('Collaboration rules passed.');
+            }
