@@ -1,6 +1,6 @@
 # 协作规范
 
-本仓库采用 fork + PR 的协作方式。所有代码、文档和配置修改都必须通过
+本仓库采用 fork + PR 的协作方式。所有代码、文档和配置修改默认都必须通过
 Pull Request 合入主仓库的 `develop` 分支。
 
 ## 基本原则
@@ -13,25 +13,6 @@ Pull Request 合入主仓库的 `develop` 分支。
 - `main` 只用于发布，由维护者从 `develop` 做发布合并。
 
 ## 小组 Label
-
-小组 label 是可选分类标签，不作为 PR 合并的强制条件。当前仓库使用以下小组
-label：
-
-| Label | 用途 |
-|-------|------|
-| `L1nggTeam` | 第一组 |
-| `PrimeTeam` | 第二组 |
-| `JerryTeam` | 第六组 |
-| `frontend` | 前端相关 PR |
-| `backend` | 后端相关 PR |
-
-小组 label 和领域 label 都是可选分类标签。
-
-维护者新增小组时，需要同时更新：
-
-- GitHub 仓库 label
-- 本文档的小组 label 表
-- 如需自动打标，更新 [.github/labeler.json](.github/labeler.json)
 
 PR 会根据提交账号和修改文件路径自动添加匹配 label。账号规则会匹配 PR
 发起人以及 PR commit 的 GitHub author/committer login 或数字 ID。配置见
@@ -107,10 +88,10 @@ final
 ```
 
 完整规则见 [.trellis/spec/guides/commit-convention.md](.trellis/spec/guides/commit-convention.md)。
+AI agent 在运行 `git commit` 前必须阅读本文档和
+[.agents/git-commit-checklist.md](.agents/git-commit-checklist.md)。
 
 ## 标准开发流程
-
-详细命令见 [docs/git-workflow.md](docs/git-workflow.md)。
 
 1. Fork 主仓库到个人账号。
 2. 本地配置 `upstream` 指向主仓库，`origin` 指向个人 fork。
@@ -119,8 +100,111 @@ final
 5. 在个人分支提交修改。
 6. 推送到个人 fork。
 7. 使用 `gh pr create` 向主仓库 `develop` 发起 PR。
-8. 可选添加对应小组 label。
-9. 等待 CI、PR Guard、Commitlint 和 review 通过后合并。
+8. 等待 CI、PR Guard、Commitlint 和 review 通过后合并。
+
+### 1. 登录 GitHub CLI
+
+```bash
+gh auth login
+gh auth status
+```
+
+### 2. Fork 主仓库
+
+```bash
+gh repo fork Sakayori-Iroha-168/Software_Teamwork --remote --clone=false
+```
+
+如果已经 fork 过，可以跳过这一步。
+
+### 3. 配置 Remote
+
+确认 remote：
+
+```bash
+git remote -v
+```
+
+推荐配置：
+
+```bash
+git remote set-url origin git@github.com:YOUR_NAME/Software_Teamwork.git
+git remote add upstream git@github.com:Sakayori-Iroha-168/Software_Teamwork.git
+```
+
+如果 `upstream` 已存在：
+
+```bash
+git remote set-url upstream git@github.com:Sakayori-Iroha-168/Software_Teamwork.git
+```
+
+最终应满足：
+
+```text
+origin    -> 你的个人 fork
+upstream  -> 主仓库
+```
+
+### 4. 从最新 develop 创建分支
+
+```bash
+git fetch upstream
+git switch -c L1nggTeam/feat/login-page upstream/develop
+```
+
+不要从 `main`、本地旧分支或主仓库临时分支创建开发分支。
+
+### 5. 提交修改
+
+```bash
+git status
+git add .
+git commit -m "feat(frontend): add login page"
+```
+
+Commit message 必须遵循上文。
+
+### 6. 推送到个人 fork
+
+```bash
+git push -u origin L1nggTeam/feat/login-page
+```
+
+### 7. 创建 PR 到主仓库 develop
+
+```bash
+gh pr create \
+  --repo Sakayori-Iroha-168/Software_Teamwork \
+  --base develop \
+  --head YOUR_NAME:L1nggTeam/feat/login-page \
+  --title "feat(frontend): add login page" \
+  --body-file .github/pull_request_template.md
+```
+
+注意：
+
+- `--base` 必须是 `develop`，不能是 `main`。
+- `--head` 必须是 `YOUR_NAME:<branch>`，也就是个人 fork 中的分支。
+
+### 8. PR 前同步最新 develop
+
+如果主仓库 `develop` 更新了，需要 rebase：
+
+```bash
+git fetch upstream
+git rebase upstream/develop
+git push --force-with-lease
+```
+
+禁止使用普通 `--force`。只使用 `--force-with-lease`。
+
+### 9. 查看 PR 状态
+
+```bash
+gh pr status
+gh pr checks <PR_NUMBER> --repo Sakayori-Iroha-168/Software_Teamwork
+gh pr view --web
+```
 
 ## PR 前检查
 
@@ -142,14 +226,41 @@ final
 - 至少一名维护者 review 通过。
 - 分支包含当前最新 `develop`。
 
-推荐 GitHub Branch Protection 设置：
+## 常见错误
 
-| Branch | 规则 |
-|--------|------|
-| `develop` | Require PR、Require status checks、Require branch up to date、Require approval |
-| `main` | 限制发布维护者或发布机器人更新、Require status checks、禁止日常开发 PR |
+### PR 目标分支选成 main
 
-维护者配置说明见 [docs/repository-settings.md](docs/repository-settings.md)。
+关闭该 PR，重新向 `develop` 发起 PR：
+
+```bash
+gh pr close <PR_NUMBER> --repo Sakayori-Iroha-168/Software_Teamwork
+gh pr create --repo Sakayori-Iroha-168/Software_Teamwork --base develop
+```
+
+### 分支落后 develop
+
+```bash
+git fetch upstream
+git rebase upstream/develop
+git push --force-with-lease
+```
+
+### Commit message 不规范
+
+修改最近一次 commit：
+
+```bash
+git commit --amend -m "fix(backend): handle empty user response"
+git push --force-with-lease
+```
+
+修改多个 commit：
+
+```bash
+git fetch upstream
+git rebase -i upstream/develop
+git push --force-with-lease
+```
 
 ## 维护者职责
 
