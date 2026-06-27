@@ -1,8 +1,16 @@
 {
   "accountLabels": [
     {
-      "accounts": ["Sakayori-Iroha-168", "266454825"],
-      "labels": ["documentation"]
+      "accounts": ["Sakayori-Iroha-168","AKTNL","EIR9264"],
+      "labels": ["L1nggTeam"]
+    },
+    {
+      "accounts": ["Jackeyliu37"],
+      "labels": ["PrimeTeam"]
+    },
+    {
+      "accounts": [],
+      "labels": ["JerryTeam"]
     }
   ],
   "pathLabels": [
