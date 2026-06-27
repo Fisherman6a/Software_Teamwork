@@ -20,6 +20,19 @@
 
 ---
 
+## Before Commit
+
+Before running `git commit`, read the repository workflow and confirm the branch
+and PR rules still match your current work:
+
+- [docs/git-workflow.md](../../../docs/git-workflow.md)
+- [.agents/git-commit-checklist.md](../../../.agents/git-commit-checklist.md)
+
+Do not commit unrelated user changes, private local notes, or Trellis runtime
+files. If checks cannot be run, record that explicitly in the final response.
+
+---
+
 ## Types
 
 | Type | When to use |
