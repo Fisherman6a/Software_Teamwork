@@ -48,7 +48,7 @@ export default function ChatInput({
 
   return (
     <div className="shrink-0 border-t border-border bg-background px-6 py-4">
-      <div className="flex items-end gap-2 rounded-lg border border-input bg-card px-3 py-2 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
+      <div className="flex items-end gap-2 rounded-lg border border-primary/30 bg-card px-3 py-2 transition-colors focus-within:border-primary focus-within:ring-3 focus-within:ring-primary/30">
         <Textarea
           ref={textareaRef}
           className="min-h-0 flex-1 resize-none border-0 bg-transparent p-0 py-1 text-base placeholder:text-muted-foreground focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-60 md:text-sm"
@@ -63,7 +63,7 @@ export default function ChatInput({
           size="icon"
           onClick={handleSend}
           disabled={!canSend}
-          className="shrink-0"
+          className="shrink-0 rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
           aria-label="发送消息"
         >
           <Send className="size-4" aria-hidden="true" />

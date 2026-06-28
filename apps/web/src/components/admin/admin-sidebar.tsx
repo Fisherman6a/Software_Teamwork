@@ -95,7 +95,7 @@ export function AdminSidebar() {
                 <button
                   type="button"
                   className={cn(
-                    'flex w-full items-center gap-1.5 px-4 py-2 text-left text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
+                    'flex w-full items-center gap-1.5 px-4 py-2 text-left text-sm font-medium text-sidebar-foreground transition-colors hover:bg-primary/5 hover:text-primary',
                   )}
                   onClick={() => toggle(item.key)}
                 >
@@ -112,6 +112,7 @@ export function AdminSidebar() {
                       className="shrink-0 text-muted-foreground"
                     />
                   )}
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary" />
                   <span>{item.label}</span>
                 </button>
 
@@ -123,9 +124,9 @@ export function AdminSidebar() {
                         key={child.key}
                         to={child.path!}
                         className={cn(
-                          'block px-4 py-1.5 pl-10 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                          'block px-4 py-1.5 pl-10 text-sm text-muted-foreground transition-colors hover:bg-primary/5 hover:text-primary',
                           isActive(child.path) &&
-                            'bg-sidebar-accent text-sidebar-accent-foreground font-medium',
+                            'text-primary bg-primary/10 font-medium',
                         )}
                       >
                         {child.label}
@@ -143,8 +144,8 @@ export function AdminSidebar() {
               key={item.key}
               to={item.path!}
               className={cn(
-                'flex w-full items-center px-4 py-2 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent',
-                isActive(item.path) && 'bg-sidebar-accent text-sidebar-accent-foreground',
+                'flex w-full items-center px-4 py-2 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-primary/5 hover:text-primary',
+                isActive(item.path) && 'text-primary bg-primary/10 font-medium',
               )}
             >
               {item.label}

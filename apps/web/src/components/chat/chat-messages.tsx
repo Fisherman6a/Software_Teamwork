@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Check, ChevronDown, ChevronRight } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 
@@ -352,9 +352,10 @@ export default function ChatMessages({
               <button
                 key={i}
                 type="button"
-                className="w-full rounded-md border border-border bg-card px-4 py-3 text-left text-sm text-muted-foreground transition-all hover:border-primary hover:text-primary hover:bg-accent"
+                className="w-full rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-left text-sm text-primary transition-all hover:bg-primary/10 hover:border-primary/50"
                 onClick={() => onSuggestedClick(p)}
               >
+                <ArrowUpRight className="mr-1 inline-block size-3.5 shrink-0" />
                 {p}
               </button>
             ))}
