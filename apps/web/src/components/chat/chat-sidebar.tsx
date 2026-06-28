@@ -102,7 +102,7 @@ export default function ChatSidebar({
       {/* ── Header ── */}
       <div className="flex flex-col gap-2 border-b border-border p-4">
         <h2 className="text-lg font-semibold text-foreground">对话历史</h2>
-        <Button onClick={onCreate} className="w-full">
+        <Button onClick={onCreate} className="w-full bg-primary text-primary-foreground hover:bg-primary/90">
           <Plus className="size-4" />
           新建对话
         </Button>
@@ -157,8 +157,8 @@ export default function ChatSidebar({
                 key={sess.id}
                 type="button"
                 className={cn(
-                  'group relative flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-muted',
-                  isActive && 'bg-accent text-accent-foreground',
+                  'group relative flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-primary/5',
+                  isActive && 'bg-primary/10 text-primary border-l-[3px] border-l-primary',
                 )}
                 onClick={() => onSelect(sess.id)}
                 onDoubleClick={() => startEdit(sess.id, sess.title)}
