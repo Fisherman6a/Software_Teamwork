@@ -15,10 +15,10 @@
 
 需要同步保持一致的文档：
 
-- [整体需求分析](./整体需求分析.md)
-- [知识管理 API 契约](../接口契约/知识管理-api契约.md)
-- [智能问答 API 契约](../接口契约/智能问答-api契约.md)
-- [报告生成 API 契约](../接口契约/报告生成-api契约.md)
+- [整体需求分析](./overall-requirements-analysis.md)
+- [知识管理 API 契约](../services/knowledge/docs/api-contract.md)
+- [智能问答 API 契约](../services/qa/docs/api-contract.md)
+- [报告生成 API 契约](../services/document/docs/api-contract.md)
 
 ## 2. 已确认的核心决策
 

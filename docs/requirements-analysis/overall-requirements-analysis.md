@@ -285,9 +285,9 @@
 
 本任务同步产出三份 API 契约：
 
-- 知识管理：[知识管理-api契约.md](../接口契约/知识管理-api契约.md)，OpenAPI 草稿：[knowledge.openapi.yaml](../接口契约/openapi/knowledge.openapi.yaml)
-- 智能问答：[智能问答-api契约.md](../接口契约/智能问答-api契约.md)，OpenAPI 草稿：[qa.openapi.yaml](../接口契约/openapi/qa.openapi.yaml)
-- 报告生成：[报告生成-api契约.md](../接口契约/报告生成-api契约.md)，OpenAPI 草稿：[reports.openapi.yaml](../接口契约/openapi/reports.openapi.yaml)
+- 知识管理：[api-contract.md](../services/knowledge/docs/api-contract.md)，OpenAPI 草稿：[public.openapi.yaml](../services/knowledge/api/public.openapi.yaml)
+- 智能问答：[api-contract.md](../services/qa/docs/api-contract.md)，OpenAPI 草稿：[openapi.yaml](../services/qa/api/openapi.yaml)
+- 报告生成：[api-contract.md](../services/document/docs/api-contract.md)，OpenAPI 草稿：[openapi.yaml](../services/document/api/openapi.yaml)
 
 拆分原则：
 
@@ -365,7 +365,7 @@
 
 ## 13. 已确认决策与后续跟踪
 
-详细来源见 [决策同步清单](./决策同步清单.md)。下面保留对开发排期影响最大的结论。
+详细来源见 [决策同步清单](./decision-sync-checklist.md)。下面保留对开发排期影响最大的结论。
 
 | 编号 | 结论 | 影响 |
 | --- | --- | --- |
