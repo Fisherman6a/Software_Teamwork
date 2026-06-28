@@ -173,3 +173,36 @@ Reduced active gateway OpenAPI contracts to auth, gateway health, and file-owned
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Enforce RESTful API contracts
+
+**Date**: 2026-06-28
+**Task**: Enforce RESTful API contracts
+**Branch**: `docs/gateway-contract-first`
+
+### Summary
+
+Converted gateway-facing auth and file contracts to resource-oriented RESTful paths, updated missing downstream placeholders, and recorded the RESTful API restriction in OpenAPI, docs, README, and backend API specs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d378715` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

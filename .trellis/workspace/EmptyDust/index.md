@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 5
+- **Total Sessions**: 6
 - **Last Active**: 2026-06-28
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~175 | Active |
+| `journal-1.md` | ~208 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 6 | 2026-06-28 | Enforce RESTful API contracts | `d378715` | `docs/gateway-contract-first` |
 | 5 | 2026-06-28 | Mark missing downstream API contracts | `54f3d85` | `docs/gateway-contract-first` |
 | 4 | 2026-06-28 | Auth service API documentation | `46f754f` | `docs/gateway-contract-first` |
 | 3 | 2026-06-28 | Gateway contract-first docs | `37fb71e` | `chore/agent-commit-hook` |
