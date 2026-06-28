@@ -201,3 +201,38 @@ Updated frontend workflow docs, agent skills, AGENTS.md, and frontend quality/sp
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Clean legacy frontend path references
+
+**Date**: 2026-06-28
+**Task**: Clean legacy frontend path references
+**Branch**: `develop`
+
+### Summary
+
+Replaced remaining apps/frontend and frontend-dev references with apps/web and develop-oriented workflow guidance across README, CI/CD spec, labeler config, repository settings, UI copy, and archived task PRDs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5acc533` | (see git log) |
+| `78af49b` | (see git log) |
+| `d2b4a17` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
