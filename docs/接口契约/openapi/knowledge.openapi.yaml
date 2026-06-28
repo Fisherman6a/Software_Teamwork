@@ -2,11 +2,10 @@ openapi: 3.0.3
 info:
   title: Knowledge Management API
   version: 0.1.0
-  description: RESTful API contract for knowledge bases, documents, processing, retrieval, support materials, settings, and stats.
+  description: RESTful API contract for knowledge bases, documents, processing, retrieval, support materials, settings, and stats. All endpoints use Bearer JWT auth; model calls use an AI gateway with an OpenAI-compatible API.
 servers:
   - url: /api/v1
 security:
-  - cookieSession: []
   - bearerAuth: []
 tags:
   - name: KnowledgeBases
@@ -369,10 +368,6 @@ paths:
           $ref: '#/components/responses/Error'
 components:
   securitySchemes:
-    cookieSession:
-      type: apiKey
-      in: cookie
-      name: session
     bearerAuth:
       type: http
       scheme: bearer
@@ -571,12 +566,31 @@ components:
         documentId: { type: string }
         status: { type: string, enum: [queued, running, succeeded, failed, cancelled] }
         stage: { type: string }
+        attemptCount:
+          type: integer
+          description: Current attempt count persisted in PostgreSQL.
+        maxAttempts:
+          type: integer
+          description: Automatic retry limit; fixed to 3 for MVP.
         progress:
           type: object
           properties:
             current: { type: integer }
             total: { type: integer }
         errorMessage: { type: string, nullable: true }
+        attempts:
+          type: array
+          description: Recent attempt summaries, capped at the latest 10 attempts.
+          items:
+            type: object
+            properties:
+              attempt: { type: integer }
+              stage: { type: string }
+              status: { type: string }
+              errorCode: { type: string, nullable: true }
+              errorMessage: { type: string, nullable: true }
+              startedAt: { type: string, format: date-time }
+              finishedAt: { type: string, format: date-time, nullable: true }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     RetrievalSearchRequest:
@@ -656,8 +670,19 @@ components:
         parser:
           type: object
           properties:
-            backend: { type: string }
-            maxConcurrency: { type: integer }
+            backend:
+              type: string
+              enum: [external_api]
+              description: Fixed to external_api for MVP.
+            baseUrl:
+              type: string
+              description: External HTTP parser/OCR service base URL.
+            timeoutSeconds:
+              type: integer
+              description: Parser request timeout.
+            maxConcurrency:
+              type: integer
+              description: Maximum concurrent parser jobs.
     KnowledgeSettingsUpdate:
       type: object
       properties:
@@ -666,14 +691,34 @@ components:
         parser:
           type: object
           properties:
-            backend: { type: string }
-            maxConcurrency: { type: integer }
+            backend:
+              type: string
+              enum: [external_api]
+              description: Fixed to external_api for MVP.
+            baseUrl:
+              type: string
+              description: External HTTP parser/OCR service base URL.
+            apiKey:
+              type: string
+              writeOnly: true
+              description: External parser API key or secret reference.
+            timeoutSeconds:
+              type: integer
+              description: Parser request timeout.
+            maxConcurrency:
+              type: integer
+              description: Maximum concurrent parser jobs.
     ModelConfigPublic:
       type: object
       properties:
-        provider: { type: string }
+        provider:
+          type: string
+          description: Fixed to ai-gateway for MVP.
+          example: ai-gateway
         model: { type: string }
-        baseUrl: { type: string }
+        baseUrl:
+          type: string
+          description: AI gateway OpenAI-compatible base URL.
         dimension: { type: integer }
         topN: { type: integer }
     ModelConfigWritable:
@@ -681,7 +726,10 @@ components:
         - $ref: '#/components/schemas/ModelConfigPublic'
         - type: object
           properties:
-            apiKey: { type: string, writeOnly: true }
+            apiKey:
+              type: string
+              writeOnly: true
+              description: AI gateway API key or secret reference.
     KnowledgeStats:
       type: object
       properties:

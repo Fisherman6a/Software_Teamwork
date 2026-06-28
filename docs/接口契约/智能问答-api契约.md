@@ -10,6 +10,7 @@
 - `knowledge`：知识检索能力，提供候选切片和引用元数据。
 - `auth`：用户身份、角色权限。
 - `gateway`：外部 API 入口和认证上下文转发。
+- `ai-gateway`：统一提供 OpenAI-compatible LLM 调用入口。
 
 边界原则：
 
@@ -18,12 +19,13 @@
 - `qa` 可保存回答、消息、引用快照和处理过程摘要，便于历史回放。
 - 原文文件下载由知识管理或文件服务校验权限并生成下载 URL。
 - 前端可展示“处理过程摘要”，不建议展示原始模型 chain-of-thought。
+- 会话、消息和引用以服务端 PostgreSQL 为权威数据源；前端本地只缓存当前 `sessionId` 等恢复信息。
 
 ## 2. 通用约定
 
 ### 2.1 基础路径
 
-待确认：是否统一使用 `/api/v1`。本文暂按以下形式描述：
+外部 API 统一使用 `/api/v1` 作为网关前缀：
 
 ```text
 /api/v1/qa/...
@@ -57,7 +59,13 @@ Swagger UI 约定：
 
 ### 2.3 认证与权限
 
-待确认：认证方式采用 Cookie Session、Bearer Token/JWT，还是二者兼容。
+首期统一采用 Bearer Token/JWT：
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+SSE 流式接口与普通 JSON 接口使用同一套 Bearer 鉴权，前端在请求头携带 `Authorization`；当前不为 QA 单独设计独立会话鉴权通道。
 
 权限要求：
 
@@ -69,6 +77,8 @@ Swagger UI 约定：
 | 配置问答参数 | 不支持 | 支持 | 支持 |
 | 检索体验测试 | 不支持 | 支持 | 支持 |
 | 查看全局统计 | 不支持 | 支持 | 支持 |
+
+首期只做角色级 RBAC。无权限知识库由 `knowledge` 检索接口按可见性过滤，QA 可在调试信息中返回 filtered 数量。
 
 ### 2.4 通用错误响应
 
@@ -157,7 +167,7 @@ active
 deleted
 ```
 
-待确认：会话删除是软删除还是硬删除。建议软删除，便于审计和误删恢复。
+会话删除采用软删除，便于误删恢复和统计口径稳定；完整审计服务首期暂缓。
 
 ### 3.2 Message
 
@@ -201,7 +211,7 @@ data_analysis
 unknown
 ```
 
-待确认：`data_analysis` 是否属于本期范围。
+`data_analysis` 仅作为后续扩展意图预留。首期统计指标 API 仍然实现；Excel/表格类数据分析意图本期不实现，命中时返回 `unsupported_intent`，不创建数据分析任务。
 
 ### 3.3 Citation
 
@@ -329,8 +339,8 @@ DELETE /api/v1/qa/conversations/{conversationId}
 
 规则：
 
-- 用户只能删除自己的会话，管理员是否可删除他人会话待确认。
-- 建议软删除，历史统计不受影响。
+- 用户只能删除自己的会话；管理员和超级管理员可按角色级 RBAC 查看、软删除全站会话。
+- 会话删除采用软删除，历史统计不受影响。
 
 ## 5. 消息 API
 
@@ -431,7 +441,8 @@ POST /api/v1/qa/conversations/{conversationId}/messages
 
 - `mode` 可选；不传时系统自动识别意图。
 - 用户未指定知识库时，系统使用问答配置中的默认术语知识库和技术监督知识库。
-- 对无权限知识库必须过滤或返回 `forbidden`，具体策略待确认。
+- 对无权限知识库按角色级 RBAC 和知识库可见性过滤；请求显式指定且完全无权限时可返回 `forbidden`。
+- 识别为 `data_analysis` 时返回 `unsupported_intent`，响应中保留用户消息和处理摘要，不调用数据分析执行链路。
 
 ### 5.3 流式问答
 
@@ -474,9 +485,9 @@ data: {"code":"dependency_error","message":"llm provider unavailable","requestId
 
 规则：
 
-- 流式接口必须在连接断开时保存已生成内容或标记为 `cancelled`，具体策略待确认。
+- 流式接口必须在连接断开时保存已生成内容；客户端断开标记为 `cancelled`，依赖错误标记为 `failed`。
 - 前端刷新后应能通过消息列表恢复已保存历史。
-- SSE 在 Cookie/JWT 认证下的具体传递方式待确认。
+- SSE 与普通 JSON 接口一样使用 `Authorization: Bearer <accessToken>` 鉴权。
 
 ### 5.4 取消生成
 
@@ -642,7 +653,7 @@ POST /api/v1/qa/intents:detect
 规则：
 
 - `allowed=false` 时必须返回原因，例如用户无报告生成权限。
-- 是否作为前端直接调用接口待确认；也可以只作为内部能力。
+- 首期作为管理员调试接口开放；普通用户不直接调用。
 
 ## 9. 问答配置 API
 
@@ -666,9 +677,9 @@ GET /api/v1/qa/settings
     "enableRerank": true
   },
   "llm": {
-    "provider": "siliconflow",
+    "provider": "ai-gateway",
     "model": "llm-model-name",
-    "baseUrl": "https://api.example.com",
+    "baseUrl": "https://ai-gateway.example.com/v1",
     "timeoutSeconds": 60
   }
 }
@@ -692,9 +703,9 @@ PATCH /api/v1/qa/settings
     "enableRerank": true
   },
   "llm": {
-    "provider": "siliconflow",
+    "provider": "ai-gateway",
     "model": "llm-model-name",
-    "baseUrl": "https://api.example.com",
+    "baseUrl": "https://ai-gateway.example.com/v1",
     "apiKey": "secret",
     "timeoutSeconds": 60
   }
@@ -712,6 +723,7 @@ PATCH /api/v1/qa/settings
 规则：
 
 - `apiKey` 只允许写入，不允许明文读取。
+- `baseUrl` 指向 `ai-gateway` 的 OpenAI-compatible endpoint；QA 不实现供应商适配层。
 - 配置变更应记录操作人和时间。
 - 默认知识库必须存在且管理员有配置权限。
 
@@ -793,21 +805,21 @@ GET /api/v1/qa/stats/overview
 | 数据 | 存储 | 所有者 |
 | --- | --- | --- |
 | 会话、消息、引用、处理过程摘要 | PostgreSQL | `qa` |
-| 问答配置 | PostgreSQL 或安全配置存储，密钥需加密 | `qa` |
+| 问答配置 | PostgreSQL 或安全配置存储，密钥需加密；模型调用配置指向 `ai-gateway` | `qa` / `ai-gateway` |
 | 检索候选片段 | 来自 `knowledge` API | `knowledge` |
 | 原始文档与下载 URL | MinIO + file metadata | `file` / `knowledge` |
 | 流式生成短期状态 | Redis 可缓存 | `qa` |
-| LLM 调用结果 | PostgreSQL 保存最终消息，流式中间态可短期缓存 | `qa` |
+| LLM 调用结果 | PostgreSQL 保存最终消息，流式中间态可短期缓存 | `qa` / `ai-gateway` |
 
-## 13. 待确认问题
+## 13. 已确认决策与后续跟踪
 
-| 编号 | 问题 |
+| 编号 | 结论 |
 | --- | --- |
-| Q1 | 会话历史是否必须服务端 PostgreSQL 持久化？原始需求提到本地持久化，但服务端持久化更利于多端和审计。 |
-| Q2 | SSE 鉴权采用 Cookie 还是 Authorization header？ |
-| Q3 | 流式生成中断时，部分回答是否保存？状态标为 `failed` 还是 `cancelled`？ |
-| Q4 | “思考过程展示”是否只展示处理摘要，而不是原始模型推理链？ |
-| Q5 | 数据分析意图是否本期实现？若实现，需要独立数据分析契约。 |
-| Q6 | 管理员是否可查看或删除普通用户会话？ |
-| Q7 | LLM 默认供应商、模型名、超时和限流策略是什么？ |
-| Q8 | 回答引用是否保存全文快照，还是只保存 chunkId 后续实时查询？建议至少保存引用片段快照。 |
+| Q1 | 会话历史服务端 PostgreSQL 持久化；前端本地仅缓存 `sessionId` 等恢复信息。 |
+| Q2 | SSE 鉴权使用 `Authorization: Bearer <accessToken>`，与普通 JSON 接口一致。 |
+| Q3 | 流式生成中断时保存已生成部分；客户端断开标记为 `cancelled`，依赖错误标记为 `failed`。 |
+| Q4 | “思考过程展示”只展示处理摘要，不返回原始模型推理链。 |
+| Q5 | 统计指标本期实现；Excel/表格类数据分析意图本期不实现，命中后返回 `unsupported_intent`。 |
+| Q6 | 首期按角色级 RBAC 控制管理员能力；管理员和超级管理员可查看、软删除全站会话。 |
+| Q7 | LLM 通过 `ai-gateway` 的 OpenAI-compatible API 调用；业务服务通过配置修改 `baseURL`、`apiKey` 和模型名。 |
+| Q8 | 回答引用保存片段快照，同时保留 chunkId/documentId 便于追溯。 |

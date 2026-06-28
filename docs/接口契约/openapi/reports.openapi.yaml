@@ -2,11 +2,10 @@ openapi: 3.0.3
 info:
   title: Report Generation API
   version: 0.1.0
-  description: RESTful API contract for report templates, reports, outlines, sections, exports, generation jobs, settings, and stats.
+  description: RESTful API contract for report templates, reports, outlines, sections, exports, generation jobs, settings, and stats. JSON, SSE, and download authorization endpoints use Bearer JWT auth; model calls use an AI gateway with an OpenAI-compatible API.
 servers:
   - url: /api/v1
 security:
-  - cookieSession: []
   - bearerAuth: []
 tags:
   - name: Templates
@@ -385,10 +384,6 @@ paths:
         default: { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
-    cookieSession:
-      type: apiKey
-      in: cookie
-      name: session
     bearerAuth:
       type: http
       scheme: bearer
@@ -442,7 +437,7 @@ components:
       enum: [draft, outline_generating, outline_ready, content_generating, content_ready, exporting, export_ready, failed, deleted]
     SectionStatus:
       type: string
-      enum: [pending, generating, ready, failed, cancelled]
+      enum: [pending, generating, ready, pending_review, failed, cancelled]
     SectionType:
       type: string
       enum: [text, table, image, mixed]
@@ -534,7 +529,10 @@ components:
       type: object
       properties:
         topic: { type: string }
-        mode: { type: string, enum: [template, ai] }
+        mode:
+          type: string
+          enum: [template, ai]
+          description: template is supported for MVP; ai is reserved and returns unsupported_mode.
         materialFilters:
           type: object
           additionalProperties:
@@ -551,6 +549,10 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/OutlineNode' }
+        affectedSectionIds:
+          type: array
+          description: Sections marked as pending_review after outline changes.
+          items: { type: string }
     UpdateOutlineRequest:
       type: object
       required: [items]
@@ -617,13 +619,20 @@ components:
         format: { type: string, enum: [docx] }
         status: { type: string, enum: [queued, running, ready, failed] }
         styleProfileVersion: { type: string }
+        numberingMode:
+          type: string
+          enum: [global, by_chapter]
+          description: global is supported for MVP; by_chapter is reserved for later.
         createdAt: { type: string, format: date-time }
     CreateExportRequest:
       type: object
       properties:
         format: { type: string, enum: [docx] }
         styleProfileId: { type: string }
-        numberingMode: { type: string, enum: [global, by_chapter] }
+        numberingMode:
+          type: string
+          enum: [global, by_chapter]
+          description: global is supported for MVP; by_chapter may return unsupported_numbering_mode.
     ExportRef:
       type: object
       properties:
@@ -641,6 +650,12 @@ components:
         reportId: { type: string }
         type: { type: string }
         status: { type: string, enum: [queued, running, succeeded, failed, cancelled] }
+        attemptCount:
+          type: integer
+          description: Current attempt count persisted in PostgreSQL.
+        maxAttempts:
+          type: integer
+          description: Automatic retry limit; fixed to 3 for MVP.
         progress:
           type: object
           properties:
@@ -648,6 +663,19 @@ components:
             total: { type: integer }
         currentSectionId: { type: string }
         errorMessage: { type: string, nullable: true }
+        attempts:
+          type: array
+          description: Recent attempt summaries, capped at the latest 10 attempts.
+          items:
+            type: object
+            properties:
+              attempt: { type: integer }
+              stage: { type: string }
+              status: { type: string }
+              errorCode: { type: string, nullable: true }
+              errorMessage: { type: string, nullable: true }
+              startedAt: { type: string, format: date-time }
+              finishedAt: { type: string, format: date-time, nullable: true }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     ReportSettings:
@@ -659,6 +687,13 @@ components:
           additionalProperties: { type: string }
         export:
           type: object
+          properties:
+            defaultFormat: { type: string, enum: [docx] }
+            defaultNumberingMode:
+              type: string
+              enum: [global, by_chapter]
+              description: global is supported for MVP.
+            defaultStyleProfileId: { type: string }
           additionalProperties: true
     ReportSettingsUpdate:
       allOf:
@@ -669,16 +704,24 @@ components:
     ModelConfigPublic:
       type: object
       properties:
-        provider: { type: string }
+        provider:
+          type: string
+          description: Fixed to ai-gateway for MVP.
+          example: ai-gateway
         model: { type: string }
-        baseUrl: { type: string }
+        baseUrl:
+          type: string
+          description: AI gateway OpenAI-compatible base URL.
         timeoutSeconds: { type: integer }
     ModelConfigWritable:
       allOf:
         - $ref: '#/components/schemas/ModelConfigPublic'
         - type: object
           properties:
-            apiKey: { type: string, writeOnly: true }
+            apiKey:
+              type: string
+              writeOnly: true
+              description: AI gateway API key or secret reference.
     ReportStats:
       type: object
       properties:

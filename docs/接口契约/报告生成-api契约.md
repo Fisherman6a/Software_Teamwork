@@ -11,20 +11,21 @@
 - `file`：模板文件、生成 DOCX、图片等对象存储和下载授权。
 - `auth`：用户身份、角色权限。
 - `gateway`：外部 API 入口和认证上下文转发。
+- `ai-gateway`：统一提供 OpenAI-compatible LLM 调用入口。
 
 边界原则：
 
-- `document` 不直接读写 Qdrant，报告生成需要材料时通过 `knowledge` 检索或支撑材料接口获取。
+- `document` 不直接读写 Qdrant，报告生成需要材料时通过独立的报告支撑材料资源和 `knowledge` 检索能力获取。
 - `document` 不直接暴露 MinIO object key，文件下载必须通过 `file` 或业务下载 URL 接口授权。
 - 报告内容、章节、大纲、导出记录等业务真相保存在 PostgreSQL。
 - DOCX 文件、模板文件和较大的图片/中间产物保存在 MinIO。
-- Redis 可用于流式生成短期状态、任务进度缓存或轻量队列，但不作为长期业务真相。
+- Redis 用于生成任务队列、流式生成短期状态、任务进度缓存和 SSE 辅助状态；PostgreSQL 保存可追溯任务状态，不把 Redis 作为长期业务真相。
 
 ## 2. 通用约定
 
 ### 2.1 基础路径
 
-待确认：是否统一使用 `/api/v1`。本文暂按以下形式描述：
+外部 API 统一使用 `/api/v1` 作为网关前缀：
 
 ```text
 /api/v1/reports/...
@@ -60,7 +61,13 @@ Swagger UI 约定：
 
 ### 2.3 认证与权限
 
-待确认：认证方式采用 Cookie Session、Bearer Token/JWT，还是二者兼容。
+首期统一采用 Bearer Token/JWT：
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+流式章节生成、下载授权和普通 JSON 接口使用同一套 Bearer 鉴权，当前不为报告生成 API 单独设计独立会话鉴权通道。
 
 权限要求：
 
@@ -69,8 +76,10 @@ Swagger UI 约定：
 | 创建和管理自己的报告 | 支持 | 支持 | 支持 |
 | 下载自己的报告 | 支持 | 支持 | 支持 |
 | 管理报告模板 | 不支持 | 支持 | 支持 |
-| 管理报告支撑材料 | 待确认 | 支持 | 支持 |
+| 管理报告支撑材料 | 不支持 | 支持 | 支持 |
 | 查看全局报告统计 | 不支持 | 支持 | 支持 |
+
+首期只做角色级 RBAC，不引入组织、电厂、专业等多维数据权限。
 
 ### 2.4 通用错误响应
 
@@ -109,7 +118,7 @@ summer_peak_inspection  迎峰度夏检查报告
 coal_inventory_audit    煤库存审计报告
 ```
 
-后续可扩展新的报告类型和模板。
+后续可扩展新的报告类型和模板；首期只验收上述两类报告。
 
 ### 2.6 报告状态
 
@@ -131,6 +140,7 @@ deleted
 pending
 generating
 ready
+pending_review
 failed
 cancelled
 ```
@@ -243,7 +253,7 @@ mixed
 
 ### 4.1 上传模板文件
 
-建议复用 `file` 服务两步上传。
+复用 `file` 服务两步上传；首期模板文件限定 DOCX。
 
 ```http
 POST /api/v1/files/uploads
@@ -369,12 +379,12 @@ DELETE /api/v1/report-templates/{templateId}
 
 规则：
 
-- 已被历史报告使用的模板是否允许删除待确认。建议软删除或停用。
-- 模板文件在 MinIO 中的清理策略待确认。
+- 已被历史报告使用的模板采用软删除或停用，不影响历史报告重新导出。
+- 模板文件不立即硬删；通过 `file` service 生命周期和后台清理策略处理 MinIO 对象。
 
 ### 4.7 模板可视化配置
 
-加分项接口，首期可暂缓。
+首期模板结构配置以该接口或初始化种子数据写入数据库为权威，不从 DOCX 自动解析大纲。可视化编辑器不进入首期验收。
 
 ```http
 PATCH /api/v1/report-templates/{templateId}/structure
@@ -439,7 +449,8 @@ POST /api/v1/reports
 规则：
 
 - `reportType` 首期必须为两种固定类型之一。
-- `templateId` 可选；不传时使用对应报告类型的默认模板，是否允许待确认。
+- `templateId` 可选；不传时使用对应报告类型的默认模板。
+- 默认模板必须在报告生成配置中存在且状态可用。
 
 ### 5.2 查询报告列表
 
@@ -504,8 +515,8 @@ DELETE /api/v1/reports/{reportId}
 
 规则：
 
-- 建议软删除，保留必要审计信息。
-- 用户只能删除自己的报告，管理员全局删除策略待确认。
+- 报告采用软删除，保留必要恢复和排查信息。
+- 用户只能删除自己的报告；管理员和超级管理员可按角色级 RBAC 查看、软删除全站报告。
 
 ## 6. 大纲 API
 
@@ -549,8 +560,8 @@ POST /api/v1/reports/{reportId}/outline:generate
 
 规则：
 
-- 固定报告类型优先基于预定义模板生成固定大纲结构。
-- `mode=ai` 可作为后续增强，允许 AI 根据主题生成大纲。
+- 固定报告类型基于数据库模板结构配置生成大纲；没有配置时使用系统初始化的两类报告种子模板。
+- 首期 `mode=template` 进入验收；`mode=ai` 保留枚举但返回 `unsupported_mode`，不进入首期验收。
 
 ### 6.2 查询大纲
 
@@ -618,7 +629,7 @@ PUT /api/v1/reports/{reportId}/outline
 
 - 支持删除章节、调整顺序。
 - `autoRenumber=true` 时服务端重新生成章节编号。
-- 大纲更新可能影响已有章节内容，处理策略待确认。
+- 大纲更新可能影响已有章节内容；服务端应返回受影响章节 ID，并把这些章节标记为 `pending_review`。
 
 ## 7. 章节内容 API
 
@@ -765,7 +776,7 @@ POST /api/v1/reports/{reportId}/sections/{sectionId}:regenerate
 ```json
 {
   "instruction": "补充煤库存风险分析",
-  "preserveUserEdits": false
+  "preserveUserEdits": true
 }
 ```
 
@@ -778,7 +789,7 @@ POST /api/v1/reports/{reportId}/sections/{sectionId}:regenerate
 }
 ```
 
-待确认：重新生成是否覆盖用户编辑内容，建议要求用户明确选择。
+`preserveUserEdits` 默认 `true`，不覆盖用户编辑内容；只有显式传 `false` 时才允许覆盖。
 
 ## 8. 报告导出 API
 
@@ -812,7 +823,7 @@ POST /api/v1/reports/{reportId}/exports
 - 首期必须支持 DOCX。
 - 导出必须使用已保存报告数据，不重新执行 AI 生成。
 - 导出必须保留用户编辑后的章节内容。
-- 统一样式体系属于加分项，但契约预留 `styleProfileId`。
+- 首期必须提供默认 `styleProfile`，用于字体、标题层级、表格样式和页眉页脚；可视化样式编辑器不进入首期。
 
 编号模式：
 
@@ -821,7 +832,7 @@ global      全局编号
 by_chapter  按章编号
 ```
 
-图表编号模式是否首期实现待确认。
+首期只验收 `global` 全局编号；`by_chapter` 字段保留但返回 `unsupported_numbering_mode` 或回退到 `global`。
 
 ### 8.2 查询导出记录
 
@@ -863,7 +874,7 @@ POST /api/v1/reports/{reportId}/exports/{exportId}:download-url
 
 - 必须校验报告访问权限。
 - 不返回内部 MinIO object key。
-- 建议记录下载审计日志。
+- 审计日志首期暂缓，后续可接入独立审计服务。
 
 ### 8.4 基于保存数据重新导出 Word
 
@@ -926,7 +937,7 @@ POST /api/v1/reports/jobs/{jobId}:cancel
 
 ## 10. 报告支撑材料引用
 
-报告支撑材料由知识管理模块管理，报告生成模块通过以下方式引用：
+报告支撑材料是独立业务资源，复用 `file` service 的上传、下载授权和 MinIO 能力，并在需要生成上下文时复用 `knowledge` 检索能力。报告生成模块通过以下方式引用：
 
 - 根据模板映射或用户筛选条件调用 `knowledge` 检索接口。
 - 保存生成章节引用的材料片段快照，便于后续追溯。
@@ -972,9 +983,9 @@ GET /api/v1/reports/settings
 ```json
 {
   "llm": {
-    "provider": "siliconflow",
+    "provider": "ai-gateway",
     "model": "llm-model-name",
-    "baseUrl": "https://api.example.com",
+    "baseUrl": "https://ai-gateway.example.com/v1",
     "timeoutSeconds": 120
   },
   "defaultTemplates": {
@@ -983,7 +994,8 @@ GET /api/v1/reports/settings
   },
   "export": {
     "defaultFormat": "docx",
-    "defaultNumberingMode": "global"
+    "defaultNumberingMode": "global",
+    "defaultStyleProfileId": "sp_default"
   }
 }
 ```
@@ -999,9 +1011,9 @@ PATCH /api/v1/reports/settings
 ```json
 {
   "llm": {
-    "provider": "siliconflow",
+    "provider": "ai-gateway",
     "model": "llm-model-name",
-    "baseUrl": "https://api.example.com",
+    "baseUrl": "https://ai-gateway.example.com/v1",
     "apiKey": "secret",
     "timeoutSeconds": 120
   },
@@ -1011,7 +1023,8 @@ PATCH /api/v1/reports/settings
   },
   "export": {
     "defaultFormat": "docx",
-    "defaultNumberingMode": "global"
+    "defaultNumberingMode": "global",
+    "defaultStyleProfileId": "sp_default"
   }
 }
 ```
@@ -1027,7 +1040,9 @@ PATCH /api/v1/reports/settings
 规则：
 
 - `apiKey` 只允许写入，不允许明文读取。
+- `baseUrl` 指向 AI gateway 的 OpenAI-compatible API 地址；`document` 服务不直接适配多个模型供应商。
 - 默认模板必须存在且状态可用。
+- `defaultNumberingMode` 首期固定为 `global`；`defaultStyleProfileId` 不传时使用系统默认样式。
 
 ## 12. 统计 API
 
@@ -1060,26 +1075,27 @@ GET /api/v1/reports/stats/overview
 
 | 数据 | 存储 | 所有者 |
 | --- | --- | --- |
-| 报告模板元数据 | PostgreSQL | `document` |
+| 报告模板元数据和大纲结构配置 | PostgreSQL | `document` |
 | 模板文件 | MinIO + file metadata | `file` / `document` |
 | 报告记录、大纲、章节内容 | PostgreSQL | `document` |
 | 章节引用快照 | PostgreSQL | `document` |
 | 生成 DOCX | MinIO + export metadata | `file` / `document` |
-| 生成任务状态 | PostgreSQL，Redis 可缓存 | `document` |
-| 报告支撑材料 | PostgreSQL/Qdrant/MinIO，主责在 `knowledge` 和 `file` | `knowledge` / `file` |
-| LLM 配置 | PostgreSQL 或安全配置存储，密钥需加密 | `document` |
+| 生成任务状态 | PostgreSQL 持久化，Redis 队列和短期状态辅助；自动重试最多 3 次 | `document` |
+| 报告支撑材料 | 独立资源元数据 + file metadata + MinIO；需要检索时复用 Qdrant | `knowledge` / `file` |
+| LLM 配置 | PostgreSQL 或安全配置存储，密钥需加密；调用统一走 `ai-gateway` | `document` / `ai-gateway` |
 
-## 14. 待确认问题
+## 14. 已确认决策与后续跟踪
 
-| 编号 | 问题 |
+| 编号 | 结论 |
 | --- | --- |
-| R1 | 模板是否必须上传 DOCX，还是允许 JSON/Markdown 模板？ |
-| R2 | 固定报告类型的大纲结构由代码内置、数据库模板配置，还是模板文件解析生成？ |
-| R3 | 报告支撑材料归属知识管理还是报告生成？建议由知识管理主责，报告生成只引用。 |
-| R4 | 章节流式生成中断后是否保存部分内容？ |
-| R5 | 重新生成单章是否覆盖用户编辑，是否需要版本历史？ |
-| R6 | DOCX 样式统一配置是否首期必须实现，还是加分项？ |
-| R7 | 图/表编号模式切换是否首期必须实现？ |
-| R8 | 报告删除是否软删除？生成文件何时清理？ |
-| R9 | 报告记录是否支持管理员查看所有用户报告？ |
-| R10 | 生成报告是否需要完整审计日志和模型调用成本统计？ |
+| R1 | 首期模板文件限定 DOCX；模板结构、默认章节和材料映射以数据库配置为权威，不从 DOCX 自动解析。 |
+| R2 | 固定报告类型的大纲结构来自数据库模板配置；缺省时使用系统初始化种子模板。 |
+| R3 | 报告支撑材料是独立资源，复用 `file` service 和必要的 `knowledge` 检索能力。 |
+| R4 | 章节流式生成中断后保存已生成部分，并标记中断状态。 |
+| R5 | 重新生成单章默认 `preserveUserEdits=true`，只有显式传 `false` 时覆盖用户编辑。 |
+| R6 | 首期必须提供默认 `styleProfile`；可视化样式编辑器不进入首期。 |
+| R7 | 图/表编号首期只验收 `global` 全局编号；`by_chapter` 保留为后续能力。 |
+| R8 | 报告删除按软删除设计；生成文件清理由后台任务和 file service 生命周期策略处理。 |
+| R9 | 首期采用角色级 RBAC；管理员和超级管理员可查看、软删除全站报告。 |
+| R10 | 完整审计日志和模型调用成本统计首期暂缓；首期保留任务失败、配置变更和删除结果等排查字段。 |
+| R11 | 大纲 `mode=ai` 首期返回 `unsupported_mode`，不进入首期验收。 |

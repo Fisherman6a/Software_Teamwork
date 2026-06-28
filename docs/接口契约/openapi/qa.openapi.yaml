@@ -2,11 +2,10 @@ openapi: 3.0.3
 info:
   title: QA API
   version: 0.1.0
-  description: RESTful API contract for conversations, messages, SSE answering, citations, settings, retrieval tests, and stats.
+  description: RESTful API contract for conversations, messages, SSE answering, citations, settings, retrieval tests, and stats. JSON and SSE endpoints use Bearer JWT auth; model calls use an AI gateway with an OpenAI-compatible API.
 servers:
   - url: /api/v1
 security:
-  - cookieSession: []
   - bearerAuth: []
 tags:
   - name: Conversations
@@ -271,10 +270,6 @@ paths:
         default: { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
-    cookieSession:
-      type: apiKey
-      in: cookie
-      name: session
     bearerAuth:
       type: http
       scheme: bearer
@@ -351,6 +346,7 @@ components:
               items: { $ref: '#/components/schemas/Message' }
     Intent:
       type: string
+      description: data_analysis is reserved for future use and returns unsupported_intent in MVP.
       enum: [knowledge_qa, general_chat, report_generation, data_analysis, unknown]
     AskRequest:
       type: object
@@ -379,6 +375,10 @@ components:
       properties:
         userMessage: { $ref: '#/components/schemas/Message' }
         assistantMessage: { $ref: '#/components/schemas/Message' }
+        errorCode:
+          type: string
+          nullable: true
+          description: For unsupported reserved intents, returns unsupported_intent.
         citations:
           type: array
           items: { $ref: '#/components/schemas/Citation' }
@@ -434,6 +434,10 @@ components:
         intent: { $ref: '#/components/schemas/Intent' }
         confidence: { type: number }
         allowed: { type: boolean }
+        errorCode:
+          type: string
+          nullable: true
+          description: Returns unsupported_intent for data_analysis in MVP.
         route:
           type: object
           properties:
@@ -456,16 +460,24 @@ components:
     ModelConfigPublic:
       type: object
       properties:
-        provider: { type: string }
+        provider:
+          type: string
+          description: Fixed to ai-gateway for MVP.
+          example: ai-gateway
         model: { type: string }
-        baseUrl: { type: string }
+        baseUrl:
+          type: string
+          description: AI gateway OpenAI-compatible base URL.
         timeoutSeconds: { type: integer }
     ModelConfigWritable:
       allOf:
         - $ref: '#/components/schemas/ModelConfigPublic'
         - type: object
           properties:
-            apiKey: { type: string, writeOnly: true }
+            apiKey:
+              type: string
+              writeOnly: true
+              description: AI gateway API key or secret reference.
     RetrievalTestRequest:
       type: object
       required: [question]

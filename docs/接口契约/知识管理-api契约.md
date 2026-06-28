@@ -10,19 +10,20 @@
 - `file`：文件上传、MinIO 对象存储、下载授权和预签名 URL。
 - `auth`：用户、角色、权限和认证上下文。
 - `gateway`：外部 API 入口。
+- `ai-gateway`：统一提供 OpenAI-compatible 模型调用入口，供 embedding、rerank 和后续 LLM 能力使用。
 
 边界原则：
 
 - `knowledge` 是 Qdrant 的唯一业务写入方。
 - `qa`、`document` 只能通过本契约的检索接口复用知识能力，不能直接写 Qdrant。
 - 原始文件和较大解析产物存储在 MinIO，业务元数据存储在 PostgreSQL。
-- Redis 只用于短期缓存、任务状态辅助或轻量队列，不作为长期业务真相。
+- Redis 用于异步任务队列、短期任务状态辅助和缓存；PostgreSQL 保存可追溯业务状态，不把 Redis 作为长期业务真相。
 
 ## 2. 通用约定
 
 ### 2.1 基础路径
 
-待确认：是否统一使用 `/api/v1` 作为网关前缀。本文暂按以下形式描述：
+外部 API 统一使用 `/api/v1` 作为网关前缀：
 
 ```text
 /api/v1/knowledge/...
@@ -61,17 +62,25 @@ Swagger UI 约定：
 
 ### 2.3 认证与权限
 
-待确认：认证方式采用 Cookie Session、Bearer Token/JWT，还是二者兼容。
+首期统一采用 Bearer Token/JWT：
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+`gateway` 或服务侧鉴权中间件负责校验 token，并向下游传递用户 ID、角色和权限上下文。当前不为知识管理 API 单独设计独立会话鉴权通道。
 
 权限要求：
 
 | 能力 | 标准用户 | 管理员 | 超级管理员 |
 | --- | --- | --- | --- |
 | 查看有权限知识库 | 支持 | 支持 | 支持 |
-| 创建/编辑/删除知识库 | 待确认，建议管理员以上 | 支持 | 支持 |
-| 上传/删除文档 | 待确认，建议按知识库权限控制 | 支持 | 支持 |
+| 创建/编辑/删除知识库 | 不支持 | 支持 | 支持 |
+| 上传/删除文档 | 按角色级 RBAC 和知识库可见性控制 | 支持 | 支持 |
 | 修改模型/解析配置 | 不支持 | 支持 | 支持 |
 | 检索测试 | 不支持 | 支持 | 支持 |
+
+首期只做角色级 RBAC，不引入组织、电厂、专业等多维数据权限。
 
 ### 2.4 通用响应结构
 
@@ -192,10 +201,11 @@ cancelled
 }
 ```
 
-待确认：
+权限说明：
 
-- `visibility` 是否需要 `private`、`team`、`public`，以及 private 是否仅管理员可见。
-- 是否需要组织、电厂、专业等数据权限字段。
+- 首期按角色级 RBAC 和知识库可见性控制访问。
+- `private`、`team`、`public` 可作为可见性枚举保留；组织、电厂、专业等多维权限不作为首期要求。
+- `team` 首期可按角色级 RBAC 和创建人范围实现，不要求接入组织树。
 
 ### 3.2 KnowledgeDocument
 
@@ -395,7 +405,7 @@ DELETE /api/v1/knowledge/bases/{knowledgeBaseId}
 规则：
 
 - 删除前必须校验权限。
-- 待确认：采用软删除还是硬删除。
+- 首期采用软删除；Qdrant 向量、MinIO 文件引用和后台清理由生命周期任务处理。
 - 删除知识库时应处理 PostgreSQL 元数据、Qdrant 向量、MinIO 文件引用的生命周期。
 
 ### 4.6 批量删除知识库
@@ -560,9 +570,10 @@ DELETE /api/v1/knowledge/documents/{documentId}
 
 规则：
 
-- 删除文档必须同步处理 Qdrant 向量生命周期。
+- 删除文档必须同步标记 Qdrant 向量生命周期。
 - 如果历史问答引用了该文档，引用详情应返回“原文已删除或无权限访问”的 fallback。
-- 待确认：删除原始 MinIO 文件是立即删除、软删除保留，还是引用计数归零后删除。
+- 首期不立即硬删原始 MinIO 对象；通过 `file` service 生命周期和后台清理策略处理。
+- 首期删除只做软删除，原始文件对象保留到后台生命周期任务确认无引用后清理。
 
 ### 5.6 批量删除文档
 
@@ -599,6 +610,7 @@ POST /api/v1/knowledge/documents/{documentId}:retry
 
 - 仅 `failed` 或管理员允许重处理的状态可重试。
 - 重试需要保留上一次失败原因供排查。
+- 自动重试已满 3 次后仍允许管理员通过该接口手动重排队。
 
 ### 5.8 获取文档切片
 
@@ -645,7 +657,7 @@ POST /api/v1/knowledge/documents/{documentId}:download-url
 
 - 必须先校验文档访问权限。
 - 不得返回内部 MinIO object key。
-- 建议记录下载审计日志，是否首期必须待确认。
+- 审计日志首期暂缓，后续可接入独立审计服务。
 
 ## 6. 文档处理任务 API
 
@@ -663,15 +675,31 @@ GET /api/v1/knowledge/processing-jobs/{jobId}
   "documentId": "doc_001",
   "status": "running",
   "stage": "embedding",
+  "attemptCount": 1,
+  "maxAttempts": 3,
   "progress": {
     "current": 42,
     "total": 86
   },
   "errorMessage": null,
+  "attempts": [
+    {
+      "attempt": 1,
+      "stage": "embedding",
+      "status": "running",
+      "startedAt": "2026-06-28T10:04:00Z"
+    }
+  ],
   "createdAt": "2026-06-28T10:00:00Z",
   "updatedAt": "2026-06-28T10:05:00Z"
 }
 ```
+
+规则：
+
+- PostgreSQL 中的 processing job 是权威状态；Redis 只用于队列投递、短期进度和并发协调。
+- 自动重试最多 3 次，超过后进入 `failed`；手动 retry 会创建新的排队尝试并递增 `attemptCount`。
+- `attempts` 最多返回最近 10 次尝试摘要，包含阶段、状态、错误信息和时间字段。
 
 ### 6.2 触发知识库重处理
 
@@ -782,7 +810,7 @@ POST /api/v1/knowledge/retrieval/tests
 
 报告支撑材料指报告生成复用的专业业务文档，例如厂级专业报告、技术文档、检查报告。它不是 UI 素材，也不是普通附件。
 
-待确认：报告支撑材料首期是知识库文档的一种类型，还是独立资源但复用知识处理链路。本文采用“独立资源 + 复用文件和检索能力”的契约表达，避免和普通知识库文档混淆。
+报告支撑材料首期作为独立业务资源建模，复用 `file` service 的上传、下载授权和 MinIO 能力；需要检索时复用 `knowledge` 的处理和检索能力，避免和普通知识库文档混淆。
 
 ### 8.1 创建报告支撑材料
 
@@ -864,19 +892,20 @@ GET /api/v1/knowledge/settings
 ```json
 {
   "embeddingModel": {
-    "provider": "siliconflow",
+    "provider": "ai-gateway",
     "model": "embedding-model-name",
-    "baseUrl": "https://api.example.com",
+    "baseUrl": "https://ai-gateway.example.com/v1",
     "dimension": 1024
   },
   "rerankModel": {
-    "provider": "siliconflow",
+    "provider": "ai-gateway",
     "model": "rerank-model-name",
-    "baseUrl": "https://api.example.com",
+    "baseUrl": "https://ai-gateway.example.com/v1",
     "topN": 20
   },
   "parser": {
     "backend": "external_api",
+    "baseUrl": "https://parser.example.com",
     "maxConcurrency": 4
   }
 }
@@ -893,21 +922,24 @@ PATCH /api/v1/knowledge/settings
 ```json
 {
   "embeddingModel": {
-    "provider": "siliconflow",
+    "provider": "ai-gateway",
     "model": "embedding-model-name",
-    "baseUrl": "https://api.example.com",
+    "baseUrl": "https://ai-gateway.example.com/v1",
     "apiKey": "secret",
     "dimension": 1024
   },
   "rerankModel": {
-    "provider": "siliconflow",
+    "provider": "ai-gateway",
     "model": "rerank-model-name",
-    "baseUrl": "https://api.example.com",
+    "baseUrl": "https://ai-gateway.example.com/v1",
     "apiKey": "secret",
     "topN": 20
   },
   "parser": {
     "backend": "external_api",
+    "baseUrl": "https://parser.example.com",
+    "apiKey": "secret",
+    "timeoutSeconds": 120,
     "maxConcurrency": 4
   }
 }
@@ -924,8 +956,10 @@ PATCH /api/v1/knowledge/settings
 规则：
 
 - `apiKey` 只允许写入，不允许明文读取。
+- `baseUrl` 指向 AI gateway 的 OpenAI-compatible API 地址；业务服务不直接适配多个模型供应商。
 - 配置变更应记录变更人和时间。
-- embedding 维度变化会影响 Qdrant collection，需要触发重建或创建新 collection。
+- `parser.backend` 首期固定为 `external_api`；`parser.apiKey` 只允许写入，不允许明文读取。
+- embedding 维度或模型族变化时创建新的 Qdrant collection 版本，并通过后台任务重建索引；旧 collection 保留到切换完成后清理。
 
 ## 10. 统计 API
 
@@ -955,20 +989,22 @@ GET /api/v1/knowledge/stats/overview
 | --- | --- | --- |
 | 知识库元数据 | PostgreSQL | `knowledge` |
 | 文档元数据和状态 | PostgreSQL | `knowledge` |
-| 文件对象和生成下载 URL | MinIO + PostgreSQL 元数据 | `file` |
+| 文件对象和生成下载 URL | MinIO + PostgreSQL 元数据；bucket 首期分为 `source-files`、`templates`、`generated-reports` | `file` |
 | 切片元数据 | PostgreSQL | `knowledge` |
 | 向量和检索 payload | Qdrant | `knowledge` |
-| 处理任务状态 | PostgreSQL，Redis 可缓存 | `knowledge` |
-| 模型配置 | PostgreSQL 或安全配置存储，密钥需加密 | `knowledge` |
+| 处理任务状态 | PostgreSQL 持久化，Redis 队列和短期状态辅助；自动重试最多 3 次 | `knowledge` |
+| 模型配置 | PostgreSQL 或安全配置存储，密钥需加密；调用统一走 `ai-gateway` | `knowledge` / `ai-gateway` |
 
-## 12. 待确认问题
+## 12. 已确认决策与后续跟踪
 
-| 编号 | 问题 |
+| 编号 | 结论 |
 | --- | --- |
-| K1 | 知识库可见范围和数据权限粒度如何定义？ |
-| K2 | 报告支撑材料是否独立于知识库，还是作为 `support_material` 文档类型归属于知识库？ |
-| K3 | 文档删除采用软删除还是硬删除？Qdrant 和 MinIO 对象何时清理？ |
-| K4 | 文档解析/OCR 首期后端选型是什么？ |
-| K5 | 异步任务队列采用 Redis、PostgreSQL 任务表还是其他队列？ |
-| K6 | embedding 模型变更后，是新建 Qdrant collection 还是原 collection 重建？ |
-| K7 | 下载原文是否必须记录审计日志？ |
+| K1 | 首期采用角色级 RBAC 和知识库可见性，不做组织/电厂/专业多维权限。 |
+| K2 | 报告支撑材料是独立资源，复用 `file` service 和必要的 `knowledge` 检索能力。 |
+| K3 | 文档删除首期按软删除设计；Qdrant 和 MinIO 清理在后台生命周期任务中处理。 |
+| K4 | 文档解析/OCR 首期使用外部 HTTP 解析服务，通过 `parser.baseUrl`、`apiKey`、`timeoutSeconds`、`maxConcurrency` 配置。 |
+| K5 | 异步任务采用 Redis 队列 + PostgreSQL 持久化状态。 |
+| K6 | embedding 维度或模型族变化后创建版本化 Qdrant collection，并通过后台任务重建索引。 |
+| K7 | 任务自动重试最多 3 次，PostgreSQL job 保留最近 10 次尝试摘要。 |
+| K8 | MinIO bucket 首期拆为 `source-files`、`templates`、`generated-reports` 三类，实际名称由部署配置决定。 |
+| K9 | 审计日志首期暂缓，不作为知识管理 API 的强制验收项；首期保留配置变更、任务失败和删除结果等排查字段。 |
