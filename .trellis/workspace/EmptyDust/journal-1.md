@@ -107,3 +107,36 @@ Added gateway contract-first documentation, OpenAPI skeleton, service boundary m
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Auth service API documentation
+
+**Date**: 2026-06-28
+**Task**: Auth service API documentation
+**Branch**: `docs/gateway-contract-first`
+
+### Summary
+
+Documented auth service gateway contracts, Redis-backed session cache behavior, and related OpenAPI/schema updates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `46f754f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
