@@ -168,3 +168,36 @@ Merged L1ngg frontend scaffold, Bun/Vite web app setup, frontend workflow docs, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Align frontend workflow with contributing rules
+
+**Date**: 2026-06-28
+**Task**: Align frontend workflow with contributing rules
+**Branch**: `develop`
+
+### Summary
+
+Updated frontend workflow docs, agent skills, AGENTS.md, and frontend quality/spec notes so branch and PR policy defers to CONTRIBUTING.md; documented how frontend specs were adapted during the develop merge.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1008569` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
