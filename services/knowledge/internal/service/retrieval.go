@@ -192,8 +192,8 @@ func (s *KnowledgeService) rerankRetrievalResults(ctx context.Context, query str
 	if limit == 0 {
 		return []KnowledgeQueryResult{}, nil
 	}
-	// S-04 has not landed yet. Keeping vector order is the explicit degraded
-	// behavior and makes rerank requests safe without provider credentials.
+	// Until S-04 provides the AI Gateway adapter, a nil Reranker is an explicit
+	// no-op fallback: preserve vector order and never require provider credentials.
 	if s.reranker == nil {
 		return append([]KnowledgeQueryResult(nil), results[:limit]...), nil
 	}

@@ -37,8 +37,8 @@ type RerankResult struct {
 	Score      float64
 }
 
-// Reranker is the provider-neutral boundary implemented by an AI Gateway
-// adapter once that service is available. Tests can inject a deterministic fake.
+// Reranker is the provider-neutral boundary for reranking. A real AI Gateway
+// adapter is deferred until S-04 lands; tests can inject a deterministic fake.
 type Reranker interface {
 	Rerank(ctx context.Context, request RerankRequest) ([]RerankResult, error)
 }
