@@ -18,15 +18,9 @@ export function hasRole(roles: readonly string[], role: string): boolean {
   return roles.map(normalize).includes(normalize(role))
 }
 
-export function isAdmin(user: UserSummary | null): boolean {
-  if (!user) return false
-  return ['admin', 'administrator', 'super_admin'].some((role) => hasRole(user.roles, role))
-}
-
 export function canAccess(user: UserSummary | null, requirement?: PermissionRequirement): boolean {
   if (!requirement) return Boolean(user)
   if (!user) return false
-  if (isAdmin(user)) return true
 
   const roleOk =
     !requirement.roles?.length || requirement.roles.some((role) => hasRole(user.roles, role))
