@@ -120,6 +120,7 @@ func (s *Service) CreateReranking(ctx context.Context, req RequestContext, input
 	if err := validateRerankingResponse(response, input.Documents); err != nil {
 		return RerankingResponse{}, s.finishInvocation(ctx, invocation, metadata, nil, err)
 	}
+	response = limitRerankingResponse(response, *topN)
 	if err := s.finishInvocation(ctx, invocation, metadata, response.Usage, nil); err != nil {
 		return RerankingResponse{}, err
 	}
@@ -368,6 +369,14 @@ func validateRerankingResponse(response RerankingResponse, documents []Reranking
 		seen[item.Index] = struct{}{}
 	}
 	return nil
+}
+
+func limitRerankingResponse(response RerankingResponse, topN int) RerankingResponse {
+	if topN <= 0 || len(response.Data) <= topN {
+		return response
+	}
+	response.Data = append([]RerankingResult(nil), response.Data[:topN]...)
+	return response
 }
 
 func normalizedEncodingFormat(value string) string {

@@ -493,6 +493,55 @@ func TestCreateRerankingRejectsModelOutsideExplicitProfile(t *testing.T) {
 	}
 }
 
+func TestCreateRerankingLimitsProviderResultsToTopN(t *testing.T) {
+	repo := newMemoryRepository()
+	invoker := &fakeInvoker{
+		rerankingFn: func(context.Context, ProviderRerankingRequest) (RerankingResponse, ProviderCallMetadata, error) {
+			return RerankingResponse{
+				Object: "list",
+				Data: []RerankingResult{
+					{Index: 1, DocumentID: "chunk-2", Score: 0.93},
+					{Index: 0, DocumentID: "chunk-1", Score: 0.82},
+				},
+				Model: "BAAI/bge-reranker-v2-m3",
+			}, ProviderCallMetadata{StatusCode: 200}, nil
+		},
+	}
+	svc := New(repo, mustEncryptor(t), 60000, invoker)
+	topN := 1
+	isDefault := true
+	if _, err := svc.CreateModelProfile(context.Background(), RequestContext{}, CreateModelProfileInput{
+		Name:      "default-rerank",
+		Purpose:   PurposeRerank,
+		Provider:  ProviderSiliconFlow,
+		BaseURL:   "https://api.siliconflow.cn/v1",
+		Model:     "BAAI/bge-reranker-v2-m3",
+		APIKey:    "sk-secret-value",
+		IsDefault: &isDefault,
+		TopN:      &topN,
+	}); err != nil {
+		t.Fatalf("CreateModelProfile() error = %v", err)
+	}
+
+	response, err := svc.CreateReranking(context.Background(), RequestContext{RequestID: "req-rerank-topn", CallerService: "knowledge"}, RerankingInput{
+		Model: "BAAI/bge-reranker-v2-m3",
+		Query: "query",
+		Documents: []RerankingDocument{
+			{ID: "chunk-1", Text: "first document"},
+			{ID: "chunk-2", Text: "second document"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateReranking() error = %v", err)
+	}
+	if len(response.Data) != topN || response.Data[0].DocumentID != "chunk-2" {
+		t.Fatalf("response data = %#v, want only top result", response.Data)
+	}
+	if len(repo.invocations) != 1 || repo.invocations[0].Status != InvocationSucceeded {
+		t.Fatalf("invocations = %#v, want one successful invocation", repo.invocations)
+	}
+}
+
 func TestCreateRerankingRejectsInvalidProviderDocumentMapping(t *testing.T) {
 	cases := []struct {
 		name string
