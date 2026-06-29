@@ -22,6 +22,68 @@ changed service.
 
 ---
 
+## Go Service CI Baseline
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing repository CI for landed Go services under `services/*`.
+
+### 2. Signatures
+
+- Workflow: `.github/workflows/go-services.yml`.
+- Events: `pull_request` and `push` to `develop` with path filters for `services/**` and the workflow file.
+- Matrix key: `service`, with one entry for each landed Go service that owns a `go.mod`.
+
+### 3. Contracts
+
+- Toolchain: `actions/setup-go@v5` with `go-version: '1.25.x'`.
+- Working directory: `services/${{ matrix.service }}`.
+- Required commands for every matrix service: `go test ./...` and `go build ./cmd/server`.
+- QA contract: run `go build ./cmd/agent` when `services/qa/cmd/agent` exists.
+- Cache dependency input must exist for every matrix service; use `services/${{ matrix.service }}/go.mod` unless all services have `go.sum`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required response |
+|-----------|-------------------|
+| Service directory has `go.mod` but no matrix entry | Add it before merging CI changes. |
+| Matrix entry has no `services/<name>/go.mod` | Remove or fix the entry; setup/run will fail. |
+| Dockerfile Go image diverges from module baseline | Update module and Go build image together. |
+| `services/qa/cmd/agent` exists but CI does not build it | Add or restore the QA agent build step. |
+
+### 5. Good/Base/Bad Cases
+
+- Good: `services/qa` runs tests, server build, and agent build under Go `1.25.x`.
+- Base: a service with no `go.sum` still caches against its existing `go.mod`.
+- Bad: a root-level Go workflow runs from the repository root and assumes a root `go.mod`.
+
+### 6. Tests Required
+
+- For each changed Go service, run `go test ./...` from the service directory.
+- For each changed Go service, run `go build ./cmd/server` from the service directory.
+- For QA, also run `go build ./cmd/agent` from `services/qa`.
+- Run `git diff --check` before commit.
+
+### 7. Wrong vs Correct
+
+Wrong:
+
+```yaml
+with:
+  go-version: '1.25.x'
+  cache-dependency-path: services/${{ matrix.service }}/go.sum
+```
+
+Correct when not every service has `go.sum`:
+
+```yaml
+with:
+  go-version: '1.25.x'
+  cache-dependency-path: services/${{ matrix.service }}/go.mod
+```
+
+---
+
 ## Forbidden Patterns
 
 - Root-level Go module used to build all microservices together.

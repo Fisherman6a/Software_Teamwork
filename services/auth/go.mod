@@ -1,6 +1,6 @@
 module github.com/Sakayori-Iroha-168/Software_Teamwork/services/auth
 
-go 1.22
+go 1.25.0
 
 require (
 	github.com/jackc/pgconn v1.14.3

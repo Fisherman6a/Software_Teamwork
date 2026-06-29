@@ -15,9 +15,9 @@ required by the active gateway contract.
 - PostgreSQL access: `pgx` + `sqlc`-shaped query package
 - Migrations: `goose`
 
-`go 1.25.0` is a Knowledge-specific choice so later RAG MCP server work starts
-from the intended module baseline. Other services may still use older Go module
-versions.
+All landed Go services use the repository Go 1.25 baseline. Knowledge keeps the
+standard `net/http` / `http.ServeMux` service shape while leaving room for later
+RAG MCP server work.
 
 ## Configuration
 

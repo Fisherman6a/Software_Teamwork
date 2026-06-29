@@ -61,7 +61,7 @@
 | 前端 SSE | `fetch` stream wrapper | Web 标准 | 标准库 / 协议 | QA 消息创建使用 POST + `text/event-stream`，支持 `AbortController`。 |
 | 前端测试 | Vitest + React Testing Library + Playwright | 待固定 | 已选型，待固定 | 当前未加入 `apps/web/package.json`。 |
 | 前端代码质量 | ESLint Flat Config + Prettier | ESLint `9.39.4`，Prettier `3.9.0` | 已固定 | 插件版本见前端明细。 |
-| 后端语言 | Go | `go 1.25` | 已固定 | 项目后续 Go 服务基线固定为 1.25；既有 `go 1.22` module 和 Dockerfile 由后续迁移 PR 统一更新。 |
+| 后端语言 | Go | `go 1.25` | 已固定 | 项目 Go 服务基线固定为 1.25；已落地服务 module 和 Dockerfile 应保持一致。 |
 | 后端 HTTP 路由 | Go `net/http` / `http.ServeMux` | Go `1.25` 标准库 | 已固定 | 不默认引入 `gin`/`chi`。 |
 | 后端日志 | Go `log/slog` | Go `1.25` 标准库 | 已固定 | 生产默认 JSON 结构化日志。 |
 | PostgreSQL 访问 | `pgx` + `sqlc` | `pgx/v4@v4.18.3`；sqlc 待固定 | 部分已固定 | Knowledge 当前使用 `pgx/v4`；`sqlc` 尚未落地。 |
@@ -131,7 +131,7 @@
 
 | 组件 | 当前版本 | 来源 | 备注 |
 | --- | --- | --- | --- |
-| Go toolchain | `1.25` | 技术选型基线 | 后续 Go 服务统一使用 1.25；既有 `services/*/go.mod` 和 Dockerfile 中的 `1.22` 由独立迁移 PR 更新。 |
+| Go toolchain | `1.25` | 技术选型基线 | Go 服务统一使用 1.25；`services/*/go.mod` 和 Go build Dockerfile 应保持一致。 |
 | `github.com/jackc/pgx/v4` | `v4.18.3` | `services/knowledge/go.mod` | Knowledge 当前已引入；新增服务默认不要混用其他 pgx 大版本。 |
 | `github.com/pressly/goose/v3` | `v3.27.1` | 技术选型基线 | 迁移工具版本固定；可用 CLI 或库方式接入。 |
 | PostgreSQL | `16-alpine` | `services/knowledge/docker-compose.yml` | 本地开发数据库。 |
@@ -161,7 +161,7 @@
 
 | 服务 | 偏离项 | 原因 |
 | --- | --- | --- |
-| `knowledge` | `services/knowledge/go.mod` 使用 `go 1.25.0`。 | Knowledge 是新重建的 RAG 底座服务，需要为后续 RAG MCP server 化预留较新的 Go module 基线；仍沿用标准库 `net/http` / `http.ServeMux` 路由形态。 |
+| `knowledge` | 无。 | Knowledge 现在与仓库 Go 1.25 baseline 一致；仍沿用标准库 `net/http` / `http.ServeMux` 路由形态。 |
 
 ## 三选一决策记录
 
@@ -271,7 +271,6 @@ services/<service>/
 
 - 为每个 Go 服务补充或迁移 `sqlc.yaml`、query 文件和 `pgx` repository。
 - 为每个有数据库的服务接入 `goose@v3.27.1` 迁移命令和 CI 校验。
-- 将既有 Go 服务的 `go.mod` 与 Dockerfile 从 Go 1.22 迁移到 Go 1.25。
 - 为需要异步任务的服务接入 `asynq` client/worker，并固定 `asynq` 和 `go-redis` 版本。
 - 前端接入 `openapi-typescript`，生成 gateway 类型，并固定生成器版本。
 - 前端测试接入 Vitest、React Testing Library 和 Playwright，并固定版本。
