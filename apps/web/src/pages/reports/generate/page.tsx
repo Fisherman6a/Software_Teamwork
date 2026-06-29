@@ -401,8 +401,12 @@ export function ReportGeneratePage() {
       setNotice('只有等待中或运行中的任务才能取消。')
       return
     }
-    await cancelJobMutation.mutateAsync(effectiveJob.id)
-    setNotice('已请求取消任务。')
+    try {
+      await cancelJobMutation.mutateAsync(effectiveJob.id)
+      setNotice('已请求取消任务。')
+    } catch {
+      setNotice('任务取消暂不支持（Gateway 契约待补齐）。')
+    }
   }
 
   const handleExport = async () => {
@@ -883,6 +887,7 @@ export function ReportGeneratePage() {
                   size="sm"
                   className="w-full"
                   onClick={handleCancel}
+                  title="任务取消暂不支持（Gateway 契约待补齐）"
                   disabled={
                     cancelJobMutation.isPending ||
                     Boolean(effectiveJob.id.startsWith('local-'))
