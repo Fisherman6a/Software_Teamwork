@@ -195,6 +195,16 @@ export function KnowledgeDocumentsPage({
   const [activeKbId, setActiveKbId] = useState(initialKbId ?? '')
   const knowledgeBaseId = activeKbId
 
+  // Sync when URL param changes (navigating between knowledge bases)
+  useEffect(() => {
+    if (initialKbId && initialKbId !== activeKbId) {
+      setActiveKbId(initialKbId)
+      setPage(1)
+      setKeyword('')
+      setStatusFilter('')
+    }
+  }, [initialKbId]) // eslint-disable-line
+
   const [kbName, setKbName] = useState(
     initialKbId ? (KB_NAME_CACHE[initialKbId] ?? initialKbId) : '',
   )
