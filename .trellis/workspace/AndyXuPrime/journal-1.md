@@ -62,7 +62,7 @@ Integrated the report generation module into the existing frontend, verified the
 
 ### Summary
 
-Implemented Gateway-backed frontend auth shell and RBAC navigation, then fixed PR #212 review findings by tightening /admin, report generation, report template, and explicit-permission route/menu checks. Updated PR body and pushed the fork branch without merging. Validation passed: bun run --cwd apps/web check, bun run --cwd apps/web build, and git diff --check.
+Implemented Gateway-backed frontend auth shell and RBAC navigation, then fixed PR #212 review findings by tightening /admin, report generation, report template, explicit-permission, QA admin seed-aligned, and report record write-action checks. Updated PR body and pushed the fork branch without merging. Validation passed: bun run --cwd apps/web check, bun run --cwd apps/web build, and git diff --check.
 
 ### Main Changes
 
@@ -71,6 +71,8 @@ Implemented Gateway-backed frontend auth shell and RBAC navigation, then fixed P
 - Tightened report routes so `/reports/generate` requires report write permission while read-only users entering `/reports` land on report records.
 - Tightened report template access so `/reports/templates`, `/admin/reports/templates`, and the admin sidebar template entry require report write permission because the page exposes template save/delete actions.
 - Removed the frontend-only admin role name global bypass from `canAccess()` so route and menu guards honor explicit `UserSummary.permissions[]` grants from the auth/gateway contract.
+- Replaced the nonexistent `qa:write` frontend guards with seeded admin management permissions (`admin:model-profile:write`, `admin:parser-config:write`) plus `system:admin` for QA configuration, retrieval test, and prompt management routes/menus.
+- Hid report record write actions for read-only users by checking report write permission before rendering the “new report” entry and delete controls.
 - Updated PR #212 body to the repository template style with Chinese summary, `Closes #109`, validation commands, and known risks.
 - Pushed the fixes to the personal fork branch without merging the upstream PR.
 
@@ -82,6 +84,7 @@ Implemented Gateway-backed frontend auth shell and RBAC navigation, then fixed P
 | `9003450` | (see git log) |
 | `24f6084` | (see git log) |
 | `3d92b72` | (see git log) |
+| `c663434` | (see git log) |
 
 ### Testing
 
