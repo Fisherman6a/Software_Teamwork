@@ -20,6 +20,7 @@ type fakeRepository struct {
 	finalization             ResponseRunFinalization
 	run                      ResponseRun
 	failOnCanceledFinalizing bool
+	failOnCanceledInvocation bool
 }
 
 func (r *fakeRepository) CreateConversation(_ context.Context, value Conversation) (Conversation, error) {
@@ -93,7 +94,12 @@ func (r *fakeRepository) SaveReasoningSteps(_ context.Context, _, _ string, step
 	r.savedSteps = append([]ReasoningStep(nil), steps...)
 	return nil
 }
-func (r *fakeRepository) SaveModelInvocation(_ context.Context, _ string, invocation ModelInvocation) (string, error) {
+func (r *fakeRepository) SaveModelInvocation(ctx context.Context, _ string, invocation ModelInvocation) (string, error) {
+	if r.failOnCanceledInvocation {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+	}
 	r.invocations = append(r.invocations, invocation)
 	return fmt.Sprintf("invocation-%d", invocation.IterationNo), nil
 }
@@ -126,6 +132,16 @@ func (r cancelAfterCompletedRunner) RunWithObserver(_ context.Context, input []a
 	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}})
 	r.cancel()
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer after disconnect"}
+	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
+}
+
+type cancelBeforeCompletedObserverRunner struct{ cancel context.CancelFunc }
+
+func (r cancelBeforeCompletedObserverRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	r.cancel()
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}})
+	final := agent.Message{Role: agent.RoleAssistant, Content: "answer after early disconnect"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
 }
 
@@ -334,6 +350,30 @@ func TestAskFinalizesSuccessfulRunAfterRequestContextCancelled(t *testing.T) {
 	}
 	if repository.finalization.Status != "completed" || repository.finalization.TerminationReason != "completed" {
 		t.Fatalf("finalization=%+v", repository.finalization)
+	}
+}
+
+func TestAskPersistsCompletedInvocationAfterRequestContextCancelled(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{
+		conversation:             Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now},
+		failOnCanceledInvocation: true,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: cancelBeforeCompletedObserverRunner{cancel: cancel}, prompt: "system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qa.now = func() time.Time { return now }
+	result, err := qa.Ask(ctx, "user-id", "conversation-id", AskInput{Message: "disconnect before invocation save"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ResponseRun.Status != "completed" || result.AssistantMessage.Status != "completed" {
+		t.Fatalf("result=%+v assistant=%+v", result.ResponseRun, result.AssistantMessage)
+	}
+	if len(repository.invocations) != 1 || repository.invocations[0].Status != "completed" {
+		t.Fatalf("invocations=%+v", repository.invocations)
 	}
 }
 

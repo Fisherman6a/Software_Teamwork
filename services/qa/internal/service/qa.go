@@ -415,7 +415,9 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 			finishedAt := s.now().UTC()
 			accumulateUsage(&usage, event.Usage)
 			completedIterations[event.Iteration] = struct{}{}
-			_, err := s.repository.SaveModelInvocation(ctx, userID, ModelInvocation{
+			saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			_, err := s.repository.SaveModelInvocation(saveCtx, userID, ModelInvocation{
 				ResponseRunID:    run.ID,
 				IterationNo:      event.Iteration,
 				Provider:         "ai-gateway",
