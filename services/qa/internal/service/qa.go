@@ -444,9 +444,6 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		steps = append(steps, step)
 		emit("reasoning.step", map[string]any{"type": publicStepType(step.Type), "label": step.Title, "status": publicStepStatus(step.Status), "detail": step.Summary})
 	})
-	if runErr == nil && runCtx.Err() != nil {
-		runErr = runCtx.Err()
-	}
 	if runErr == nil && invocationErr != nil {
 		runErr = fmt.Errorf("save model invocation: %w", invocationErr)
 	}
@@ -478,7 +475,9 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	assistantMessage.Status = "completed"
 	emit("answer.delta", map[string]any{"messageId": assistantMessage.ID, "text": assistantMessage.Content, "index": 0})
 	emit("answer.completed", map[string]any{"responseRunId": run.ID, "messageId": assistantMessage.ID})
-	run, err = s.repository.FinalizeResponseRun(ctx, userID, ResponseRunFinalization{
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	run, err = s.repository.FinalizeResponseRun(cleanupCtx, userID, ResponseRunFinalization{
 		RunID: run.ID, AssistantMessage: assistantMessage, ReasoningSteps: steps, StreamEvents: events,
 		Status: "completed", TerminationReason: "completed", CurrentIteration: result.Iterations,
 		PromptTokens: usage.PromptTokens, CompletionTokens: usage.CompletionTokens,
