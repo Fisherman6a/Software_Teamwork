@@ -3,10 +3,13 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/gateway/internal/middleware"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/gateway/internal/response"
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/gateway/internal/service"
 )
 
 type Config struct {
@@ -19,25 +22,50 @@ type Config struct {
 	CORSAllowedMethods   []string
 	CORSAllowedHeaders   []string
 	CORSAllowCredentials bool
+	DownstreamTimeout    time.Duration
+	InternalServiceToken string
+	OwnerBaseURLs        map[string]string
+	AuthClient           AuthClient
+	SessionStore         service.SessionStore
+	TokenHasher          service.TokenHasher
+	HTTPClient           *http.Client
 }
 
 type Server struct {
-	logger         *slog.Logger
-	serviceVersion string
-	environment    string
-	mux            *http.ServeMux
-	handler        http.Handler
+	logger               *slog.Logger
+	serviceVersion       string
+	environment          string
+	internalServiceToken string
+	authClient           AuthClient
+	sessionStore         service.SessionStore
+	tokenHasher          service.TokenHasher
+	ownerBaseURLs        map[string]*url.URL
+	httpClient           *http.Client
+	mux                  *http.ServeMux
+	handler              http.Handler
 }
 
 func NewServer(cfg Config) *Server {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	if cfg.DownstreamTimeout <= 0 {
+		cfg.DownstreamTimeout = 10 * time.Second
+	}
+	if cfg.HTTPClient == nil {
+		cfg.HTTPClient = &http.Client{Timeout: cfg.DownstreamTimeout}
+	}
 	s := &Server{
-		logger:         cfg.Logger,
-		serviceVersion: cfg.ServiceVersion,
-		environment:    cfg.Environment,
-		mux:            http.NewServeMux(),
+		logger:               cfg.Logger,
+		serviceVersion:       cfg.ServiceVersion,
+		environment:          cfg.Environment,
+		internalServiceToken: strings.TrimSpace(cfg.InternalServiceToken),
+		authClient:           cfg.AuthClient,
+		sessionStore:         cfg.SessionStore,
+		tokenHasher:          cfg.TokenHasher,
+		ownerBaseURLs:        parseOwnerBaseURLs(cfg.OwnerBaseURLs),
+		httpClient:           cfg.HTTPClient,
+		mux:                  http.NewServeMux(),
 	}
 	s.routes()
 	s.handler = middleware.Chain(
@@ -59,6 +87,14 @@ func NewServer(cfg Config) *Server {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealth)
 	s.mux.HandleFunc("GET /readyz", s.handleReady)
+	s.mux.HandleFunc("POST /api/v1/users", s.handleCreateUser)
+	s.mux.HandleFunc("POST /api/v1/sessions", s.handleCreateSession)
+	s.mux.HandleFunc("GET /api/v1/users/me", s.handleCurrentUser)
+	s.mux.HandleFunc("DELETE /api/v1/sessions/current", s.handleDeleteCurrentSession)
+	for _, route := range activeProxyRoutes {
+		route := route
+		s.mux.HandleFunc(route.Method+" "+route.Pattern, s.handleProxy(route))
+	}
 	s.mux.HandleFunc("/", s.handleNotFound)
 }
 
@@ -97,4 +133,20 @@ type healthResponse struct {
 	Service     string `json:"service"`
 	Version     string `json:"version,omitempty"`
 	Environment string `json:"environment,omitempty"`
+}
+
+func parseOwnerBaseURLs(values map[string]string) map[string]*url.URL {
+	parsed := make(map[string]*url.URL, len(values))
+	for owner, raw := range values {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			continue
+		}
+		parsed[owner] = u
+	}
+	return parsed
 }

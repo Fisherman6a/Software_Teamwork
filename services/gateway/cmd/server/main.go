@@ -12,6 +12,9 @@ import (
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/gateway/internal/config"
 	gatewayhttp "github.com/Sakayori-Iroha-168/Software_Teamwork/services/gateway/internal/http"
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/gateway/internal/platform/authclient"
+	redisstore "github.com/Sakayori-Iroha-168/Software_Teamwork/services/gateway/internal/platform/redis"
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/gateway/internal/service"
 )
 
 func main() {
@@ -20,6 +23,29 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Error("configuration failed", "service", "gateway", "error", err)
+		os.Exit(1)
+	}
+
+	tokenHasher, err := service.NewTokenHasher(cfg.TokenHashSecret, cfg.TokenHashKeyVersion)
+	if err != nil {
+		logger.Error("token hash configuration failed", "service", "gateway", "error", err)
+		os.Exit(1)
+	}
+
+	sessionStore, err := redisstore.New(redisstore.Config{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+	if err != nil {
+		logger.Error("redis configuration failed", "service", "gateway", "error", err)
+		os.Exit(1)
+	}
+	defer sessionStore.Close()
+
+	authClient, err := authclient.New(cfg.AuthBaseURL, cfg.InternalServiceToken, cfg.DownstreamTimeout)
+	if err != nil {
+		logger.Error("auth client configuration failed", "service", "gateway", "error", err)
 		os.Exit(1)
 	}
 
@@ -33,6 +59,18 @@ func main() {
 		CORSAllowedMethods:   cfg.CORSAllowedMethods,
 		CORSAllowedHeaders:   cfg.CORSAllowedHeaders,
 		CORSAllowCredentials: cfg.CORSAllowCredentials,
+		DownstreamTimeout:    cfg.DownstreamTimeout,
+		InternalServiceToken: cfg.InternalServiceToken,
+		AuthClient:           authClient,
+		SessionStore:         sessionStore,
+		TokenHasher:          tokenHasher,
+		OwnerBaseURLs: map[string]string{
+			"auth":       cfg.AuthBaseURL,
+			"knowledge":  cfg.KnowledgeBaseURL,
+			"qa":         cfg.QABaseURL,
+			"document":   cfg.DocumentBaseURL,
+			"ai-gateway": cfg.AIGatewayBaseURL,
+		},
 	})
 
 	server := &http.Server{
