@@ -1,11 +1,19 @@
 import { Link } from '@tanstack/react-router'
-import { FilePlus2, Search } from 'lucide-react'
+import { FilePlus2, Search, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import type { Report } from '@/features/reports'
-import { useReportsQuery } from '@/features/reports'
+import { useDeleteReport, useReportsQuery } from '@/features/reports'
 
 const fallbackReports: Report[] = [
   {
@@ -47,10 +55,18 @@ function formatDate(value?: string): string {
 
 export function ReportRecordsPage() {
   const [keyword, setKeyword] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<Report | null>(null)
   const reportsQuery = useReportsQuery(keyword)
+  const deleteMutation = useDeleteReport()
   const reports = reportsQuery.data?.items.length
     ? reportsQuery.data.items
     : fallbackReports.filter((report) => report.name.includes(keyword))
+
+  const handleDelete = () => {
+    if (!deleteTarget) return
+    deleteMutation.mutate(deleteTarget.id)
+    setDeleteTarget(null)
+  }
 
   return (
     <div className="h-full overflow-auto bg-background p-6">
@@ -93,6 +109,7 @@ export function ReportRecordsPage() {
               <th className="px-4 py-3 font-medium">年份</th>
               <th className="px-4 py-3 font-medium">状态</th>
               <th className="px-4 py-3 font-medium">更新时间</th>
+              <th className="w-16 px-4 py-3 font-medium">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -107,11 +124,46 @@ export function ReportRecordsPage() {
                 <td className="px-4 py-3 text-muted-foreground">
                   {formatDate(report.updatedAt ?? report.createdAt)}
                 </td>
+                <td className="px-4 py-3">
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label="删除报告"
+                    onClick={() => setDeleteTarget(report)}
+                  >
+                    <Trash2 className="size-3 text-destructive" />
+                  </Button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <Dialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确定删除此报告？</DialogTitle>
+            <DialogDescription>
+              {deleteTarget?.name
+                ? `即将删除报告"${deleteTarget.name}"。此操作不可撤销。`
+                : '此操作不可撤销。'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? '删除中...' : '确认删除'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

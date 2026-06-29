@@ -5,9 +5,13 @@ import {
   createReportFile,
   createReportJob,
   createReportJobAttempt,
+  deleteReport,
+  deleteReportTemplate,
   downloadReportFile,
+  getReport,
   getReportJob,
   getReportStatisticsOverview,
+  getReportTemplateStructure,
   listDailyReportStatistics,
   listReportMaterials,
   listReportOutlines,
@@ -17,11 +21,13 @@ import {
   listReportTypes,
   updateReportOutline,
   updateReportSection,
+  updateReportTemplateStructure,
 } from './report-generation.api'
 import type {
   CreateReportJobPayload,
   CreateReportPayload,
   ReportOutline,
+  ReportTemplateStructure,
 } from './report-generation.types'
 
 export const reportKeys = {
@@ -31,10 +37,13 @@ export const reportKeys = {
   materials: () => [...reportKeys.all, 'materials'] as const,
   records: () => [...reportKeys.all, 'records'] as const,
   recordList: (keyword: string) => [...reportKeys.records(), { keyword }] as const,
+  detail: (reportId: string) => [...reportKeys.all, 'detail', reportId] as const,
   outlines: (reportId: string) => [...reportKeys.all, reportId, 'outlines'] as const,
   sections: (reportId: string) => [...reportKeys.all, reportId, 'sections'] as const,
   job: (jobId: string) => [...reportKeys.all, 'jobs', jobId] as const,
   stats: () => [...reportKeys.all, 'statistics'] as const,
+  templateStructure: (templateId: string) =>
+    [...reportKeys.templates(), templateId, 'structure'] as const,
 }
 
 export function useReportBootstrapQueries(reportType?: string) {
@@ -193,4 +202,56 @@ export function useReportStatisticsQueries() {
   })
 
   return { overviewQuery, dailyQuery }
+}
+
+export function useReport(reportId: string | null) {
+  return useQuery({
+    queryKey: reportKeys.detail(reportId ?? ''),
+    queryFn: () => getReport(reportId ?? ''),
+    enabled: Boolean(reportId),
+  })
+}
+
+export function useDeleteReport() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (reportId: string) => deleteReport(reportId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: reportKeys.records() })
+    },
+  })
+}
+
+export function useTemplateStructure(templateId: string | null) {
+  return useQuery({
+    queryKey: reportKeys.templateStructure(templateId ?? ''),
+    queryFn: () => getReportTemplateStructure(templateId ?? ''),
+    enabled: Boolean(templateId),
+  })
+}
+
+export function useUpdateTemplateStructure(templateId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (payload: ReportTemplateStructure) =>
+      updateReportTemplateStructure(templateId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: reportKeys.templateStructure(templateId),
+      })
+    },
+  })
+}
+
+export function useDeleteTemplate() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: (templateId: string) => deleteReportTemplate(templateId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: reportKeys.templates() })
+    },
+  })
 }

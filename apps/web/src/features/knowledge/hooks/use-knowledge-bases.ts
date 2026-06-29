@@ -30,10 +30,11 @@ export const knowledgeBaseKeys = {
 // ── Queries ──
 
 /**
- * Paginated knowledge base list with client-side keyword / docType filtering.
+ * Knowledge base list with server-side pagination and client-side keyword/docType filtering.
  *
- * The backend list endpoint does not support search params, so all KBs are
- * fetched and filtered/paginated client-side for better UX.
+ * Keyword and docType filtering is client-side per-page since the backend
+ * list endpoint does not currently expose search/filter query parameters.
+ * Server total is used for accurate page count.
  */
 export function useKnowledgeBases(
   page = 1,
@@ -44,11 +45,9 @@ export function useKnowledgeBases(
   return useQuery({
     queryKey: knowledgeBaseKeys.list(page, pageSize, keyword, docType),
     queryFn: async () => {
-      // Fetch a large batch — KB counts are expected to be moderate
-      const result = await listKnowledgeBases({ page: 1, pageSize: 200 })
+      const result = await listKnowledgeBases({ page, pageSize })
       let items = result.items
 
-      // Client-side keyword filter (name and description)
       if (keyword) {
         const kw = keyword.toLowerCase()
         items = items.filter(
@@ -58,17 +57,14 @@ export function useKnowledgeBases(
         )
       }
 
-      // Client-side docType filter
       if (docType) {
         items = items.filter((kb) => kb.docType === docType)
       }
 
-      // Client-side pagination
-      const total = items.length
-      const start = (page - 1) * pageSize
-      const paged = items.slice(start, start + pageSize)
-
-      return { items: paged, page: { page, pageSize, total } }
+      return {
+        items,
+        page: { page: result.page.page, pageSize: result.page.pageSize, total: result.page.total },
+      }
     },
     placeholderData: (prev) => prev,
   })

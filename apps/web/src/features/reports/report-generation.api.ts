@@ -13,6 +13,7 @@ import type {
   ReportStatisticsOverview,
   ReportStatus,
   ReportTemplate,
+  ReportTemplateStructure,
   ReportType,
   ReportTypeCode,
 } from './report-generation.types'
@@ -141,4 +142,41 @@ export function getReportStatisticsOverview(): Promise<ReportStatisticsOverview>
 
 export function listDailyReportStatistics(days = 30): Promise<ReportDailyStatistic[]> {
   return gatewayRequest<ReportDailyStatistic[]>(`/report-statistics/daily${buildQuery({ days })}`)
+}
+
+export function getReport(reportId: string): Promise<Report> {
+  return gatewayRequest<Report>(`/reports/${encodeURIComponent(reportId)}`)
+}
+
+export function deleteReport(reportId: string): Promise<void> {
+  return gatewayRequest<void>(`/reports/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function getReportTemplateStructure(
+  templateId: string,
+): Promise<ReportTemplateStructure> {
+  return gatewayRequest<ReportTemplateStructure>(
+    `/report-templates/${encodeURIComponent(templateId)}/structure`,
+  )
+}
+
+export function updateReportTemplateStructure(
+  templateId: string,
+  payload: ReportTemplateStructure,
+): Promise<ReportTemplateStructure> {
+  return gatewayRequest<ReportTemplateStructure>(
+    `/report-templates/${encodeURIComponent(templateId)}/structure`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    },
+  )
+}
+
+export function deleteReportTemplate(templateId: string): Promise<void> {
+  return gatewayRequest<void>(`/report-templates/${encodeURIComponent(templateId)}`, {
+    method: 'DELETE',
+  })
 }
