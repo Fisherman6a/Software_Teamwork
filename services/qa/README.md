@@ -92,17 +92,73 @@ Diagnostics must be written to stderr.
 Set `MCP_TRANSPORT=streamable_http` and provide `MCP_SERVER_URL`. Optional
 credentials use `MCP_SERVER_TOKEN` and `MCP_SERVER_TOKEN_HEADER`.
 
+## PostgreSQL with Docker
+
+QA PostgreSQL runs in Docker (`postgres:16-alpine`) and schema changes are
+applied with [`goose`](https://github.com/pressly/goose) `v3.27.1`, matching the
+project technology baseline. Migrations are **not** mounted into
+`docker-entrypoint-initdb.d`; the one-shot `migrate` service runs `goose up`
+after PostgreSQL becomes healthy.
+
+Start only the database (typical for local `go run ./cmd/server`):
+
+```powershell
+.\scripts\docker-db-up.ps1
+```
+
+```bash
+./scripts/docker-db-up.sh
+```
+
+Or manually:
+
+```powershell
+docker compose -f docker-compose.db.yml up -d --build postgres
+docker compose -f docker-compose.db.yml up --build migrate
+```
+
+Connection string (host port defaults to `5433`):
+
+```text
+postgres://qa_app:qa_app_dev@localhost:5433/qa_system?sslmode=disable
+```
+
+Reset the local database volume and re-apply migrations:
+
+```powershell
+docker compose -f docker-compose.db.yml down -v
+.\scripts\docker-db-up.ps1
+```
+
+Apply or inspect migrations on the host when goose is installed locally:
+
+```powershell
+$env:QA_DATABASE_URL = "postgres://qa_app:qa_app_dev@localhost:5433/qa_system?sslmode=disable"
+goose -dir migrations postgres $env:QA_DATABASE_URL up
+goose -dir migrations postgres $env:QA_DATABASE_URL status
+```
+
+Integration tests against the Docker database:
+
+```powershell
+$env:QA_TEST_DATABASE_URL = "postgres://qa_app:qa_app_dev@localhost:5433/qa_system?sslmode=disable"
+go test ./internal/repository/... -run TestDocumentedResourceRoundTrip -count=1
+```
+
 ## Run with Docker Compose
 
 Import the user-level DeepSeek variables into the current PowerShell process
-without printing them, then start Auth PostgreSQL, QA PostgreSQL, Redis, Auth,
-QA and Gateway:
+without printing them, then start Auth PostgreSQL, QA PostgreSQL (+ goose
+migrate), Redis, Auth, QA and Gateway:
 
 ```powershell
 $env:DEEPSEEK_API_KEY = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY', 'User')
 $env:DEEPSEEK_BASE_URL = [Environment]::GetEnvironmentVariable('DEEPSEEK_BASE_URL', 'User')
 docker compose up -d --build
 ```
+
+The full stack includes `docker-compose.db.yml` via Compose `include`; QA waits
+for the `migrate` job to finish before starting.
 
 If a local Docker registry mirror cannot pull the Go/Alpine build images, use
 the cached-image fallback after compiling a Linux binary on the host:
@@ -124,13 +180,14 @@ Verify public readiness:
 Invoke-RestMethod http://localhost:8080/readyz
 ```
 
-The migration under `migrations/` is applied by PostgreSQL only when the named
-volume is created for the first time. For a disposable local rebuild:
+Regenerate sqlc code after changing query files:
 
-```powershell
-docker compose down -v
-docker compose up -d --build
+```bash
+sqlc generate
 ```
+
+Generated query code lives in `internal/repository/sqlc/`; SQL sources live in
+`internal/repository/queries/`.
 
 ## HTTP API
 
