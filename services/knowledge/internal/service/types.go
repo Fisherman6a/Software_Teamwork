@@ -10,7 +10,78 @@ import (
 const (
 	PermissionKnowledgeRead  = "knowledge:read"
 	PermissionKnowledgeWrite = "knowledge:write"
+	PermissionKnowledgeAdmin = "knowledge:admin"
 )
+
+type ParserBackend string
+
+const (
+	ParserBackendBuiltin          ParserBackend = "builtin"
+	ParserBackendTika             ParserBackend = "tika"
+	ParserBackendUnstructured     ParserBackend = "unstructured"
+	ParserBackendLocalOCR         ParserBackend = "local_ocr"
+	ParserBackendRemoteCompatible ParserBackend = "remote_compatible"
+)
+
+type ParserConfig struct {
+	ID                    string
+	Name                  string
+	Backend               ParserBackend
+	Enabled               bool
+	IsDefault             bool
+	Concurrency           int
+	SupportedContentTypes []string
+	EndpointURL           *string
+	DefaultParameters     json.RawMessage
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	DeletedAt             *time.Time
+}
+
+type ParserConfigList struct {
+	Items []ParserConfig
+}
+
+type ParserConfigSnapshot struct {
+	ParserConfigID        string
+	Backend               ParserBackend
+	Concurrency           int
+	SupportedContentTypes []string
+	EndpointURL           *string
+	DefaultParameters     json.RawMessage
+}
+
+type ParserConfigAudit struct {
+	ID             string
+	ParserConfigID string
+	ActorUserID    string
+	Action         string
+	Summary        json.RawMessage
+	CreatedAt      time.Time
+}
+
+type CreateParserConfigInput struct {
+	Name                  string
+	Backend               ParserBackend
+	Enabled               *bool
+	IsDefault             *bool
+	Concurrency           int
+	SupportedContentTypes []string
+	EndpointURL           *string
+	DefaultParameters     json.RawMessage
+}
+
+type UpdateParserConfigInput struct {
+	ID                    string
+	Name                  *string
+	Backend               *ParserBackend
+	Enabled               *bool
+	IsDefault             *bool
+	Concurrency           *int
+	SupportedContentTypes *[]string
+	EndpointURL           **string
+	DefaultParameters     *json.RawMessage
+}
 
 type DocumentStatus string
 
@@ -203,6 +274,12 @@ type Repository interface {
 	MarkDocumentJobFailed(ctx context.Context, documentID string, jobID string, code string, message string, failedAt time.Time) error
 	ListDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string, status *DocumentStatus, scope AccessScope, page PageInput) (DocumentList, error)
 	GetDocument(ctx context.Context, id string, scope AccessScope) (KnowledgeDocument, error)
+	ListParserConfigs(ctx context.Context, enabled *bool) ([]ParserConfig, error)
+	GetParserConfig(ctx context.Context, id string) (ParserConfig, error)
+	CreateParserConfig(ctx context.Context, config ParserConfig, audit ParserConfigAudit) (ParserConfig, error)
+	UpdateParserConfig(ctx context.Context, config ParserConfig, audit ParserConfigAudit) (ParserConfig, error)
+	SoftDeleteParserConfig(ctx context.Context, id string, deletedAt time.Time, audit ParserConfigAudit) error
+	GetEffectiveParserConfig(ctx context.Context, contentType string) (ParserConfig, error)
 }
 
 type CreateKnowledgeBaseRecord struct {

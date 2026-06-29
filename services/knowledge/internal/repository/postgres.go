@@ -25,6 +25,161 @@ func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	return &PostgresRepository{pool: pool, queries: sqlc.New(pool)}
 }
 
+const parserConfigColumns = `id, name, backend, enabled, is_default, concurrency, supported_content_types, endpoint_url, default_parameters, created_at, updated_at, deleted_at`
+
+func (r *PostgresRepository) ListParserConfigs(ctx context.Context, enabled *bool) ([]service.ParserConfig, error) {
+	rows, err := r.pool.Query(ctx, `SELECT `+parserConfigColumns+` FROM parser_configs WHERE deleted_at IS NULL AND ($1::boolean IS NULL OR enabled = $1) ORDER BY created_at DESC`, enabled)
+	if err != nil {
+		return nil, wrapPostgresError("list parser configs", err)
+	}
+	defer rows.Close()
+	items := []service.ParserConfig{}
+	for rows.Next() {
+		config, err := scanParserConfig(rows)
+		if err != nil {
+			return nil, wrapPostgresError("scan parser config", err)
+		}
+		items = append(items, config)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, wrapPostgresError("list parser configs", err)
+	}
+	return items, nil
+}
+
+func (r *PostgresRepository) GetParserConfig(ctx context.Context, id string) (service.ParserConfig, error) {
+	return r.getParserConfig(ctx, r.pool, id, false)
+}
+
+type parserConfigQuerier interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (r *PostgresRepository) getParserConfig(ctx context.Context, q parserConfigQuerier, id string, forUpdate bool) (service.ParserConfig, error) {
+	suffix := ""
+	if forUpdate {
+		suffix = " FOR UPDATE"
+	}
+	config, err := scanParserConfig(q.QueryRow(ctx, `SELECT `+parserConfigColumns+` FROM parser_configs WHERE id=$1 AND deleted_at IS NULL`+suffix, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return service.ParserConfig{}, service.ErrNotFound
+	}
+	if err != nil {
+		return service.ParserConfig{}, wrapPostgresError("get parser config", err)
+	}
+	return config, nil
+}
+
+func (r *PostgresRepository) CreateParserConfig(ctx context.Context, config service.ParserConfig, audit service.ParserConfigAudit) (service.ParserConfig, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return service.ParserConfig{}, wrapPostgresError("begin parser config create", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if config.IsDefault {
+		if _, err = tx.Exec(ctx, `UPDATE parser_configs SET is_default=false, updated_at=$1 WHERE is_default AND deleted_at IS NULL`, config.UpdatedAt); err != nil {
+			return service.ParserConfig{}, wrapPostgresError("clear parser default", err)
+		}
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO parser_configs (id,name,backend,enabled,is_default,concurrency,supported_content_types,endpoint_url,default_parameters,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, config.ID, config.Name, config.Backend, config.Enabled, config.IsDefault, config.Concurrency, config.SupportedContentTypes, config.EndpointURL, config.DefaultParameters, config.CreatedAt, config.UpdatedAt)
+	if err != nil {
+		return service.ParserConfig{}, wrapPostgresError("create parser config", err)
+	}
+	if err = insertParserAudit(ctx, tx, audit); err != nil {
+		return service.ParserConfig{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return service.ParserConfig{}, wrapPostgresError("commit parser config create", err)
+	}
+	return config, nil
+}
+
+func (r *PostgresRepository) UpdateParserConfig(ctx context.Context, config service.ParserConfig, audit service.ParserConfigAudit) (service.ParserConfig, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return service.ParserConfig{}, wrapPostgresError("begin parser config update", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = r.getParserConfig(ctx, tx, config.ID, true); err != nil {
+		return service.ParserConfig{}, err
+	}
+	if config.IsDefault {
+		if _, err = tx.Exec(ctx, `UPDATE parser_configs SET is_default=false, updated_at=$1 WHERE id<>$2 AND is_default AND deleted_at IS NULL`, config.UpdatedAt, config.ID); err != nil {
+			return service.ParserConfig{}, wrapPostgresError("clear parser default", err)
+		}
+	}
+	_, err = tx.Exec(ctx, `UPDATE parser_configs SET name=$2,backend=$3,enabled=$4,is_default=$5,concurrency=$6,supported_content_types=$7,endpoint_url=$8,default_parameters=$9,updated_at=$10 WHERE id=$1 AND deleted_at IS NULL`, config.ID, config.Name, config.Backend, config.Enabled, config.IsDefault, config.Concurrency, config.SupportedContentTypes, config.EndpointURL, config.DefaultParameters, config.UpdatedAt)
+	if err != nil {
+		return service.ParserConfig{}, wrapPostgresError("update parser config", err)
+	}
+	if err = insertParserAudit(ctx, tx, audit); err != nil {
+		return service.ParserConfig{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return service.ParserConfig{}, wrapPostgresError("commit parser config update", err)
+	}
+	return config, nil
+}
+
+func (r *PostgresRepository) SoftDeleteParserConfig(ctx context.Context, id string, deletedAt time.Time, audit service.ParserConfigAudit) error {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return wrapPostgresError("begin parser config delete", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	config, err := r.getParserConfig(ctx, tx, id, true)
+	if err != nil {
+		return err
+	}
+	if config.IsDefault {
+		return service.ErrConflict
+	}
+	tag, err := tx.Exec(ctx, `UPDATE parser_configs SET enabled=false,deleted_at=$2,updated_at=$2 WHERE id=$1 AND deleted_at IS NULL`, id, deletedAt)
+	if err != nil {
+		return wrapPostgresError("delete parser config", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return service.ErrNotFound
+	}
+	if err = insertParserAudit(ctx, tx, audit); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (r *PostgresRepository) GetEffectiveParserConfig(ctx context.Context, contentType string) (service.ParserConfig, error) {
+	config, err := scanParserConfig(r.pool.QueryRow(ctx, `SELECT `+parserConfigColumns+` FROM parser_configs WHERE enabled AND is_default AND deleted_at IS NULL AND ($1='' OR cardinality(supported_content_types)=0 OR $1=ANY(supported_content_types) OR split_part($1,'/',1)||'/*'=ANY(supported_content_types)) LIMIT 1`, contentType))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return service.ParserConfig{}, service.ErrNotFound
+	}
+	if err != nil {
+		return service.ParserConfig{}, wrapPostgresError("get effective parser config", err)
+	}
+	return config, nil
+}
+
+func insertParserAudit(ctx context.Context, tx pgx.Tx, audit service.ParserConfigAudit) error {
+	_, err := tx.Exec(ctx, `INSERT INTO parser_config_audits (id,parser_config_id,actor_user_id,action,summary,created_at) VALUES ($1,$2,$3,$4,$5,$6)`, audit.ID, audit.ParserConfigID, audit.ActorUserID, audit.Action, audit.Summary, audit.CreatedAt)
+	if err != nil {
+		return wrapPostgresError("insert parser config audit", err)
+	}
+	return nil
+}
+
+type parserConfigScanner interface{ Scan(...any) error }
+
+func scanParserConfig(row parserConfigScanner) (service.ParserConfig, error) {
+	var c service.ParserConfig
+	var backend string
+	var endpoint pgtype.Text
+	var deleted pgtype.Timestamptz
+	err := row.Scan(&c.ID, &c.Name, &backend, &c.Enabled, &c.IsDefault, &c.Concurrency, &c.SupportedContentTypes, &endpoint, &c.DefaultParameters, &c.CreatedAt, &c.UpdatedAt, &deleted)
+	c.Backend = service.ParserBackend(backend)
+	c.EndpointURL = textPtr(endpoint)
+	c.DeletedAt = timePtr(deleted)
+	return c, err
+}
+
 func (r *PostgresRepository) CreateKnowledgeBase(ctx context.Context, input service.CreateKnowledgeBaseRecord) (service.KnowledgeBase, error) {
 	row, err := r.queries.CreateKnowledgeBase(ctx, sqlc.CreateKnowledgeBaseParams{
 		ID:                input.ID,

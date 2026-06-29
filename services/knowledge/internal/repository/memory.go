@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,8 @@ type MemoryRepository struct {
 	knowledgeBases map[string]service.KnowledgeBase
 	documents      map[string]service.KnowledgeDocument
 	jobs           map[string]service.ProcessingJob
+	parserConfigs  map[string]service.ParserConfig
+	parserAudits   []service.ParserConfigAudit
 }
 
 func NewMemoryRepository() *MemoryRepository {
@@ -21,7 +24,163 @@ func NewMemoryRepository() *MemoryRepository {
 		knowledgeBases: map[string]service.KnowledgeBase{},
 		documents:      map[string]service.KnowledgeDocument{},
 		jobs:           map[string]service.ProcessingJob{},
+		parserConfigs:  map[string]service.ParserConfig{},
 	}
+}
+
+func (r *MemoryRepository) ListParserConfigs(ctx context.Context, enabled *bool) ([]service.ParserConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	items := make([]service.ParserConfig, 0, len(r.parserConfigs))
+	for _, config := range r.parserConfigs {
+		if config.DeletedAt != nil || enabled != nil && config.Enabled != *enabled {
+			continue
+		}
+		items = append(items, cloneParserConfig(config))
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	return items, nil
+}
+
+func (r *MemoryRepository) GetParserConfig(ctx context.Context, id string) (service.ParserConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return service.ParserConfig{}, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	config, ok := r.parserConfigs[id]
+	if !ok || config.DeletedAt != nil {
+		return service.ParserConfig{}, service.ErrNotFound
+	}
+	return cloneParserConfig(config), nil
+}
+
+func (r *MemoryRepository) CreateParserConfig(ctx context.Context, config service.ParserConfig, audit service.ParserConfigAudit) (service.ParserConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return service.ParserConfig{}, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, existing := range r.parserConfigs {
+		if existing.DeletedAt == nil && strings.EqualFold(existing.Name, config.Name) {
+			return service.ParserConfig{}, service.ErrConflict
+		}
+	}
+	if config.IsDefault {
+		r.clearDefaultLocked(config.ID, config.UpdatedAt)
+	}
+	r.parserConfigs[config.ID] = cloneParserConfig(config)
+	r.parserAudits = append(r.parserAudits, cloneParserAudit(audit))
+	return cloneParserConfig(config), nil
+}
+
+func (r *MemoryRepository) UpdateParserConfig(ctx context.Context, config service.ParserConfig, audit service.ParserConfigAudit) (service.ParserConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return service.ParserConfig{}, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if existing, ok := r.parserConfigs[config.ID]; !ok || existing.DeletedAt != nil {
+		return service.ParserConfig{}, service.ErrNotFound
+	}
+	for id, existing := range r.parserConfigs {
+		if id != config.ID && existing.DeletedAt == nil && strings.EqualFold(existing.Name, config.Name) {
+			return service.ParserConfig{}, service.ErrConflict
+		}
+	}
+	if config.IsDefault {
+		r.clearDefaultLocked(config.ID, config.UpdatedAt)
+	}
+	r.parserConfigs[config.ID] = cloneParserConfig(config)
+	r.parserAudits = append(r.parserAudits, cloneParserAudit(audit))
+	return cloneParserConfig(config), nil
+}
+
+func (r *MemoryRepository) SoftDeleteParserConfig(ctx context.Context, id string, deletedAt time.Time, audit service.ParserConfigAudit) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	config, ok := r.parserConfigs[id]
+	if !ok || config.DeletedAt != nil {
+		return service.ErrNotFound
+	}
+	if config.IsDefault {
+		return service.ErrConflict
+	}
+	config.Enabled = false
+	config.UpdatedAt = deletedAt
+	config.DeletedAt = &deletedAt
+	r.parserConfigs[id] = config
+	r.parserAudits = append(r.parserAudits, cloneParserAudit(audit))
+	return nil
+}
+
+func (r *MemoryRepository) GetEffectiveParserConfig(ctx context.Context, contentType string) (service.ParserConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return service.ParserConfig{}, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, config := range r.parserConfigs {
+		if config.DeletedAt == nil && config.Enabled && config.IsDefault && supportsContentType(config, contentType) {
+			return cloneParserConfig(config), nil
+		}
+	}
+	return service.ParserConfig{}, service.ErrNotFound
+}
+
+func (r *MemoryRepository) SeedParserConfig(config service.ParserConfig) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.parserConfigs[config.ID] = cloneParserConfig(config)
+}
+func (r *MemoryRepository) ParserAudits() []service.ParserConfigAudit {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]service.ParserConfigAudit, len(r.parserAudits))
+	for i, v := range r.parserAudits {
+		out[i] = cloneParserAudit(v)
+	}
+	return out
+}
+func (r *MemoryRepository) clearDefaultLocked(except string, updatedAt time.Time) {
+	for id, config := range r.parserConfigs {
+		if id != except && config.DeletedAt == nil && config.IsDefault {
+			config.IsDefault = false
+			config.UpdatedAt = updatedAt
+			r.parserConfigs[id] = config
+		}
+	}
+}
+func supportsContentType(config service.ParserConfig, contentType string) bool {
+	if contentType == "" || len(config.SupportedContentTypes) == 0 {
+		return true
+	}
+	for _, candidate := range config.SupportedContentTypes {
+		if candidate == contentType || strings.HasSuffix(candidate, "/*") && strings.HasPrefix(contentType, strings.TrimSuffix(candidate, "*")) {
+			return true
+		}
+	}
+	return false
+}
+func cloneParserConfig(config service.ParserConfig) service.ParserConfig {
+	config.SupportedContentTypes = append([]string(nil), config.SupportedContentTypes...)
+	config.DefaultParameters = cloneRaw(config.DefaultParameters)
+	config.EndpointURL = cloneStringPtr(config.EndpointURL)
+	if config.DeletedAt != nil {
+		v := *config.DeletedAt
+		config.DeletedAt = &v
+	}
+	return config
+}
+func cloneParserAudit(audit service.ParserConfigAudit) service.ParserConfigAudit {
+	audit.Summary = cloneRaw(audit.Summary)
+	return audit
 }
 
 func (r *MemoryRepository) CreateKnowledgeBase(ctx context.Context, input service.CreateKnowledgeBaseRecord) (service.KnowledgeBase, error) {

@@ -15,6 +15,7 @@ import { KnowledgeExperience } from '@/pages/admin/knowledge-experience'
 import { KnowledgeManagement } from '@/pages/admin/knowledge-management'
 import { MaterialManagement } from '@/pages/admin/material-management'
 import { AdminPage } from '@/pages/admin/page'
+import { ParserConfigsPage } from '@/pages/admin/parser-configs'
 import { PromptManagement } from '@/pages/admin/prompt-management'
 import { QARetrievalTestPage } from '@/pages/admin/qa-retrieval-test'
 import { QASettings } from '@/pages/admin/qa-settings'
@@ -313,10 +314,17 @@ const adminKnowledgeExperienceRoute = createRoute({
 })
 
 const adminKnowledgeConfigRoute = createRoute({
-  getParentRoute: () => adminRoute,
-  path: 'knowledge-config',
-  beforeLoad: requireAuth(knowledgeAccess),
-  component: KnowledgeConfig,
+	getParentRoute: () => adminRoute,
+	path: 'knowledge-config',
+	beforeLoad: requireAuth(knowledgeAccess),
+	component: KnowledgeConfig,
+})
+
+const adminParserConfigsRoute = createRoute({
+	getParentRoute: () => adminRoute,
+	path: 'parser-configs',
+	beforeLoad: requireAuth(qaAdminAccess),
+	component: ParserConfigsPage,
 })
 
 const adminQASettingsRoute = createRoute({
@@ -383,10 +391,11 @@ const routeTree = rootRoute.addChildren([
       adminTemplatesRoute,
       adminMaterialsRoute,
       adminPromptsRoute,
-      adminKnowledgeRoute,
-      adminKnowledgeExperienceRoute,
-      adminKnowledgeConfigRoute,
-      adminQASettingsRoute,
+			adminKnowledgeRoute,
+			adminKnowledgeExperienceRoute,
+			adminKnowledgeConfigRoute,
+			adminParserConfigsRoute,
+			adminQASettingsRoute,
       adminQARetrievalTestRoute,
       adminSettingsRoute,
       adminStatsRoute,

@@ -1,5 +1,7 @@
 package httpapi
 
+import "strings"
+
 type routeSpec struct {
 	Method            string
 	Pattern           string
@@ -29,11 +31,11 @@ var activeProxyRoutes = []routeSpec{
 	{Method: "GET", Pattern: "/api/v1/admin/model-profiles/{profileId}", Owner: "ai-gateway", OperationID: "getAdminModelProfile", DownstreamPattern: "/internal/v1/model-profiles/{profileId}"},
 	{Method: "PATCH", Pattern: "/api/v1/admin/model-profiles/{profileId}", Owner: "ai-gateway", OperationID: "updateAdminModelProfile", DownstreamPattern: "/internal/v1/model-profiles/{profileId}"},
 	{Method: "DELETE", Pattern: "/api/v1/admin/model-profiles/{profileId}", Owner: "ai-gateway", OperationID: "deleteAdminModelProfile", DownstreamPattern: "/internal/v1/model-profiles/{profileId}"},
-	{Method: "GET", Pattern: "/api/v1/admin/parser-configs", Owner: "knowledge", OperationID: "listAdminParserConfigs", NotImplemented: true},
-	{Method: "POST", Pattern: "/api/v1/admin/parser-configs", Owner: "knowledge", OperationID: "createAdminParserConfig", NotImplemented: true},
-	{Method: "GET", Pattern: "/api/v1/admin/parser-configs/{parserConfigId}", Owner: "knowledge", OperationID: "getAdminParserConfig", NotImplemented: true},
-	{Method: "PATCH", Pattern: "/api/v1/admin/parser-configs/{parserConfigId}", Owner: "knowledge", OperationID: "updateAdminParserConfig", NotImplemented: true},
-	{Method: "DELETE", Pattern: "/api/v1/admin/parser-configs/{parserConfigId}", Owner: "knowledge", OperationID: "deleteAdminParserConfig", NotImplemented: true},
+	{Method: "GET", Pattern: "/api/v1/admin/parser-configs", Owner: "knowledge", OperationID: "listAdminParserConfigs", DownstreamPattern: "/internal/v1/parser-configs"},
+	{Method: "POST", Pattern: "/api/v1/admin/parser-configs", Owner: "knowledge", OperationID: "createAdminParserConfig", DownstreamPattern: "/internal/v1/parser-configs"},
+	{Method: "GET", Pattern: "/api/v1/admin/parser-configs/{parserConfigId}", Owner: "knowledge", OperationID: "getAdminParserConfig", DownstreamPattern: "/internal/v1/parser-configs/{parserConfigId}"},
+	{Method: "PATCH", Pattern: "/api/v1/admin/parser-configs/{parserConfigId}", Owner: "knowledge", OperationID: "updateAdminParserConfig", DownstreamPattern: "/internal/v1/parser-configs/{parserConfigId}"},
+	{Method: "DELETE", Pattern: "/api/v1/admin/parser-configs/{parserConfigId}", Owner: "knowledge", OperationID: "deleteAdminParserConfig", DownstreamPattern: "/internal/v1/parser-configs/{parserConfigId}"},
 	{Method: "GET", Pattern: "/api/v1/report-types", Owner: "document", OperationID: "listReportTypes"},
 	{Method: "GET", Pattern: "/api/v1/report-templates", Owner: "document", OperationID: "listReportTemplates"},
 	{Method: "POST", Pattern: "/api/v1/report-templates", Owner: "document", OperationID: "createReportTemplate"},
@@ -106,4 +108,8 @@ var activeProxyRoutes = []routeSpec{
 
 func activeOperationCount() int {
 	return len(activeProxyRoutes) + 6
+}
+
+func (route routeSpec) requiresAdmin() bool {
+	return strings.HasPrefix(route.Pattern, "/api/v1/admin/")
 }

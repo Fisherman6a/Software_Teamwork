@@ -8,9 +8,11 @@
 
 import type {
   CreateKnowledgeBaseRequest,
+  CreateParserConfigRequest,
   CreateQAConfigVersionRequest,
   CreateQALLMConfigVersionRequest,
   KnowledgeBaseSummary,
+  ParserConfig,
   QAConfigVersion,
   QAIntentDistributionItem,
   QALLMConfigVersion,
@@ -22,11 +24,28 @@ import type {
   QARetrievalTestRunRequest,
   QATopQuery,
   UpdateKnowledgeBaseRequest,
+  UpdateParserConfigRequest,
 } from '@/lib/types'
 
 import { buildQuery, gatewayPageRequest, gatewayRequest } from './client'
 
 export { createUserSession as createUser, getCurrentUser } from './auth'
+
+export function listParserConfigs(enabled?: boolean): Promise<ParserConfig[]> {
+  return gatewayRequest<ParserConfig[]>(`/admin/parser-configs${buildQuery({ enabled })}`)
+}
+
+export function createParserConfig(input: CreateParserConfigRequest): Promise<ParserConfig> {
+  return gatewayRequest<ParserConfig>('/admin/parser-configs', { method: 'POST', body: input })
+}
+
+export function updateParserConfig(id: string, input: UpdateParserConfigRequest): Promise<ParserConfig> {
+  return gatewayRequest<ParserConfig>(`/admin/parser-configs/${encodeURIComponent(id)}`, { method: 'PATCH', body: input })
+}
+
+export function deleteParserConfig(id: string): Promise<void> {
+  return gatewayRequest<void>(`/admin/parser-configs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
 
 // =========================================================================
 // LLM Configuration

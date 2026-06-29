@@ -35,6 +35,14 @@ func (s *Server) handleProxy(route routeSpec) http.HandlerFunc {
 			s.writeNotImplemented(w, r)
 			return
 		}
+		if route.requiresAdmin() && !hasAdminRouteAccess(authContext) {
+			response.WriteError(w, http.StatusForbidden, response.ErrorDetail{
+				Code:      response.CodeForbidden,
+				Message:   "forbidden",
+				RequestID: middleware.RequestIDFromContext(r.Context()),
+			})
+			return
+		}
 
 		baseURL := s.ownerBaseURLs[route.Owner]
 		if baseURL == nil {
