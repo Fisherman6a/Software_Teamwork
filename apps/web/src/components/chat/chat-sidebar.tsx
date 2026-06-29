@@ -13,19 +13,19 @@ import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 're
 
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import type { ConversationListItem } from '@/lib/types'
+import type { QASessionListItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 type ChatSidebarProps = {
-  sessions: ConversationListItem[]
+  sessions: QASessionListItem[]
   activeId: string
   isLoading: boolean
   fetchError: string | null
   onRetryFetch: () => void
-  onSelect: (id: string) => void
+  onSelect: (sessionId: string) => void
   onCreate: () => void
-  onDelete: (id: string) => void
-  onRename: (id: string, title: string) => void
+  onDelete: (sessionId: string) => void
+  onRename: (sessionId: string, title: string) => void
 }
 
 export default function ChatSidebar({
@@ -53,8 +53,8 @@ export default function ChatSidebar({
 
   // ── Edit helpers ──
 
-  const startEdit = useCallback((id: string, title: string) => {
-    setEditingId(id)
+  const startEdit = useCallback((sessionId: string, title: string) => {
+    setEditingId(sessionId)
     setEditTitle(title)
   }, [])
 
@@ -87,9 +87,9 @@ export default function ChatSidebar({
   // ── Delete with confirmation ──
 
   const handleDelete = useCallback(
-    (id: string) => {
+    (sessionId: string) => {
       if (window.confirm('确定删除该会话？')) {
-        onDelete(id)
+        onDelete(sessionId)
       }
     },
     [onDelete],
@@ -141,19 +141,19 @@ export default function ChatSidebar({
 
           {/* Session items */}
           {sessions.map((sess) => {
-            const isEditing = editingId === sess.id
-            const isActive = sess.id === activeId
+            const isEditing = editingId === sess.sessionId
+            const isActive = sess.sessionId === activeId
 
             return (
               <button
-                key={sess.id}
+                key={sess.sessionId}
                 type="button"
                 className={cn(
                   'group relative flex w-full flex-col items-start gap-0.5 rounded-md px-3 py-2.5 text-left transition-colors hover:bg-primary/5',
                   isActive && 'bg-primary/10 text-primary border-l-[3px] border-l-primary',
                 )}
-                onClick={() => onSelect(sess.id)}
-                onDoubleClick={() => startEdit(sess.id, sess.title)}
+                onClick={() => onSelect(sess.sessionId)}
+                onDoubleClick={() => startEdit(sess.sessionId, sess.title ?? '')}
               >
                 {isEditing ? (
                   /* ── Inline rename ── */
@@ -203,10 +203,12 @@ export default function ChatSidebar({
                 ) : (
                   /* ── Normal display ── */
                   <>
-                    <span className="w-full truncate pr-14 text-sm font-medium">{sess.title}</span>
+                    <span className="w-full truncate pr-14 text-sm font-medium">
+                      {sess.title ?? '新对话'}
+                    </span>
                     <span className="text-xs text-muted-foreground">
                       <MessageSquare className="mr-1 inline-block size-3" />
-                      {sess.message_count} 条消息
+                      {sess.messageCount ?? 0} 条消息
                     </span>
 
                     {/* Action buttons — visible on row hover */}
@@ -218,13 +220,13 @@ export default function ChatSidebar({
                         title="重命名"
                         onClick={(e) => {
                           e.stopPropagation()
-                          startEdit(sess.id, sess.title)
+                          startEdit(sess.sessionId, sess.title ?? '')
                         }}
                         tabIndex={0}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.stopPropagation()
-                            startEdit(sess.id, sess.title)
+                            startEdit(sess.sessionId, sess.title ?? '')
                           }
                         }}
                       >
@@ -238,13 +240,13 @@ export default function ChatSidebar({
                         title="删除对话"
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleDelete(sess.id)
+                          handleDelete(sess.sessionId)
                         }}
                         tabIndex={0}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
                             e.stopPropagation()
-                            handleDelete(sess.id)
+                            handleDelete(sess.sessionId)
                           }
                         }}
                       >
