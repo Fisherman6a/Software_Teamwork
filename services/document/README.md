@@ -16,8 +16,8 @@ Required environment variables:
 
 | Variable | Example | Purpose |
 | --- | --- | --- |
-| `DOCUMENT_DATABASE_URL` | `postgres://document:document@localhost:5432/document?sslmode=disable` | PostgreSQL connection string. |
-| `DOCUMENT_REDIS_ADDR` | `localhost:6379` | Redis/asynq queue endpoint. Redis is not the durable job state authority. |
+| `DOCUMENT_DATABASE_URL` | `postgres://document_app:document_app_dev@localhost:5435/document_system?sslmode=disable` | PostgreSQL connection string. |
+| `DOCUMENT_REDIS_ADDR` | `localhost:6380` | Redis/asynq queue endpoint. Redis is not the durable job state authority. |
 | `DOCUMENT_FILE_SERVICE_URL` | `http://localhost:8082` | Internal file service base URL for later template/material/report-file bytes. |
 | `DOCUMENT_AI_GATEWAY_URL` | `http://localhost:8086` | Internal AI Gateway base URL for later generation calls. |
 | `DOCUMENT_AI_GATEWAY_PROFILE_ID` | `default-chat` | AI Gateway profile reference used by report settings/default generation. |
@@ -33,9 +33,21 @@ Optional variables:
 
 ## Run
 
+Docker Compose starts PostgreSQL, Redis, applies goose migrations, and then
+starts the document service. Default values are embedded in `docker-compose.yml`;
+copy `.env.example` to `.env` only when local ports or downstream service URLs
+need to be changed:
+
 ```powershell
-$env:DOCUMENT_DATABASE_URL = "postgres://document:document@localhost:5432/document?sslmode=disable"
-$env:DOCUMENT_REDIS_ADDR = "localhost:6379"
+# Optional: Copy-Item .env.example .env
+docker compose up --build
+```
+
+For a host process pointed at the same Compose dependencies:
+
+```powershell
+$env:DOCUMENT_DATABASE_URL = "postgres://document_app:document_app_dev@localhost:5435/document_system?sslmode=disable"
+$env:DOCUMENT_REDIS_ADDR = "localhost:6380"
 $env:DOCUMENT_FILE_SERVICE_URL = "http://localhost:8082"
 $env:DOCUMENT_AI_GATEWAY_URL = "http://localhost:8086"
 $env:DOCUMENT_AI_GATEWAY_PROFILE_ID = "default-chat"
