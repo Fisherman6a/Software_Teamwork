@@ -569,9 +569,14 @@ func writeError(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func writeOpenAIError(w http.ResponseWriter, status int, message, errorType, code string) {
+	writeOpenAIErrorWithParam(w, status, message, errorType, "", code)
+}
+
+func writeOpenAIErrorWithParam(w http.ResponseWriter, status int, message, errorType, param, code string) {
 	writeJSON(w, status, openAIErrorEnvelope{Error: openAIErrorBody{
 		Message: message,
 		Type:    errorType,
+		Param:   strings.TrimSpace(param),
 		Code:    code,
 	}})
 }
@@ -603,15 +608,6 @@ func openAIErrorParam(appErr *service.AppError) string {
 	}
 	sort.Strings(keys)
 	return keys[0]
-}
-
-func writeOpenAIErrorWithParam(w http.ResponseWriter, status int, message, errorType, param, code string) {
-	writeJSON(w, status, openAIErrorEnvelope{Error: openAIErrorBody{
-		Message: message,
-		Type:    errorType,
-		Param:   param,
-		Code:    code,
-	}})
 }
 
 func writeRawJSON(w http.ResponseWriter, status int, body json.RawMessage) {

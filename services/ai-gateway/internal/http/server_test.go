@@ -181,6 +181,40 @@ func TestCreateEmbeddingsReturnsOpenAIShapeAndDoesNotLeakSecrets(t *testing.T) {
 	}
 }
 
+func TestCreateEmbeddingsRejectsProfileModelMismatchBeforeProvider(t *testing.T) {
+	called := false
+	invoker := &fakeModelInvoker{
+		embeddingFn: func(service.ProviderEmbeddingRequest) (service.EmbeddingResponse, service.ProviderCallMetadata, error) {
+			called = true
+			return service.EmbeddingResponse{}, service.ProviderCallMetadata{}, nil
+		},
+	}
+	server := newTestServerWithInvoker(t, invoker)
+	createBody := `{"name":"default-embedding","purpose":"embedding","provider":"siliconflow","baseUrl":"https://api.siliconflow.cn/v1","model":"BAAI/bge-m3","apiKey":"sk-secret-value","enabled":true,"isDefault":true,"dimensions":1024}`
+	createReq := authedRequest(http.MethodPost, "/internal/v1/model-profiles", strings.NewReader(createBody))
+	createRec := httptest.NewRecorder()
+	server.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("create profile status = %d, body = %s", createRec.Code, createRec.Body.String())
+	}
+
+	req := authedRequest(http.MethodPost, "/internal/v1/embeddings", strings.NewReader(`{"model":"other-embedding-model","input":["text"]}`))
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	for _, want := range []string{`"type":"invalid_request_error"`, `"code":"validation_error"`, `"param":"model"`} {
+		if !bytes.Contains(rec.Body.Bytes(), []byte(want)) {
+			t.Fatalf("body = %s, want %s", rec.Body.String(), want)
+		}
+	}
+	if called {
+		t.Fatalf("provider was called for mismatched embedding model")
+	}
+}
+
 func TestCreateRerankingReturnsDocumentIDsWithoutDocumentText(t *testing.T) {
 	invoker := &fakeModelInvoker{
 		rerankingFn: func(service.ProviderRerankingRequest) (service.RerankingResponse, service.ProviderCallMetadata, error) {

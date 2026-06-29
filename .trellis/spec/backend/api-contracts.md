@@ -371,6 +371,7 @@ qa owns messages, MCP tool calls, citations, and public SSE event shape
 
 - Embedding requests use OpenAI-compatible snake_case fields: `model`, optional `profile_id`, `input[]`, optional `dimensions`, optional `encoding_format`, and optional `user`.
 - Reranking requests use the project OpenAI-style extension: `model`, optional `profile_id`, `query`, `documents[]` with `id` and `text`, optional `top_n`, and optional low-sensitive `metadata`.
+- After profile resolution, the request `model` must exactly match the resolved `model_profiles.model`. AI Gateway sends `profile.Model` to the provider and records `profile.Model` in invocation summaries; callers cannot use a profile's credentials to invoke arbitrary provider models.
 - Model invocation success and error responses must not use the project `{ data, requestId }` envelope. Request IDs remain in `X-Request-Id`.
 - Provider credentials are decrypted only inside the model invocation boundary and sent as provider bearer tokens. They must not appear in responses, ordinary logs, invocation summaries, usage aggregates, metrics labels, or test failure messages.
 - `provider_invocations` may store profile ID, provider, model, operation, status, provider status code, token usage, input count, dimensions/topN, duration, attempt count, normalized error code/type, caller service, external user ID, and timestamps.
@@ -387,6 +388,7 @@ qa owns messages, MCP tool calls, citations, and public SSE event shape
 | Missing or unknown caller service | `401`/`403` OpenAI-style auth/permission error |
 | Missing `model`, empty `input`, empty `query`, empty `documents`, invalid `dimensions`, or invalid `top_n` | `400` OpenAI-style `invalid_request_error`, code `validation_error` |
 | `profile_id` references the wrong purpose, such as chat profile for embeddings | `400` OpenAI-style `invalid_request_error`, code `validation_error` |
+| Request `model` does not match the resolved profile's configured model | `400` OpenAI-style `invalid_request_error`, code `validation_error`, param `model` |
 | Missing explicit profile or missing enabled default profile | `404` OpenAI-style `not_found_error`, code `not_found` |
 | Profile has no active credential or credential cannot be decrypted | `502` OpenAI-style `upstream_error`, code `dependency_error` |
 | Provider returns missing, duplicate, out-of-range, or wrong-order embedding indexes | `502` OpenAI-style `upstream_error`, code `dependency_error` |
@@ -397,14 +399,14 @@ qa owns messages, MCP tool calls, citations, and public SSE event shape
 
 ### 5. Good/Base/Bad Cases
 
-- Good: handler decodes OpenAI-style JSON, service resolves and validates an enabled purpose-matched profile, decrypts only the active credential, provider adapter calls a fake-testable HTTP endpoint, service records a secret-safe invocation summary, and the response body remains OpenAI-compatible.
+- Good: handler decodes OpenAI-style JSON, service resolves and validates an enabled purpose-matched profile and matching model, decrypts only the active credential, provider adapter calls a fake-testable HTTP endpoint with `profile.Model`, service records a secret-safe invocation summary, and the response body remains OpenAI-compatible.
 - Base: a fake provider test asserts embeddings pass batch input and dimensions, rerank passes text-only documents with `return_documents=false`, and provider errors never include raw provider bodies in returned errors.
 - Bad: returning project envelopes from model invocation routes, writing raw `input` or `documents[].text` to `provider_invocations`, logging provider bearer tokens, using a chat profile for embeddings/rerank, or letting Knowledge/QA call providers directly.
 
 ### 6. Tests Required
 
 - Handler tests for auth failure, validation error shape, successful embedding response shape, successful reranking response shape, and no API key/request text leakage.
-- Service tests for default profile resolution, explicit wrong-purpose profile rejection, dimensions/topN resolution, provider error normalization, embedding count/index validation, rerank index/document mapping validation, invocation status/error fields, and secret-safe summaries.
+- Service tests for default profile resolution, explicit wrong-purpose profile rejection, request model/profile model mismatch rejection, provider model fixed to `profile.Model`, dimensions/topN resolution, provider error normalization, embedding count/index validation, rerank index/document mapping validation, invocation status/error fields, and secret-safe summaries.
 - Provider client tests with fake HTTP servers for request path, bearer token placement, batch input, dimensions, rerank `top_n`, `return_documents=false`, rerank `data[]` index/document mapping, provider error mapping, and malformed provider response handling.
 - Repository/migration validation should be added when a local PostgreSQL test harness is available; until then, migrations must be reviewed for explicit columns, no raw payload columns, safe indexes, and goose `-- +goose Up`.
 - Required checks from `services/ai-gateway`: `go test ./...`, `go build ./cmd/server`, and `git diff --check`.
@@ -426,6 +428,21 @@ knowledge -> ai-gateway /internal/v1/embeddings
 ai-gateway resolves an embedding profile and calls provider /embeddings
 provider_invocations stores counts, dimensions, usage, status, and normalized error only
 knowledge owns Qdrant persistence and chunk state
+```
+
+#### Wrong
+
+```text
+knowledge -> ai-gateway /internal/v1/embeddings with profile_id=mp_bge_m3 and model=other-expensive-model
+ai-gateway forwards model=other-expensive-model using the profile credential
+```
+
+#### Correct
+
+```text
+knowledge -> ai-gateway /internal/v1/embeddings with profile_id=mp_bge_m3 and model=BAAI/bge-m3
+ai-gateway verifies request model matches profile.model before decrypting credentials
+ai-gateway forwards model=profile.model to the provider
 ```
 
 ## Scenario: Missing Downstream API Contracts

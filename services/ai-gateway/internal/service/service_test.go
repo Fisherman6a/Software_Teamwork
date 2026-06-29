@@ -217,6 +217,9 @@ func TestCreateEmbeddingsUsesDefaultProfileAndRecordsSafeSummary(t *testing.T) {
 	if invoker.embeddingReq.Dimensions == nil || *invoker.embeddingReq.Dimensions != dimensions {
 		t.Fatalf("provider dimensions = %#v, want %d", invoker.embeddingReq.Dimensions, dimensions)
 	}
+	if invoker.embeddingReq.Model != "BAAI/bge-m3" {
+		t.Fatalf("provider model = %q, want profile model", invoker.embeddingReq.Model)
+	}
 	if invoker.embeddingReq.APIKey != "sk-secret-value" {
 		t.Fatalf("provider API key was not decrypted")
 	}
@@ -226,6 +229,9 @@ func TestCreateEmbeddingsUsesDefaultProfileAndRecordsSafeSummary(t *testing.T) {
 	invocation := repo.invocations[0]
 	if invocation.Operation != OperationEmbedding || invocation.Status != InvocationSucceeded {
 		t.Fatalf("invocation = %#v, want successful embedding", invocation)
+	}
+	if invocation.Model != "BAAI/bge-m3" {
+		t.Fatalf("invocation model = %q, want profile model", invocation.Model)
 	}
 	if invocation.InputCount == nil || *invocation.InputCount != 1 {
 		t.Fatalf("InputCount = %#v, want 1", invocation.InputCount)
@@ -238,6 +244,47 @@ func TestCreateEmbeddingsUsesDefaultProfileAndRecordsSafeSummary(t *testing.T) {
 		if bytes.Contains(body, []byte(forbidden)) {
 			t.Fatalf("invocation leaked %q: %s", forbidden, body)
 		}
+	}
+}
+
+func TestCreateEmbeddingsRejectsModelOutsideDefaultProfile(t *testing.T) {
+	repo := newMemoryRepository()
+	called := false
+	invoker := &fakeInvoker{
+		embeddingFn: func(context.Context, ProviderEmbeddingRequest) (EmbeddingResponse, ProviderCallMetadata, error) {
+			called = true
+			return EmbeddingResponse{}, ProviderCallMetadata{}, nil
+		},
+	}
+	svc := New(repo, mustEncryptor(t), 60000, invoker)
+	dimensions := 1024
+	isDefault := true
+	if _, err := svc.CreateModelProfile(context.Background(), RequestContext{}, CreateModelProfileInput{
+		Name:       "default-embedding",
+		Purpose:    PurposeEmbedding,
+		Provider:   ProviderSiliconFlow,
+		BaseURL:    "https://api.siliconflow.cn/v1",
+		Model:      "BAAI/bge-m3",
+		APIKey:     "sk-secret-value",
+		IsDefault:  &isDefault,
+		Dimensions: &dimensions,
+	}); err != nil {
+		t.Fatalf("CreateModelProfile() error = %v", err)
+	}
+
+	_, err := svc.CreateEmbeddings(context.Background(), RequestContext{RequestID: "req-model", CallerService: "knowledge"}, EmbeddingInput{
+		Model: "other-embedding-model",
+		Input: []string{"text"},
+	})
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeValidation || appErr.Fields["model"] == "" {
+		t.Fatalf("CreateEmbeddings() error = %#v, want model validation error", err)
+	}
+	if called {
+		t.Fatalf("provider was called for mismatched embedding model")
+	}
+	if len(repo.invocations) != 0 {
+		t.Fatalf("invocations = %d, want 0", len(repo.invocations))
 	}
 }
 
@@ -304,7 +351,7 @@ func TestCreateEmbeddingsRejectsInvalidProviderIndexes(t *testing.T) {
 				t.Fatalf("invocations = %d, want 1", len(repo.invocations))
 			}
 			invocation := repo.invocations[0]
-			if invocation.Status != InvocationFailed || invocation.NormalizedErrorCode == nil || *invocation.NormalizedErrorCode != CodeDependency {
+			if invocation.Status != InvocationFailed || invocation.NormalizedErrorCode != string(CodeDependency) {
 				t.Fatalf("invocation = %#v, want failed dependency_error summary", invocation)
 			}
 		})
@@ -381,6 +428,9 @@ func TestCreateRerankingUsesDefaultTopNAndRecordsSafeSummary(t *testing.T) {
 	if invoker.rerankingReq.TopN == nil || *invoker.rerankingReq.TopN != topN {
 		t.Fatalf("provider topN = %#v, want %d", invoker.rerankingReq.TopN, topN)
 	}
+	if invoker.rerankingReq.Model != "BAAI/bge-reranker-v2-m3" {
+		t.Fatalf("provider model = %q, want profile model", invoker.rerankingReq.Model)
+	}
 	if len(repo.invocations) != 1 {
 		t.Fatalf("invocations = %d, want 1", len(repo.invocations))
 	}
@@ -388,11 +438,58 @@ func TestCreateRerankingUsesDefaultTopNAndRecordsSafeSummary(t *testing.T) {
 	if invocation.Operation != OperationReranking || invocation.RerankTopN == nil || *invocation.RerankTopN != topN {
 		t.Fatalf("invocation = %#v, want reranking topN %d", invocation, topN)
 	}
+	if invocation.Model != "BAAI/bge-reranker-v2-m3" {
+		t.Fatalf("invocation model = %q, want profile model", invocation.Model)
+	}
 	body, _ := json.Marshal(invocation)
 	for _, forbidden := range []string{"sensitive user query", "first sensitive document", "second sensitive document", "sk-secret-value"} {
 		if bytes.Contains(body, []byte(forbidden)) {
 			t.Fatalf("invocation leaked %q: %s", forbidden, body)
 		}
+	}
+}
+
+func TestCreateRerankingRejectsModelOutsideExplicitProfile(t *testing.T) {
+	repo := newMemoryRepository()
+	called := false
+	invoker := &fakeInvoker{
+		rerankingFn: func(context.Context, ProviderRerankingRequest) (RerankingResponse, ProviderCallMetadata, error) {
+			called = true
+			return RerankingResponse{}, ProviderCallMetadata{}, nil
+		},
+	}
+	svc := New(repo, mustEncryptor(t), 60000, invoker)
+	topN := 2
+	profile, err := svc.CreateModelProfile(context.Background(), RequestContext{}, CreateModelProfileInput{
+		Name:     "explicit-rerank",
+		Purpose:  PurposeRerank,
+		Provider: ProviderSiliconFlow,
+		BaseURL:  "https://api.siliconflow.cn/v1",
+		Model:    "BAAI/bge-reranker-v2-m3",
+		APIKey:   "sk-secret-value",
+		TopN:     &topN,
+	})
+	if err != nil {
+		t.Fatalf("CreateModelProfile() error = %v", err)
+	}
+
+	_, err = svc.CreateReranking(context.Background(), RequestContext{RequestID: "req-rerank-model", CallerService: "knowledge"}, RerankingInput{
+		Model:     "other-rerank-model",
+		ProfileID: profile.ID,
+		Query:     "query",
+		Documents: []RerankingDocument{
+			{ID: "chunk-1", Text: "first document"},
+		},
+	})
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeValidation || appErr.Fields["model"] == "" {
+		t.Fatalf("CreateReranking() error = %#v, want model validation error", err)
+	}
+	if called {
+		t.Fatalf("provider was called for mismatched rerank model")
+	}
+	if len(repo.invocations) != 0 {
+		t.Fatalf("invocations = %d, want 0", len(repo.invocations))
 	}
 }
 
@@ -462,7 +559,7 @@ func TestCreateRerankingRejectsInvalidProviderDocumentMapping(t *testing.T) {
 				t.Fatalf("invocations = %d, want 1", len(repo.invocations))
 			}
 			invocation := repo.invocations[0]
-			if invocation.Status != InvocationFailed || invocation.NormalizedErrorCode == nil || *invocation.NormalizedErrorCode != CodeDependency {
+			if invocation.Status != InvocationFailed || invocation.NormalizedErrorCode != string(CodeDependency) {
 				t.Fatalf("invocation = %#v, want failed dependency_error summary", invocation)
 			}
 		})
