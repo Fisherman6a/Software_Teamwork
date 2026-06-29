@@ -444,6 +444,15 @@ func TestAskKeepsCurrentRunWhenFailureFinalizationConflicts(t *testing.T) {
 	if result.ResponseRun.Status != "cancelled" {
 		t.Fatalf("response run=%+v, want cancelled state", result.ResponseRun)
 	}
+	if len(repository.savedSteps) == 0 {
+		t.Fatal("expected reasoning steps to be saved after finalization conflict")
+	}
+	if len(repository.savedEvents) < 3 {
+		t.Fatalf("saved events=%+v, want replayable cancellation events", repository.savedEvents)
+	}
+	if repository.savedEvents[len(repository.savedEvents)-1].EventType != "error" {
+		t.Fatalf("last saved event=%+v, want error event", repository.savedEvents[len(repository.savedEvents)-1])
+	}
 }
 
 func TestAskPersistsTimeoutReason(t *testing.T) {

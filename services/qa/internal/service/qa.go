@@ -477,6 +477,9 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 					}
 					finalized = loaded
 				}
+				if saveErr := s.saveReplayRecords(cleanupCtx, userID, run.ID, assistantMessage.ID, steps, events); saveErr != nil {
+					return AskResult{}, NewError(CodeDependency, "answer state persistence failed", fmt.Errorf("save replay records after finalization conflict: %w", saveErr))
+				}
 				run = finalized
 				return AskResult{UserMessage: userMessage, AssistantMessage: assistantMessage, ResponseRun: run, Citations: []any{}, ReasoningSteps: steps}, NewError(CodeDependency, publicMessage, runErr)
 			}
@@ -502,6 +505,16 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 		return AskResult{}, fmt.Errorf("finalize response run: %w", err)
 	}
 	return AskResult{UserMessage: userMessage, AssistantMessage: assistantMessage, ResponseRun: run, Citations: []any{}, ReasoningSteps: steps}, nil
+}
+
+func (s *QAService) saveReplayRecords(ctx context.Context, userID, runID, assistantMessageID string, steps []ReasoningStep, events []StreamEvent) error {
+	if err := s.repository.SaveReasoningSteps(ctx, userID, assistantMessageID, steps); err != nil {
+		return fmt.Errorf("save reasoning steps: %w", err)
+	}
+	if err := s.repository.SaveStreamEvents(ctx, userID, runID, events); err != nil {
+		return fmt.Errorf("save stream events: %w", err)
+	}
+	return nil
 }
 
 func shouldRecordFailedModelInvocation(reason string, started map[int]time.Time, completed map[int]struct{}) bool {
