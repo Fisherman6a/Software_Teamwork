@@ -82,7 +82,7 @@
 | 后端语言 | Go | `go 1.25` | 已固定 | 项目 Go 服务基线固定为 1.25；已落地服务 module 和 Dockerfile 应保持一致。 |
 | 后端 HTTP 路由 | Go `net/http` / `http.ServeMux` | Go `1.25` 标准库 | 已固定 | 不默认引入 `gin`/`chi`。 |
 | 后端日志 | Go `log/slog` | Go `1.25` 标准库 | 已固定 | 生产默认 JSON 结构化日志。 |
-| PostgreSQL 访问 | `pgx/v5` + `sqlc` 形态 | 目标 `pgx/v5@v5.7.6`；Knowledge `sqlc v1.29.0` | 已固定目标，部分实现待迁移 | 新增和迁移后的 Go 服务统一使用 `pgx/v5`。Auth 当前仍用 `pgx/v4`，需单独迁移；Knowledge 查询包已由 `sqlc v1.29.0` 生成，其他服务生成策略仍待统一。 |
+| PostgreSQL 访问 | `pgx` + `sqlc` | `pgx/v4@v4.18.3`、`pgx/v5@v5.7.6`；sqlc 生成版本按服务记录 | 部分已固定 | Auth 仍用 `pgx/v4`；Knowledge、QA、Document、AI Gateway 用 `pgx/v5`，新增和迁移后的服务默认使用 `pgx/v5`。Knowledge/QA 生成包为 `sqlc v1.29.0`，Auth/Document 生成包为 `sqlc v1.31.1`；后续按任务统一生成策略。 |
 | ORM | 不使用 ORM | N/A | 已固定 | 禁止默认引入 GORM/ent 等 ORM。 |
 | 数据库迁移 | `goose` | `v3.27.1` | 已固定 | 使用 `pressly/goose` CLI 或库执行服务内 migration；该版本要求 Go 1.25+。 |
 | 关系数据库 | PostgreSQL | `postgres:16-alpine` | 已固定 | 当前本地 Compose 固定在 16 Alpine。 |
@@ -150,9 +150,9 @@
 | 组件 | 当前版本 | 来源 | 备注 |
 | --- | --- | --- | --- |
 | Go toolchain | `1.25` | 技术选型基线 | Go 服务统一使用 1.25；`services/*/go.mod` 和 Go build Dockerfile 应保持一致。 |
-| `github.com/jackc/pgx/v5` | `v5.7.6` | `services/file/go.mod`、`services/knowledge/go.mod`、`services/qa/go.mod`、`services/document/go.mod`、`services/ai-gateway/go.mod` | PostgreSQL client 目标基线；新增服务必须使用。 |
-| `github.com/jackc/pgx/v4` | `v4.18.3` | `services/auth/go.mod` | 仅记录 Auth 当前待迁移事实；不得作为新增服务基线。 |
-| `sqlc` CLI | `v1.29.0` | `services/knowledge/internal/repository/sqlc/*.go` generated header；`services/knowledge/README.md` | Knowledge 查询包按该版本生成；变更 SQL 后使用 README 中的 pinned `go run` 命令重新生成。 |
+| `github.com/jackc/pgx/v4` | `v4.18.3` | `services/auth/go.mod` | Auth 当前使用。 |
+| `github.com/jackc/pgx/v5` | `v5.7.6` | `services/file/go.mod`、`services/knowledge/go.mod`、`services/qa/go.mod`、`services/document/go.mod`、`services/ai-gateway/go.mod` | PostgreSQL client 目标基线；File、Knowledge、QA、Document、AI Gateway 当前使用，新增服务必须使用。 |
+| `sqlc` generated packages | `v1.29.0`、`v1.31.1` | Generated headers under `services/*/internal/repository/sqlc/*.go` | Knowledge/QA 当前由 `sqlc v1.29.0` 生成；Auth/Document 当前由 `sqlc v1.31.1` 生成。变更某服务 SQL 后，按该服务 README 或 issue 要求使用 pinned 版本重新生成。 |
 | `github.com/pressly/goose/v3` | `v3.27.1` | 技术选型基线 | 迁移工具版本固定；可用 CLI 或库方式接入。 |
 | PostgreSQL | `16-alpine` | `services/qa/docker-compose.yml`、`services/qa/docker-compose.db.yml`、`services/document/docker-compose.yml` | 本地开发数据库。 |
 | Redis | `7-alpine` | `services/qa/docker-compose.yml` | 本地队列、缓存、短期协调依赖。 |
@@ -185,7 +185,7 @@
 
 | 领域 | 备选 1 | 备选 2 | 备选 3 | 当前决定 | 版本状态 |
 | --- | --- | --- | --- | --- | --- |
-| 数据库访问 | `pgx` + 手写 SQL | `pgx/v5` + `sqlc` | GORM/ent ORM | `pgx/v5` + `sqlc` | `pgx/v5@v5.7.6` 已固定为目标基线；Knowledge 使用 `sqlc v1.29.0`，其他数据库服务逐步对齐 |
+| 数据库访问 | `pgx` + 手写 SQL | `pgx` + `sqlc` | GORM/ent ORM | `pgx` + `sqlc` | `pgx/v5@v5.7.6` 已固定为目标基线；Knowledge/QA 使用 `sqlc v1.29.0`，Auth/Document 使用 `sqlc v1.31.1`，全仓 sqlc CLI 版本仍需后续统一 |
 | 数据库迁移 | `goose` | `golang-migrate` | Atlas | `goose` | `goose@v3.27.1` 已固定 |
 | 日志 | `slog` | `zap` | `zerolog` | `slog` | Go `1.25` 标准库 |
 | HTTP 路由 | 标准库 `ServeMux` | `chi` | `gin` | 标准库 `ServeMux` | Go `1.25` 标准库 |
@@ -214,8 +214,8 @@ services/<service>/
 - 事务由 service/use-case 层发起；repository 接收 `pgx.Tx` 或抽象后的 querier。
 - 查询必须显式列名，不使用 `SELECT *`。
 - 用户输入只能通过参数绑定传入 SQL。
-- PostgreSQL client 目标基线为 `pgx/v5@v5.7.6`。新增服务和迁移后的服务必须使用 `github.com/jackc/pgx/v5`；Auth 当前残留的 `pgx/v4@v4.18.3` 只作为待迁移事实记录，不作为可复用基线。
-- Knowledge 查询包使用 `sqlc v1.29.0` 生成，变更 Knowledge SQL 后按 `services/knowledge/README.md` 中的 pinned `go run` 命令重新生成；其他服务按任务同步固定生成策略。
+- 当前仓库同时存在 `pgx/v4@v4.18.3` 和 `pgx/v5@v5.7.6`。Auth 仍使用 `pgx/v4`；Knowledge、QA、Document、AI Gateway 使用 `pgx/v5`。新增服务和迁移后的服务必须使用 `github.com/jackc/pgx/v5`，不得再引入第三种数据库访问版本。
+- 当前已生成的 sqlc 包仍存在 `v1.29.0` 和 `v1.31.1` 两个版本；新增或重生成某服务查询包时，必须在对应服务 README 或 issue 中固定命令并同步本文。变更 Knowledge SQL 后按 `services/knowledge/README.md` 中的 pinned `go run` 命令重新生成。
 
 ### goose 迁移
 
