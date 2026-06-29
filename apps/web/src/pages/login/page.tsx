@@ -3,7 +3,8 @@ import { Loader2, LogIn, UserPlus } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { z } from 'zod'
 
-import { ApiError } from '@/api/client'
+import { apiClient, ApiError } from '@/api/client'
+import type { UserSummary } from '@/lib/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/stores/auth-store'
@@ -136,6 +137,23 @@ export function LoginPage() {
             {mode === 'login' ? '创建账号' : '返回登录'}
           </button>
         </div>
+        <button
+          type="button"
+          className="mt-4 w-full rounded-lg border border-dashed border-border py-2 text-xs text-muted-foreground transition-colors hover:bg-accent"
+          onClick={() => {
+            apiClient.setToken('dev-token-bypass')
+            useAuthStore.setState({
+              accessToken: 'dev-token-bypass',
+              error: null,
+              status: 'authenticated',
+              user: { id: 'dev', username: '开发者', roles: ['system:admin'], permissions: ['qa:use','report:read','report:write','knowledge:read','knowledge:write','document:upload','system:admin','admin:model-profile:write','admin:parser-config:write'] } as UserSummary,
+              userName: '开发者',
+            })
+            void router.navigate({ to: '/' })
+          }}
+        >
+          跳过登录（开发模式）
+        </button>
       </section>
     </main>
   )

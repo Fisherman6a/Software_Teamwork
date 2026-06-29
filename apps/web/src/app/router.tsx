@@ -5,10 +5,12 @@ import {
   Outlet,
   redirect,
   useNavigate,
-  useParams,
+  useSearch,
 } from '@tanstack/react-router'
 
 import { AppLayout } from '@/layouts/app-layout'
+import type { PermissionRequirement } from '@/lib/permissions'
+import { canAccess } from '@/lib/permissions'
 import { KnowledgeConfig } from '@/pages/admin/knowledge-config'
 import { KnowledgeManagement } from '@/pages/admin/knowledge-management'
 import { AdminPage } from '@/pages/admin/page'
@@ -17,9 +19,11 @@ import { QASettings } from '@/pages/admin/qa-settings'
 import { StatsOverviewPage } from '@/pages/admin/stats-overview'
 import { StyleManagement } from '@/pages/admin/style-management'
 import { SystemSettings } from '@/pages/admin/system-settings'
+import { ForbiddenPage } from '@/pages/auth/forbidden'
 import { KnowledgeChunksPage } from '@/pages/knowledge/chunks/page'
 import { KnowledgeDocumentsPage } from '@/pages/knowledge/documents/page'
 import { KnowledgeSearchPage } from '@/pages/knowledge/search/page'
+import { LoginPage } from '@/pages/login/page'
 import { ChatPage } from '@/pages/qa/chat/page'
 import { ReportGeneratePage } from '@/pages/reports/generate/page'
 import { ReportRecordsPage } from '@/pages/reports/records/page'
@@ -110,7 +114,7 @@ async function redirectToAdminHome() {
   }
 
   if (canAccess(store.user, qaAdminAccess)) {
-    throw redirect({ to: '/admin/prompts' })
+    throw redirect({ to: '/admin/qa-settings' })
   }
 
   throw redirect({ to: '/forbidden' })
@@ -169,8 +173,6 @@ const authenticatedRoute = createRoute({
     </AppLayout>
   ),
 })
-
-// ── Child routes ────────────────────────────────────────────
 
 const indexRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
@@ -258,6 +260,75 @@ const adminKnowledgeConfigRoute = createRoute({
   component: KnowledgeConfig,
 })
 
+// ── Knowledge sub-pages ──
+
+interface AdminKnowledgeDocumentsSearch {
+  knowledgeBaseId?: string
+}
+
+function AdminKnowledgeDocumentsPage() {
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as AdminKnowledgeDocumentsSearch
+
+  return (
+    <KnowledgeDocumentsPage
+      knowledgeBaseId={search.knowledgeBaseId}
+      onNavigateChunks={(documentId: string) => {
+        void navigate({
+          to: '/admin/knowledge/chunks',
+          search: { documentId },
+        })
+      }}
+    />
+  )
+}
+
+const adminKnowledgeDocumentsRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: 'knowledge/documents',
+  beforeLoad: requireAuth(knowledgeAccess),
+  component: AdminKnowledgeDocumentsPage,
+  validateSearch: (search: Record<string, unknown>): AdminKnowledgeDocumentsSearch => ({
+    knowledgeBaseId: typeof search.knowledgeBaseId === 'string' ? search.knowledgeBaseId : undefined,
+  }),
+})
+
+const adminKnowledgeSearchRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: 'knowledge/search',
+  beforeLoad: requireAuth(knowledgeAccess),
+  component: KnowledgeSearchPage,
+})
+
+interface AdminKnowledgeChunksSearch {
+  documentId: string
+}
+
+function AdminKnowledgeChunksPage() {
+  const navigate = useNavigate()
+  const search = useSearch({ strict: false }) as AdminKnowledgeChunksSearch
+
+  return (
+    <KnowledgeChunksPage
+      documentId={search.documentId}
+      onNavigateBack={() => {
+        void navigate({ to: '/admin/knowledge/documents' })
+      }}
+    />
+  )
+}
+
+const adminKnowledgeChunksRoute = createRoute({
+  getParentRoute: () => adminRoute,
+  path: 'knowledge/chunks',
+  beforeLoad: requireAuth(knowledgeAccess),
+  component: AdminKnowledgeChunksPage,
+  validateSearch: (search: Record<string, unknown>): AdminKnowledgeChunksSearch => {
+    const documentId = typeof search.documentId === 'string' ? search.documentId : ''
+    return { documentId }
+  },
+})
+
 const adminQASettingsRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'qa-settings',
@@ -300,92 +371,33 @@ const adminReportTemplatesRoute = createRoute({
   component: ReportTemplatesPage,
 })
 
-// ── Knowledge document management routes ─────────────────────
-
-function KnowledgeDocumentsRoute() {
-  const navigate = useNavigate()
-  const searchParams = new URLSearchParams(window.location.search)
-  const knowledgeBaseId = searchParams.get('knowledgeBaseId') ?? ''
-
-  const handleNavigateChunks = (documentId: string) => {
-    void navigate({
-      to: '/admin/knowledge/chunks/$documentId',
-      params: { documentId },
-    })
-  }
-
-  return (
-    <KnowledgeDocumentsPage
-      knowledgeBaseId={knowledgeBaseId || undefined}
-      onNavigateChunks={handleNavigateChunks}
-    />
-  )
-}
-
-function KnowledgeChunksRoute() {
-  const params = useParams({ strict: false }) as Record<string, string>
-  const documentId = params.documentId ?? ''
-
-  if (!documentId) {
-    return (
-      <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-6 text-center">
-        <p className="text-sm text-destructive">缺少文档 ID 参数</p>
-      </div>
-    )
-  }
-
-  return (
-    <KnowledgeChunksPage
-      documentId={documentId}
-      onNavigateBack={() => {
-        window.history.back()
-      }}
-    />
-  )
-}
-
-const adminKnowledgeDocumentsRoute = createRoute({
-  getParentRoute: () => adminRoute,
-  path: 'knowledge/documents',
-  component: KnowledgeDocumentsRoute,
-})
-
-const adminKnowledgeChunksRoute = createRoute({
-  getParentRoute: () => adminRoute,
-  path: 'knowledge/chunks/$documentId',
-  component: KnowledgeChunksRoute,
-})
-
-const adminKnowledgeSearchRoute = createRoute({
-  getParentRoute: () => adminRoute,
-  path: 'knowledge/search',
-  component: KnowledgeSearchPage,
-})
-
-// ── Route tree ──────────────────────────────────────────────
 const routeTree = rootRoute.addChildren([
-  indexRoute,
-  chatRoute,
-  reportsRoute.addChildren([
-    reportsIndexRoute,
-    reportGenerateRoute,
-    reportRecordsRoute,
-    reportTemplatesRoute,
-  ]),
-  adminRoute.addChildren([
-    adminIndexRoute,
-    adminStylesRoute,
-    adminKnowledgeRoute,
-    adminKnowledgeConfigRoute,
-    adminKnowledgeDocumentsRoute,
-    adminKnowledgeChunksRoute,
-    adminKnowledgeSearchRoute,
-    adminQASettingsRoute,
-    adminQARetrievalTestRoute,
-    adminSettingsRoute,
-    adminStatsRoute,
-    adminReportRecordsRoute,
-    adminReportTemplatesRoute,
+  loginRoute,
+  authenticatedRoute.addChildren([
+    indexRoute,
+    forbiddenRoute,
+    chatRoute,
+    reportsRoute.addChildren([
+      reportsIndexRoute,
+      reportGenerateRoute,
+      reportRecordsRoute,
+      reportTemplatesRoute,
+    ]),
+    adminRoute.addChildren([
+      adminIndexRoute,
+      adminStylesRoute,
+      adminKnowledgeRoute,
+      adminKnowledgeConfigRoute,
+      adminKnowledgeDocumentsRoute,
+      adminKnowledgeSearchRoute,
+      adminKnowledgeChunksRoute,
+      adminQASettingsRoute,
+      adminQARetrievalTestRoute,
+      adminSettingsRoute,
+      adminStatsRoute,
+      adminReportRecordsRoute,
+      adminReportTemplatesRoute,
+    ]),
   ]),
 ])
 

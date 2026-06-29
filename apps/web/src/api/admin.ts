@@ -10,7 +10,6 @@ import type {
   CreateKnowledgeBaseRequest,
   CreateQAConfigVersionRequest,
   CreateQALLMConfigVersionRequest,
-  CreateUserRequest,
   DocumentChunk,
   DocumentSummary,
   KnowledgeBaseSummary,
@@ -26,7 +25,6 @@ import type {
   QARetrievalTestRun,
   QARetrievalTestRunRequest,
   QATopQuery,
-  SessionSummary,
   UpdateDocumentRequest,
   UpdateKnowledgeBaseRequest,
 } from '@/lib/types'
@@ -191,28 +189,24 @@ export async function deleteKnowledgeBase(id: string): Promise<void> {
 // endpoints in the current gateway contract.
 // =========================================================================
 
-/** POST /users — Create a new user (registration). Returns user + session (envelope unwrapped). */
-
-/** GET /users/me — Get current authenticated user. */
-export function getCurrentUser(): Promise<UserSummary> {
-  return gatewayRequest<UserSummary>('/users/me')
-}
-
 // =========================================================================
 // Documents
 // =========================================================================
 
+/** GET /knowledge-bases/{knowledgeBaseId}/documents?page=&pageSize=&status= */
 export interface ListDocumentsParams {
   page?: number
   pageSize?: number
   status?: string
 }
 
-/** GET /knowledge-bases/{knowledgeBaseId}/documents */
 export async function listDocuments(
   knowledgeBaseId: string,
   params: ListDocumentsParams = {},
-): Promise<{ items: DocumentSummary[]; page: { page: number; pageSize: number; total: number } }> {
+): Promise<{
+  items: DocumentSummary[]
+  page: { page: number; pageSize: number; total: number }
+}> {
   return gatewayPageRequest<DocumentSummary>(
     `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/documents${buildQuery({
       page: params.page,
@@ -222,7 +216,7 @@ export async function listDocuments(
   )
 }
 
-/** POST /knowledge-bases/{knowledgeBaseId}/documents — upload (multipart/form-data) */
+/** POST /knowledge-bases/{knowledgeBaseId}/documents (multipart/form-data) */
 export async function uploadDocument(
   knowledgeBaseId: string,
   file: File,
@@ -231,22 +225,19 @@ export async function uploadDocument(
   const formData = new FormData()
   formData.append('file', file)
   if (tags && tags.length > 0) {
-    for (const tag of tags) {
-      formData.append('tags', tag)
-    }
+    tags.forEach((tag) => formData.append('tags', tag))
   }
   return gatewayRequest<DocumentSummary>(
     `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/documents`,
-    {
-      method: 'POST',
-      body: formData,
-    },
+    { method: 'POST', body: formData },
   )
 }
 
 /** GET /documents/{documentId} */
 export async function getDocument(documentId: string): Promise<DocumentSummary> {
-  return gatewayRequest<DocumentSummary>(`/documents/${encodeURIComponent(documentId)}`)
+  return gatewayRequest<DocumentSummary>(
+    `/documents/${encodeURIComponent(documentId)}`,
+  )
 }
 
 /** PATCH /documents/{documentId} */
@@ -254,31 +245,33 @@ export async function updateDocument(
   documentId: string,
   params: UpdateDocumentRequest,
 ): Promise<DocumentSummary> {
-  return gatewayRequest<DocumentSummary>(`/documents/${encodeURIComponent(documentId)}`, {
-    method: 'PATCH',
-    body: params,
-  })
+  return gatewayRequest<DocumentSummary>(
+    `/documents/${encodeURIComponent(documentId)}`,
+    { method: 'PATCH', body: params },
+  )
 }
 
 /** DELETE /documents/{documentId} */
 export async function deleteDocument(documentId: string): Promise<void> {
-  await gatewayRequest<void>(`/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' })
+  await gatewayRequest<void>(
+    `/documents/${encodeURIComponent(documentId)}`,
+    { method: 'DELETE' },
+  )
 }
 
-// =========================================================================
-// Document Chunks
-// =========================================================================
-
+/** GET /documents/{documentId}/chunks?page=&pageSize= */
 export interface ListChunksParams {
   page?: number
   pageSize?: number
 }
 
-/** GET /documents/{documentId}/chunks */
 export async function listChunks(
   documentId: string,
   params: ListChunksParams = {},
-): Promise<{ items: DocumentChunk[]; page: { page: number; pageSize: number; total: number } }> {
+): Promise<{
+  items: DocumentChunk[]
+  page: { page: number; pageSize: number; total: number }
+}> {
   return gatewayPageRequest<DocumentChunk>(
     `/documents/${encodeURIComponent(documentId)}/chunks${buildQuery({
       page: params.page,
@@ -287,14 +280,12 @@ export async function listChunks(
   )
 }
 
-/** GET /documents/{documentId}/content — stream original file as Blob */
-export async function getDocumentContent(documentId: string): Promise<Blob> {
-  return gatewayFileRequest(`/documents/${encodeURIComponent(documentId)}/content`)
+/** GET /documents/{documentId}/content — returns the original file as a Blob */
+export function getDocumentContent(documentId: string): Promise<Blob> {
+  return gatewayFileRequest(
+    `/documents/${encodeURIComponent(documentId)}/content`,
+  )
 }
-
-// =========================================================================
-// Knowledge Queries (Search)
-// =========================================================================
 
 /** POST /knowledge-queries */
 export async function runKnowledgeQuery(
@@ -305,3 +296,7 @@ export async function runKnowledgeQuery(
     body: params,
   })
 }
+
+// =========================================================================
+// Auth (re-exported from ./auth)
+// =========================================================================

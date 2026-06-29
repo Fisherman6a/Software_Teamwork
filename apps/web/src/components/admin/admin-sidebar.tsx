@@ -34,8 +34,6 @@ const menuItems: AdminNavigationItem[] = [
     label: '系统管理',
     requirement: { any: ['system:admin'] },
     children: [
-      { key: 'users', label: '用户管理', path: '/admin/users' },
-      { key: 'roles', label: '角色管理', path: '/admin/roles' },
       { key: 'styles', label: '样式管理', path: '/admin/styles' },
     ],
   },
