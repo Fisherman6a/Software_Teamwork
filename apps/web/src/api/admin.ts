@@ -23,6 +23,7 @@ import type {
   QARetrievalTestRunRequest,
   QATopQuery,
   SessionSummary,
+  UpdateKnowledgeBaseRequest,
   UserSummary,
 } from '@/lib/types'
 
@@ -146,11 +147,31 @@ export async function createKnowledgeBase(
 ): Promise<KnowledgeBaseSummary> {
   return gatewayRequest<KnowledgeBaseSummary>('/knowledge-bases', {
     method: 'POST',
-    body: {
-      name: params.name,
-      description: params.description ?? '',
-    },
+    body: params,
   })
+}
+
+/** GET /knowledge-bases/{knowledgeBaseId} */
+export async function getKnowledgeBase(
+  knowledgeBaseId: string,
+): Promise<KnowledgeBaseSummary> {
+  return gatewayRequest<KnowledgeBaseSummary>(
+    `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}`,
+  )
+}
+
+/** PATCH /knowledge-bases/{knowledgeBaseId} */
+export async function updateKnowledgeBase(
+  knowledgeBaseId: string,
+  params: UpdateKnowledgeBaseRequest,
+): Promise<KnowledgeBaseSummary> {
+  return gatewayRequest<KnowledgeBaseSummary>(
+    `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}`,
+    {
+      method: 'PATCH',
+      body: params,
+    },
+  )
 }
 
 /** DELETE /knowledge-bases/{knowledgeBaseId} */
