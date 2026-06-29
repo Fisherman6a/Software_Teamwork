@@ -19,6 +19,8 @@ type fakeRepository struct {
 	invocations              []ModelInvocation
 	finalization             ResponseRunFinalization
 	run                      ResponseRun
+	finalizeErr              error
+	finalizeErrRun           ResponseRun
 	failOnCanceledFinalizing bool
 	failOnCanceledInvocation bool
 }
@@ -73,6 +75,12 @@ func (r *fakeRepository) FinalizeResponseRun(ctx context.Context, _ string, fina
 		if err := ctx.Err(); err != nil {
 			return ResponseRun{}, err
 		}
+	}
+	if r.finalizeErr != nil {
+		if r.finalizeErrRun.ID != "" {
+			return r.finalizeErrRun, r.finalizeErr
+		}
+		return r.run, r.finalizeErr
 	}
 	r.finalization = final
 	if err := r.UpdateMessage(context.Background(), "", final.AssistantMessage); err != nil {
@@ -393,6 +401,48 @@ func TestAskPersistsModelFailureReason(t *testing.T) {
 	}
 	if len(repository.invocations) != 1 || repository.invocations[0].Status != "failed" || repository.invocations[0].ErrorMessage != "answer generation failed" {
 		t.Fatalf("invocations=%+v", repository.invocations)
+	}
+}
+
+func TestAskReturnsPersistenceErrorWhenFailureFinalizationFails(t *testing.T) {
+	repository := &fakeRepository{
+		conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"},
+		finalizeErr:  errors.New("database timeout"),
+	}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: errorAgentRunner{err: errors.New("provider failed")}, prompt: "system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "hello"}, nil)
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency || appErr.Message != "answer state persistence failed" {
+		t.Fatalf("error=%v, want persistence dependency_error", err)
+	}
+	if result.ResponseRun.ID != "" {
+		t.Fatalf("returned stale response run: %+v", result.ResponseRun)
+	}
+}
+
+func TestAskKeepsCurrentRunWhenFailureFinalizationConflicts(t *testing.T) {
+	cancelledAt := time.Date(2026, 6, 29, 11, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{
+		conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"},
+		finalizeErr:  NewError(CodeConflict, "response run already finalized", nil),
+		finalizeErrRun: ResponseRun{
+			ID: "run-id", Status: "cancelled", CurrentIteration: 1, CompletedAt: &cancelledAt,
+		},
+	}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: errorAgentRunner{err: errors.New("provider failed")}, prompt: "system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "hello"}, nil)
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency {
+		t.Fatalf("error=%v, want dependency_error", err)
+	}
+	if result.ResponseRun.Status != "cancelled" {
+		t.Fatalf("response run=%+v, want cancelled state", result.ResponseRun)
 	}
 }
 

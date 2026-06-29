@@ -468,9 +468,21 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 			ReasoningTokens: usage.ReasoningTokens, TotalTokens: usage.TotalTokens,
 			CompletedAt: s.now().UTC(),
 		})
-		if finalizeErr == nil {
-			run = finalized
+		if finalizeErr != nil {
+			if appErr, ok := Classify(finalizeErr); ok && appErr.Code == CodeConflict {
+				if finalized.ID == "" {
+					loaded, loadErr := s.repository.GetResponseRun(cleanupCtx, userID, run.ID)
+					if loadErr != nil {
+						return AskResult{}, NewError(CodeDependency, "answer state persistence failed", fmt.Errorf("load response run after finalization conflict: %w", loadErr))
+					}
+					finalized = loaded
+				}
+				run = finalized
+				return AskResult{UserMessage: userMessage, AssistantMessage: assistantMessage, ResponseRun: run, Citations: []any{}, ReasoningSteps: steps}, NewError(CodeDependency, publicMessage, runErr)
+			}
+			return AskResult{}, NewError(CodeDependency, "answer state persistence failed", fmt.Errorf("finalize failed response run after agent error: %w", finalizeErr))
 		}
+		run = finalized
 		return AskResult{UserMessage: userMessage, AssistantMessage: assistantMessage, ResponseRun: run, Citations: []any{}, ReasoningSteps: steps}, NewError(CodeDependency, publicMessage, runErr)
 	}
 	assistantMessage.Content = result.Final.Content
