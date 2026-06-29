@@ -97,7 +97,11 @@ export function KnowledgeChunksPage({ documentId, onNavigateBack }: KnowledgeChu
   // ── Fetch document info and KB name ──
 
   useEffect(() => {
-    if (!documentId) return
+    if (!documentId) {
+      setDocLoading(false)
+      setDocError('缺少文档 ID 参数')
+      return
+    }
     let cancelled = false
     setDocLoading(true)
     setDocError(null)

@@ -35,7 +35,7 @@ import type {
   UpdateParserConfigRequest,
 } from '@/lib/types'
 
-import { buildQuery, gatewayFileRequest, gatewayPageRequest, gatewayRequest } from './client'
+import { buildQuery, gatewayFileRequest, gatewayPageRequest, gatewayRequest, requestVoid } from './client'
 
 export { createUserSession as createUser, getCurrentUser } from './auth'
 
@@ -179,7 +179,7 @@ export async function updateKnowledgeBase(
 
 /** DELETE /knowledge-bases/{knowledgeBaseId} */
 export async function deleteKnowledgeBase(id: string): Promise<void> {
-  await gatewayRequest<void>(`/knowledge-bases/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  await requestVoid(`/knowledge-bases/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 // =========================================================================
@@ -257,7 +257,7 @@ export async function updateDocument(
 
 /** DELETE /documents/{documentId} */
 export async function deleteDocument(documentId: string): Promise<void> {
-  await gatewayRequest<void>(`/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' })
+  await requestVoid(`/documents/${encodeURIComponent(documentId)}`, { method: 'DELETE' })
 }
 
 /** GET /documents/{documentId}/chunks?page=&pageSize= */
@@ -341,7 +341,7 @@ export async function updateModelProfile(
 
 /** DELETE /admin/model-profiles/{profileId} */
 export async function deleteModelProfile(profileId: string): Promise<void> {
-  await gatewayRequest<void>(
+  await requestVoid(
     `/admin/model-profiles/${encodeURIComponent(profileId)}`,
     { method: 'DELETE' },
   )
@@ -390,7 +390,7 @@ export async function updateParserConfig(
 
 /** DELETE /admin/parser-configs/{parserConfigId} */
 export async function deleteParserConfig(parserConfigId: string): Promise<void> {
-  await gatewayRequest<void>(
+  await requestVoid(
     `/admin/parser-configs/${encodeURIComponent(parserConfigId)}`,
     { method: 'DELETE' },
   )

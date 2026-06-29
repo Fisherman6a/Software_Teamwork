@@ -203,7 +203,7 @@ export function LoginPage() {
               />
               <label
                 htmlFor="username"
-                className="pointer-events-none absolute left-0 top-[22px] uppercase tracking-wider text-white/50 transition-all duration-300 peer-focus:-translate-y-4 peer-focus:text-xs peer-focus:text-blue-400"
+                className="pointer-events-none absolute left-0 top-[22px] uppercase tracking-wider text-white/50 transition-all duration-300 peer-focus:-translate-y-4 peer-focus:text-xs peer-focus:text-blue-400 peer-[:not(:placeholder-shown)]:-translate-y-4 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:text-blue-400"
               >
                 用户名
               </label>
@@ -234,7 +234,7 @@ export function LoginPage() {
               />
               <label
                 htmlFor="password"
-                className="pointer-events-none absolute left-0 top-[22px] uppercase tracking-wider text-white/50 transition-all duration-300 peer-focus:-translate-y-4 peer-focus:text-xs peer-focus:text-blue-400"
+                className="pointer-events-none absolute left-0 top-[22px] uppercase tracking-wider text-white/50 transition-all duration-300 peer-focus:-translate-y-4 peer-focus:text-xs peer-focus:text-blue-400 peer-[:not(:placeholder-shown)]:-translate-y-4 peer-[:not(:placeholder-shown)]:text-xs peer-[:not(:placeholder-shown)]:text-blue-400"
               >
                 密码
               </label>

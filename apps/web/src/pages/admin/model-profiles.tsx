@@ -88,8 +88,10 @@ function formToCreateRequest(form: FormData): CreateModelProfileRequest {
     model: form.model,
     apiKey: form.apiKey,
     timeoutMs: form.timeoutMs,
-    ...(form.maxTokens > 0 ? { defaultParameters: { maxTokens: form.maxTokens } } : {}),
+    defaultParameters: { maxTokens: form.maxTokens },
     enabled: true,
+    isDefault: false,
+    supportsStreaming: false,
   } as CreateModelProfileRequest
 }
 
@@ -104,9 +106,7 @@ function formToUpdateRequest(form: FormData) {
   if (form.apiKey) {
     params.apiKey = form.apiKey
   }
-  if (form.maxTokens > 0) {
-    params.defaultParameters = { max_tokens: form.maxTokens }
-  }
+  params.defaultParameters = { max_tokens: form.maxTokens }
   return params
 }
 
