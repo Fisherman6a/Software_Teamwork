@@ -183,7 +183,7 @@ docker build -t software-teamwork-parser:local .
 | `PARSER_MEMORY_LIMIT_MB` | `14500` | RSS guard for PP-StructureV3 child processes. Exceeding this fails the parse instead of destabilizing WSL. |
 | `PADDLEOCR_LANG` | `ch` | PaddleOCR language code. |
 | `PADDLEOCR_DEVICE` | `cpu` | PaddleOCR device, for example `cpu` or `gpu`. |
-| `PADDLEOCR_ENGINE` | empty | Optional PaddleOCR engine override. PP-StructureV3 defaults to `paddle` when unset. |
+| `PADDLEOCR_ENGINE` | empty | Optional engine override for the legacy `paddleocr` backend. PP-StructureV3 follows the official constructor parameters and does not pass this value. |
 | `PADDLEOCR_CONFIG_PATH` | empty | Optional PaddleX config path. |
 | `PADDLEOCR_USE_DOC_ORIENTATION_CLASSIFY` | `true` | PaddleOCR document orientation option. Enabled by default for precision-first parsing. |
 | `PADDLEOCR_USE_DOC_UNWARPING` | `true` | PaddleOCR document unwarping option. Enabled by default for precision-first parsing. |

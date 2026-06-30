@@ -249,6 +249,13 @@ def test_backend_omits_layout_model_name_by_default_for_official_model_selection
     kwargs = PPStructureV3Backend()._pipeline_kwargs()
 
     assert "layout_detection_model_name" not in kwargs
+    assert "engine" not in kwargs
+
+
+def test_backend_omits_engine_even_when_configured_for_official_ppstructurev3():
+    kwargs = PPStructureV3Backend(engine="paddle")._pipeline_kwargs()
+
+    assert "engine" not in kwargs
 
 
 def test_backend_pipeline_kwargs_enable_precision_preprocessing_when_configured():
@@ -428,7 +435,7 @@ def test_parse_visual_page_preserves_page_metadata_and_confidence(tmp_path):
     assert page.warnings == ["low_text_quality"]
 
 
-def test_page_retry_warning_uses_confidence_and_text_quality():
+def test_page_retry_warning_uses_confidence_without_retrying_short_or_non_cjk_text():
     assert (
         _page_retry_warning(
             page=ParsedPage(
@@ -439,4 +446,25 @@ def test_page_retry_warning_uses_confidence_and_text_quality():
             threshold=0.85,
         )
         == "low_ocr_confidence"
+    )
+    assert (
+        _page_retry_warning(
+            page=ParsedPage(page_number=2, content="Table 1"),
+            threshold=0.85,
+        )
+        == ""
+    )
+    assert (
+        _page_retry_warning(
+            page=ParsedPage(page_number=3, content="| Voltage | kV |\n| --- | --- |\n| 500 | kV |"),
+            threshold=0.85,
+        )
+        == ""
+    )
+    assert (
+        _page_retry_warning(
+            page=ParsedPage(page_number=4, content='I¥J B"J !!!! #### //// (((( ))))'),
+            threshold=0.85,
+        )
+        == "broken_text_encoding"
     )

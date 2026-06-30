@@ -233,6 +233,7 @@ def test_ppstructurev3_backend_accepts_official_tuning_settings():
             ppstructurev3_text_det_limit_type="max",
             ppstructurev3_text_recognition_batch_size=1,
             ppstructurev3_markdown_ignore_labels=["header", "footer"],
+            paddleocr_engine="paddle",
             default_dpi=180,
             retry_dpi=220,
             max_retry_dpi=300,
@@ -253,6 +254,7 @@ def test_ppstructurev3_backend_accepts_official_tuning_settings():
     assert kwargs["text_det_limit_type"] == "max"
     assert kwargs["text_recognition_batch_size"] == 1
     assert kwargs["markdown_ignore_labels"] == ["header", "footer"]
+    assert "engine" not in kwargs
     assert kwargs["use_doc_orientation_classify"] is True
     assert kwargs["use_doc_unwarping"] is True
     assert kwargs["use_textline_orientation"] is True

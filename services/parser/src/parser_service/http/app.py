@@ -135,7 +135,7 @@ def build_parser_service(settings: Settings) -> ParserService:
         structure_backend = PPStructureV3Backend(
             lang=settings.paddleocr_lang,
             device=settings.paddleocr_device,
-            engine=settings.paddleocr_engine or "paddle",
+            engine="",
             paddlex_config=settings.paddleocr_config_path,
             use_doc_orientation_classify=settings.paddleocr_use_doc_orientation_classify,
             use_doc_unwarping=settings.paddleocr_use_doc_unwarping,

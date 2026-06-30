@@ -41,6 +41,11 @@ free to monitor RSS, enforce subprocess timeout, and terminate the child before
 the outer `ParserService` timeout releases the request with a stuck backend
 thread.
 
+Page retry heuristics should stay narrow. Missing text and low OCR confidence
+still trigger a DPI retry, but short English labels, numeric tables, and other
+non-CJK pages should not be treated as low-quality by default. Only obvious
+encoding-artefact pages such as `I¥J` / `B"J` sequences keep the retry warning.
+
 The backend keeps PP-StructureV3 inside the Parser runtime boundary. Knowledge
 continues to receive normalized parsed content over HTTP and remains
 responsible for chunking, embedding, indexing, and retrieval.

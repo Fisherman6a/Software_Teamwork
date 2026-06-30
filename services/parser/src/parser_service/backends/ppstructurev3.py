@@ -78,7 +78,7 @@ class PPStructureV3Backend:
     ) -> None:
         self._lang = lang.strip() or "ch"
         self._device = device.strip()
-        self._engine = engine.strip() or "paddle"
+        self._engine = engine.strip()
         self._paddlex_config = paddlex_config.strip()
         self._use_doc_orientation_classify = use_doc_orientation_classify
         self._use_doc_unwarping = use_doc_unwarping
@@ -400,7 +400,6 @@ class PPStructureV3Backend:
     def _pipeline_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "lang": self._lang,
-            "engine": self._engine,
             "use_doc_orientation_classify": self._use_doc_orientation_classify,
             "use_doc_unwarping": self._use_doc_unwarping,
             "use_textline_orientation": self._use_textline_orientation,
@@ -947,18 +946,13 @@ def _page_retry_warning(page: ParsedPage, threshold: float) -> str:
         return "no_text_content"
     if page.ocr_confidence is not None and page.ocr_confidence < threshold:
         return "low_ocr_confidence"
-    if _looks_low_quality(page.content):
-        return "low_text_quality"
+    if _looks_broken_encoding(page.content):
+        return "broken_text_encoding"
     return ""
 
 
-def _looks_low_quality(content: str) -> bool:
+def _looks_broken_encoding(content: str) -> bool:
     normalized = _normalize_text(content)
-    if len(normalized) < 20:
-        return True
-    cjk = sum(1 for char in normalized if "\u4e00" <= char <= "\u9fff")
-    if cjk / len(normalized) < 0.15:
-        return True
     return "I¥J" in normalized or "B\"J" in normalized
 
 
