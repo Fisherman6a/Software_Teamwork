@@ -221,6 +221,10 @@ func TestDocumentChunksAndContentContract(t *testing.T) {
 	if chunk.SectionPath == nil || *chunk.SectionPath != "1. 总则" || chunk.EmbeddingDimension == nil || *chunk.EmbeddingDimension != 384 {
 		t.Fatalf("chunk detail = %+v", chunk)
 	}
+	rawChunksBody := chunksRes.Body.String()
+	if strings.Contains(rawChunksBody, "qdrantPointId") || strings.Contains(rawChunksBody, "embeddingModel") {
+		t.Fatalf("chunk response leaked internal fields: %s", rawChunksBody)
+	}
 	if _, exists := chunksBody.Data[0].Metadata["internalUrl"]; exists {
 		t.Fatalf("metadata leaked unexpected internal URL: %+v", chunksBody.Data[0].Metadata)
 	}
@@ -747,7 +751,9 @@ func seedHTTPKnowledgeDocumentWithChunk(t *testing.T) (*repository.MemoryReposit
 	sectionPath := "1. 总则"
 	chunkType := "text"
 	tokenCount := int32(42)
+	qdrantPointID := "qdrant_point_internal"
 	embeddingProvider := "local_hashing"
+	embeddingModel := "internal-embedding-model"
 	embeddingDimension := int32(384)
 	if err := repo.ReplaceDocumentChunks(context.Background(), "doc_1", []service.DocumentChunk{{
 		ID:                 "chunk_1",
@@ -758,7 +764,9 @@ func seedHTTPKnowledgeDocumentWithChunk(t *testing.T) (*repository.MemoryReposit
 		Content:            "本规程适用于 breaker policy",
 		TokenCount:         &tokenCount,
 		ChunkType:          &chunkType,
+		QdrantPointID:      &qdrantPointID,
 		EmbeddingProvider:  &embeddingProvider,
+		EmbeddingModel:     &embeddingModel,
 		EmbeddingDimension: &embeddingDimension,
 		Metadata:           map[string]any{"page": 3},
 		CreatedAt:          now,

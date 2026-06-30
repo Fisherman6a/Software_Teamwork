@@ -37,9 +37,7 @@ type documentChunkSummary struct {
 	Content            string         `json:"content"`
 	TokenCount         int32          `json:"tokenCount"`
 	ChunkType          *string        `json:"chunkType,omitempty"`
-	QdrantPointID      *string        `json:"qdrantPointId,omitempty"`
 	EmbeddingProvider  *string        `json:"embeddingProvider,omitempty"`
-	EmbeddingModel     *string        `json:"embeddingModel,omitempty"`
 	EmbeddingDimension *int32         `json:"embeddingDimension,omitempty"`
 	Metadata           map[string]any `json:"metadata,omitempty"`
 	CreatedAt          time.Time      `json:"createdAt"`
@@ -88,9 +86,7 @@ func documentChunkFromDomain(chunk service.DocumentChunk) documentChunkSummary {
 		Content:            chunk.Content,
 		TokenCount:         tokenCount,
 		ChunkType:          cloneStringPtr(chunk.ChunkType),
-		QdrantPointID:      cloneStringPtr(chunk.QdrantPointID),
 		EmbeddingProvider:  cloneStringPtr(chunk.EmbeddingProvider),
-		EmbeddingModel:     cloneStringPtr(chunk.EmbeddingModel),
 		EmbeddingDimension: cloneInt32Ptr(chunk.EmbeddingDimension),
 		Metadata:           cloneMetadata(chunk.Metadata),
 		CreatedAt:          chunk.CreatedAt,
