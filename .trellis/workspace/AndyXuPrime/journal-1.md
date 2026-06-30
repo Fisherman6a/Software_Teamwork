@@ -283,3 +283,36 @@ Implemented and verified shared frontend state UI for issue #116.
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: F-10 frontend critical flow tests
+
+**Date**: 2026-06-30
+**Task**: F-10 frontend critical flow tests
+**Branch**: `Frontend/test/frontend-critical-flows`
+
+### Summary
+
+Added Vitest/RTL frontend unit and component coverage, Playwright critical-flow smoke tests, local test scripts, frontend README PR checklist, and matching quality spec updates for issue #117.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `184a377` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

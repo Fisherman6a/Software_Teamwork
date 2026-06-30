@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-06-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~285 | Active |
+| `journal-1.md` | ~318 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-06-30 | F-10 frontend critical flow tests | `184a377` | `Frontend/test/frontend-critical-flows` |
 | 7 | 2026-06-30 | Finish issue 116 shared UI states | `9131aed` | `Frontend/refactor/shared-ui-states` |
 | 6 | 2026-06-30 | Review PR 226 A11 worker fixes | `6662048`, `d52828d` | `review/pr-226` |
 | 5 | 2026-06-29 | Fix PR 212 read-only report navigation | `71b1dff` | `fix/frontend-report-read-nav` |
