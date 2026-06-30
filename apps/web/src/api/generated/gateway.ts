@@ -2496,7 +2496,7 @@ export interface components {
             requestId: string;
         };
         CreateQARetrievalTestRunRequest: {
-            question: string;
+            question?: string;
             /**
              * @deprecated
              * @description Backward-compatible alias for `question`.

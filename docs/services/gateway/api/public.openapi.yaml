@@ -5308,8 +5308,6 @@ components:
           type: string
     CreateQARetrievalTestRunRequest:
       type: object
-      required:
-      - question
       properties:
         question:
           type: string
