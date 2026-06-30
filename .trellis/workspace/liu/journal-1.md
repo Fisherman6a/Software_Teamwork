@@ -660,3 +660,37 @@ Implemented transactional section version current switching, manual edit snapsho
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: PR 350 review fixes
+
+**Date**: 2026-07-01
+**Task**: PR 350 review fixes
+**Branch**: `PrimeTeam/feat/report-section-versions`
+
+### Summary
+
+Addressed PR #350 review feedback: locked section-version transaction re-read, aligned Gateway section-version schema, regenerated frontend types, and refreshed PR body validation notes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0c8cb41` | (see git log) |
+| `135a4ab` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
