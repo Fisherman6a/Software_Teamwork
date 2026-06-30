@@ -19,10 +19,12 @@ const user = {
 
 async function mockGateway(page: Page) {
   await page.route('**/api/v1/**', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      json: { data: [], page: { page: 1, pageSize: 20, total: 0 }, requestId: 'req-fallback' },
-    })
+    const request = route.request()
+    const url = new URL(request.url())
+
+    throw new Error(
+      `Unexpected Gateway request in critical flow E2E: ${request.method()} ${url.pathname}${url.search}`,
+    )
   })
 
   await page.route('**/api/v1/sessions', async (route) => {
@@ -107,7 +109,7 @@ async function mockGateway(page: Page) {
     })
   })
 
-  await page.route('**/api/v1/qa-sessions', async (route) => {
+  await page.route('**/api/v1/qa-sessions*', async (route) => {
     if (route.request().method() === 'POST') {
       await route.fulfill({
         contentType: 'application/json',
@@ -256,6 +258,75 @@ async function mockGateway(page: Page) {
           status: 'running',
         },
         requestId: 'req-job',
+      },
+    })
+  })
+
+  await page.route('**/api/v1/reports/report-1/outlines', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        data: [
+          {
+            createdAt: '2026-06-30T00:00:00Z',
+            id: 'outline-1',
+            reportId: 'report-1',
+            sections: [
+              { id: 'section-1', level: 1, order: 1, title: 'Equipment overview' },
+              { id: 'section-2', level: 1, order: 2, title: 'Risks and actions' },
+            ],
+            status: 'draft',
+            updatedAt: '2026-06-30T00:00:00Z',
+          },
+        ],
+        requestId: 'req-outlines',
+      },
+    })
+  })
+
+  await page.route('**/api/v1/reports/report-1/sections', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        data: [
+          {
+            content: 'Equipment load is stable. Watch oil temperature trends.',
+            id: 'section-1',
+            order: 1,
+            reportId: 'report-1',
+            status: 'draft',
+            title: 'Equipment overview',
+            updatedAt: '2026-06-30T00:00:00Z',
+          },
+        ],
+        requestId: 'req-sections',
+      },
+    })
+  })
+
+  await page.route('**/api/v1/reports/report-1/events', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        data: [],
+        requestId: 'req-report-events',
+      },
+    })
+  })
+
+  await page.route('**/api/v1/report-jobs/job-1', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        data: {
+          createdAt: '2026-06-30T00:00:00Z',
+          id: 'job-1',
+          jobType: 'outline_generation',
+          progress: { completedSections: 1, percent: 50, totalSections: 2 },
+          reportId: 'report-1',
+          status: 'running',
+        },
+        requestId: 'req-job-status',
       },
     })
   })
