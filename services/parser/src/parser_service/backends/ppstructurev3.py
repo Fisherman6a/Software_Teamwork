@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import importlib
 import multiprocessing as mp
+import pickle
 import tempfile
 import threading
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from queue import Empty
 from typing import Any
 
 from parser_service.backends.paddleocr.backend import _suffix_for, extract_texts
@@ -73,6 +73,7 @@ class PPStructureV3Backend:
         low_confidence_threshold: float = 0.85,
         page_batch_size: int = 1,
         subprocess_isolation: bool = True,
+        subprocess_timeout_seconds: float = 0.0,
         memory_limit_mb: int = 14500,
     ) -> None:
         self._lang = lang.strip() or "ch"
@@ -107,6 +108,7 @@ class PPStructureV3Backend:
         self._low_confidence_threshold = low_confidence_threshold
         self._page_batch_size = page_batch_size
         self._subprocess_isolation = subprocess_isolation
+        self._subprocess_timeout_seconds = subprocess_timeout_seconds
         self._memory_limit_mb = memory_limit_mb
         self._pipeline: Any | None = None
         self._load_error: str = ""
@@ -462,6 +464,7 @@ class PPStructureV3Backend:
             "low_confidence_threshold": self._low_confidence_threshold,
             "page_batch_size": self._page_batch_size,
             "subprocess_isolation": False,
+            "subprocess_timeout_seconds": self._subprocess_timeout_seconds,
             "memory_limit_mb": self._memory_limit_mb,
         }
 
@@ -698,43 +701,12 @@ def _parse_path_in_subprocess(
     content_type: str,
     config: dict[str, Any],
 ) -> ParsedDocument:
-    ctx = mp.get_context("spawn")
-    queue: mp.Queue = ctx.Queue(maxsize=1)
-    proc = ctx.Process(
+    result = _run_child_process(
         target=_child_parse_path,
-        args=(str(input_path), document_name, content_type, config, queue),
+        args=(str(input_path), document_name, content_type, config),
+        config=config,
     )
-    proc.start()
-    memory_limit_kb = max(1, int(config.get("memory_limit_mb", 14500))) * 1024
-    try:
-        while proc.is_alive():
-            rss_kb = _rss_kb(proc.pid)
-            if rss_kb is not None:
-                if rss_kb >= memory_limit_kb:
-                    proc.terminate()
-                    proc.join(timeout=5)
-                    if proc.is_alive():
-                        proc.kill()
-                        proc.join(timeout=5)
-                    raise dependency_error("ppstructurev3 parse exceeded memory limit")
-            time.sleep(0.25)
-        proc.join()
-        try:
-            result = queue.get_nowait()
-        except Empty:
-            if proc.exitcode == 0:
-                raise dependency_error("ppstructurev3 subprocess returned no result") from None
-            raise dependency_error("ppstructurev3 subprocess failed") from None
-    finally:
-        queue.close()
-
-    if isinstance(result, _ChildSuccess):
-        return result.parsed
-    if isinstance(result, _ChildFailure):
-        if result.code == "validation_error":
-            raise validation_error(result.message, result.fields or {"file": "could not be parsed"})
-        raise dependency_error(result.message)
-    raise dependency_error("ppstructurev3 subprocess returned invalid result")
+    return _unwrap_child_result(result)
 
 
 def _parse_pdf_in_subprocess_batches(
@@ -774,35 +746,67 @@ def _parse_pdf_batch_in_subprocess(
     config: dict[str, Any],
     page_indexes: list[int],
 ) -> ParsedDocument:
-    ctx = mp.get_context("spawn")
-    queue: mp.Queue = ctx.Queue(maxsize=1)
-    proc = ctx.Process(
+    result = _run_child_process(
         target=_child_parse_pdf_batch,
-        args=(str(input_path), document_name, config, page_indexes, queue),
+        args=(str(input_path), document_name, config, page_indexes),
+        config=config,
     )
-    proc.start()
-    try:
-        memory_limit_kb = max(1, int(config.get("memory_limit_mb", 14500))) * 1024
-        while proc.is_alive():
-            rss_kb = _rss_kb(proc.pid)
-            if rss_kb is not None and rss_kb >= memory_limit_kb:
-                proc.terminate()
-                proc.join(timeout=5)
-                if proc.is_alive():
-                    proc.kill()
-                    proc.join(timeout=5)
-                raise dependency_error("ppstructurev3 parse exceeded memory limit")
-            time.sleep(0.25)
-        proc.join()
-        try:
-            result = queue.get_nowait()
-        except Empty:
-            if proc.exitcode == 0:
-                raise dependency_error("ppstructurev3 subprocess returned no result") from None
-            raise dependency_error("ppstructurev3 subprocess failed") from None
-    finally:
-        queue.close()
+    return _unwrap_child_result(result)
 
+
+def _run_child_process(
+    *,
+    target: Any,
+    args: tuple[Any, ...],
+    config: dict[str, Any],
+) -> Any:
+    ctx = mp.get_context("spawn")
+    with tempfile.TemporaryDirectory(prefix="parser-ppstructurev3-child-") as temp_dir:
+        result_path = Path(temp_dir) / "result.pkl"
+        proc = ctx.Process(
+            target=target,
+            args=(*args, str(result_path)),
+        )
+        proc.start()
+        memory_limit_kb = max(1, int(config.get("memory_limit_mb", 14500))) * 1024
+        timeout_seconds = max(0.0, float(config.get("subprocess_timeout_seconds", 0.0) or 0.0))
+        started_at = time.monotonic()
+        try:
+            while proc.is_alive():
+                if timeout_seconds > 0 and time.monotonic() - started_at >= timeout_seconds:
+                    _terminate_child_process(proc)
+                    raise dependency_error("ppstructurev3 subprocess timed out")
+                rss_kb = _rss_kb(proc.pid)
+                if rss_kb is not None and rss_kb >= memory_limit_kb:
+                    _terminate_child_process(proc)
+                    raise dependency_error("ppstructurev3 parse exceeded memory limit")
+                time.sleep(0.25)
+            proc.join()
+            if not result_path.exists():
+                if proc.exitcode == 0:
+                    raise dependency_error("ppstructurev3 subprocess returned no result") from None
+                raise dependency_error("ppstructurev3 subprocess failed") from None
+            try:
+                with result_path.open("rb") as handle:
+                    return pickle.load(handle)
+            except (OSError, pickle.PickleError, EOFError) as exc:
+                raise dependency_error("ppstructurev3 subprocess returned invalid result") from exc
+        finally:
+            if proc.is_alive():
+                _terminate_child_process(proc)
+
+
+def _terminate_child_process(proc: mp.Process) -> None:
+    proc.terminate()
+    try:
+        proc.join(timeout=5)
+    finally:
+        if proc.is_alive():
+            proc.kill()
+            proc.join(timeout=5)
+
+
+def _unwrap_child_result(result: Any) -> ParsedDocument:
     if isinstance(result, _ChildSuccess):
         return result.parsed
     if isinstance(result, _ChildFailure):
@@ -817,7 +821,7 @@ def _child_parse_path(
     document_name: str,
     content_type: str,
     config: dict[str, Any],
-    queue: Any,
+    result_path: str,
 ) -> None:
     try:
         backend = PPStructureV3Backend(**config)
@@ -826,11 +830,14 @@ def _child_parse_path(
             document_name=document_name,
             content_type=content_type,
         )
-        queue.put(_ChildSuccess(parsed))
+        _write_child_result(result_path, _ChildSuccess(parsed))
     except AppError as exc:
-        queue.put(_ChildFailure(exc.code, exc.message, exc.fields))
+        _write_child_result(result_path, _ChildFailure(exc.code, exc.message, exc.fields))
     except Exception:
-        queue.put(_ChildFailure("dependency_error", "ppstructurev3 subprocess failed"))
+        _write_child_result(
+            result_path,
+            _ChildFailure("dependency_error", "ppstructurev3 subprocess failed"),
+        )
 
 
 def _child_parse_pdf_batch(
@@ -838,7 +845,7 @@ def _child_parse_pdf_batch(
     document_name: str,
     config: dict[str, Any],
     page_indexes: list[int],
-    queue: Any,
+    result_path: str,
 ) -> None:
     try:
         backend = PPStructureV3Backend(**config)
@@ -848,11 +855,19 @@ def _child_parse_pdf_batch(
             page_indexes=page_indexes,
             allow_empty=True,
         )
-        queue.put(_ChildSuccess(parsed))
+        _write_child_result(result_path, _ChildSuccess(parsed))
     except AppError as exc:
-        queue.put(_ChildFailure(exc.code, exc.message, exc.fields))
+        _write_child_result(result_path, _ChildFailure(exc.code, exc.message, exc.fields))
     except Exception:
-        queue.put(_ChildFailure("dependency_error", "ppstructurev3 subprocess failed"))
+        _write_child_result(
+            result_path,
+            _ChildFailure("dependency_error", "ppstructurev3 subprocess failed"),
+        )
+
+
+def _write_child_result(result_path: str, result: _ChildSuccess | _ChildFailure) -> None:
+    with Path(result_path).open("wb") as handle:
+        pickle.dump(result, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def _pdf_page_count(input_path: Path) -> int:

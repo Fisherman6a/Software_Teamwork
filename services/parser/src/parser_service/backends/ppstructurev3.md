@@ -33,6 +33,14 @@ returned or persisted by Parser in this phase. Page-level quality metadata such
 as render DPI, text-layer status, OCR confidence, and warnings is returned as
 optional fields on `ParsedPage`.
 
+Subprocess isolation returns results through a temporary pickle file, not
+`multiprocessing.Queue`. A full `ParsedDocument` can be large for long or
+table-heavy PDFs, and queue feeder flushing can keep the child process alive
+while the parent waits for process exit. File-backed results keep the parent
+free to monitor RSS, enforce subprocess timeout, and terminate the child before
+the outer `ParserService` timeout releases the request with a stuck backend
+thread.
+
 The backend keeps PP-StructureV3 inside the Parser runtime boundary. Knowledge
 continues to receive normalized parsed content over HTTP and remains
 responsible for chunking, embedding, indexing, and retrieval.

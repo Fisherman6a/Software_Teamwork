@@ -2,6 +2,7 @@ import pytest
 
 from parser_service.backends.ppstructurev3 import (
     PPStructureV3Backend,
+    _ChildSuccess,
     _collect_pages_and_markdown,
     _merged_markdown_from_items,
     _merged_markdown_from_result,
@@ -9,7 +10,10 @@ from parser_service.backends.ppstructurev3 import (
     _pages_from_result,
     _parse_pdf_in_subprocess_batches,
     _predict_result,
+    _run_child_process,
     _text_layer_status,
+    _unwrap_child_result,
+    _write_child_result,
 )
 from parser_service.service import ParsedDocument, ParsedPage
 
@@ -89,6 +93,32 @@ class FakeVisualPagePipeline:
 
     def concatenate_markdown_pages(self, markdown_items):
         return markdown_items[0]
+
+
+def _write_large_parsed_document(result_path: str) -> None:
+    content = "section\n" * 20000
+    _write_child_result(
+        result_path,
+        _ChildSuccess(
+            ParsedDocument(
+                content=content,
+                title="large",
+                backend="ppstructurev3",
+                pages=[
+                    ParsedPage(
+                        page_number=1,
+                        content=content,
+                    )
+                ],
+            )
+        ),
+    )
+
+
+def _sleep_without_result(result_path: str) -> None:
+    import time
+
+    time.sleep(30)
 
 
 def test_pages_from_result_uses_official_markdown_page_merge():
@@ -288,6 +318,7 @@ def test_child_config_disables_nested_subprocess_isolation():
         retry_dpi=220,
         max_retry_dpi=300,
         subprocess_isolation=True,
+        subprocess_timeout_seconds=120,
         memory_limit_mb=14500,
     )._child_config()
 
@@ -295,6 +326,7 @@ def test_child_config_disables_nested_subprocess_isolation():
     assert config["retry_dpi"] == 220
     assert config["max_retry_dpi"] == 300
     assert config["subprocess_isolation"] is False
+    assert config["subprocess_timeout_seconds"] == 120
     assert config["memory_limit_mb"] == 14500
 
 
@@ -341,6 +373,34 @@ def test_parse_pdf_in_subprocess_batches_splits_pages(monkeypatch, tmp_path):
     assert calls == [[0, 1], [2]]
     assert parsed.content == "page 1\npage 2\npage 3"
     assert [page.page_number for page in parsed.pages] == [1, 2, 3]
+
+
+def test_parse_path_in_subprocess_returns_large_result_without_queue(tmp_path):
+    result = _run_child_process(
+        target=_write_large_parsed_document,
+        args=(),
+        config={"memory_limit_mb": 14500},
+    )
+    parsed = _unwrap_child_result(result)
+
+    assert parsed.backend == "ppstructurev3"
+    assert parsed.pages[0].page_number == 1
+    assert parsed.pages[0].content.startswith("section")
+    assert len(parsed.content) > 100_000
+
+
+def test_parse_path_in_subprocess_terminates_child_on_backend_timeout(tmp_path):
+    with pytest.raises(Exception) as exc_info:
+        _run_child_process(
+            target=_sleep_without_result,
+            args=(),
+            config={
+                "subprocess_timeout_seconds": 0.1,
+                "memory_limit_mb": 14500,
+            },
+        )
+
+    assert "ppstructurev3 subprocess timed out" in str(exc_info.value)
 
 
 def test_parse_visual_page_preserves_page_metadata_and_confidence(tmp_path):

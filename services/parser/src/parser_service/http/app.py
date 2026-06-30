@@ -167,6 +167,7 @@ def build_parser_service(settings: Settings) -> ParserService:
             low_confidence_threshold=settings.low_confidence_threshold,
             page_batch_size=settings.page_batch_size,
             subprocess_isolation=settings.subprocess_isolation,
+            subprocess_timeout_seconds=max(0.1, settings.parse_timeout_seconds - 1.0),
             memory_limit_mb=settings.memory_limit_mb,
         )
         backend = DocumentParserBackend(ocr_backend=structure_backend, name="ppstructurev3")
