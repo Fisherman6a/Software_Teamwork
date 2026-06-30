@@ -406,14 +406,14 @@ func (s *ResourceService) ListMessageCitations(ctx context.Context, userID, id s
 	if err != nil {
 		return nil, err
 	}
-	return s.revalidateCitationSources(ctx, userID, items), nil
+	return revalidateCitationSources(ctx, userID, s.sourceChecker, items), nil
 }
 func (s *ResourceService) GetCitation(ctx context.Context, userID, id string) (Citation, error) {
 	item, err := s.repository.GetCitation(ctx, userID, id)
 	if err != nil {
 		return Citation{}, err
 	}
-	items := s.revalidateCitationSources(ctx, userID, []Citation{item})
+	items := revalidateCitationSources(ctx, userID, s.sourceChecker, []Citation{item})
 	return items[0], nil
 }
 func (s *ResourceService) LookupCitations(ctx context.Context, userID string, ids []string) ([]Citation, error) {
@@ -424,10 +424,10 @@ func (s *ResourceService) LookupCitations(ctx context.Context, userID string, id
 	if err != nil {
 		return nil, err
 	}
-	return s.revalidateCitationSources(ctx, userID, items), nil
+	return revalidateCitationSources(ctx, userID, s.sourceChecker, items), nil
 }
 
-func (s *ResourceService) revalidateCitationSources(ctx context.Context, userID string, items []Citation) []Citation {
+func revalidateCitationSources(ctx context.Context, userID string, sourceChecker CitationSourceChecker, items []Citation) []Citation {
 	if len(items) == 0 {
 		return items
 	}
@@ -445,8 +445,8 @@ func (s *ResourceService) revalidateCitationSources(ctx context.Context, userID 
 		documentIDs = append(documentIDs, documentID)
 	}
 	availability := map[string]bool{}
-	if s.sourceChecker != nil && len(documentIDs) > 0 {
-		checked, _ := s.sourceChecker.CheckCitationSources(ctx, userID, documentIDs)
+	if sourceChecker != nil && len(documentIDs) > 0 {
+		checked, _ := sourceChecker.CheckCitationSources(ctx, userID, documentIDs)
 		if checked != nil {
 			availability = checked
 		}
@@ -457,6 +457,32 @@ func (s *ResourceService) revalidateCitationSources(ctx context.Context, userID 
 		normalized = append(normalized, ApplyCitationSourceAvailability(item, documentID != "" && availability[documentID]))
 	}
 	return normalized
+}
+
+func revalidateMessageCitations(ctx context.Context, userID string, sourceChecker CitationSourceChecker, messages []Message) {
+	if len(messages) == 0 {
+		return
+	}
+	type messageCitationIndex struct {
+		message  int
+		citation int
+	}
+	indexes := make([]messageCitationIndex, 0)
+	items := make([]Citation, 0)
+	for messageIndex := range messages {
+		for citationIndex := range messages[messageIndex].Citations {
+			indexes = append(indexes, messageCitationIndex{message: messageIndex, citation: citationIndex})
+			items = append(items, messages[messageIndex].Citations[citationIndex])
+		}
+	}
+	if len(items) == 0 {
+		return
+	}
+	normalized := revalidateCitationSources(ctx, userID, sourceChecker, items)
+	for index, item := range normalized {
+		target := indexes[index]
+		messages[target.message].Citations[target.citation] = item
+	}
 }
 
 func (s *ResourceService) ListToolCalls(ctx context.Context, userID, id string) ([]AgentToolCall, error) {

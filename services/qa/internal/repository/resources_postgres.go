@@ -47,7 +47,38 @@ func (r *Postgres) ListStreamEvents(ctx context.Context, userID, sessionID, runI
 
 const citationSelect = `SELECT ci.id::text,ci.message_id::text,COALESCE(ci.response_run_id::text,''),ci.citation_no,COALESCE(ci.external_doc_id,''),ci.doc_name,COALESCE(ci.external_kb_id,''),COALESCE(ci.external_chunk_id,''),COALESCE(ci.section_path,''),COALESCE(ci.quote_text,''),COALESCE(ci.content_preview,ci.quote_text,''),COALESCE(ci.context,''),ci.page_number,ci.score,ci.rerank_score,COALESCE(ci.chunk_type,''),ci.is_source_available,COALESCE(ci.source_unavailable_reason,''),ci.metadata FROM citations ci JOIN messages m ON m.id=ci.message_id JOIN conversations c ON c.id=m.conversation_id`
 
-const messageCitationSelect = `SELECT ci.id::text,ci.message_id::text,'' AS response_run_id,ci.citation_no,COALESCE(ci.external_doc_id,''),ci.doc_name,COALESCE(ci.external_kb_id,''),COALESCE(ci.external_chunk_id,''),COALESCE(ci.section_path,''),COALESCE(ci.quote_text,''),COALESCE(ci.quote_text,''),COALESCE(ci.context,''),ci.page_number,ci.score,ci.rerank_score,COALESCE(ci.chunk_type,''),FALSE AS is_source_available,'' AS source_unavailable_reason,ci.metadata FROM citations ci JOIN messages m ON m.id=ci.message_id JOIN conversations c ON c.id=m.conversation_id`
+const messageCitationLegacySelect = `SELECT ci.id::text,ci.message_id::text,'' AS response_run_id,ci.citation_no,COALESCE(ci.external_doc_id,''),ci.doc_name,COALESCE(ci.external_kb_id,''),COALESCE(ci.external_chunk_id,''),COALESCE(ci.section_path,''),COALESCE(ci.quote_text,''),COALESCE(ci.quote_text,''),COALESCE(ci.context,''),ci.page_number,ci.score,ci.rerank_score,COALESCE(ci.chunk_type,''),COALESCE(ci.external_doc_id,'') <> '' AS is_source_available,CASE WHEN COALESCE(ci.external_doc_id,'') = '' THEN 'source_deleted_or_forbidden' ELSE '' END AS source_unavailable_reason,ci.metadata FROM citations ci JOIN messages m ON m.id=ci.message_id JOIN conversations c ON c.id=m.conversation_id`
+
+func (r *Postgres) messageCitationSelect(ctx context.Context) string {
+	if r.hasCitationSnapshotColumns(ctx) {
+		return citationSelect
+	}
+	return messageCitationLegacySelect
+}
+
+func (r *Postgres) hasCitationSnapshotColumns(ctx context.Context) bool {
+	r.citationSnapshotColumnsMu.Lock()
+	if r.citationSnapshotColumnsReady != nil {
+		ready := *r.citationSnapshotColumnsReady
+		r.citationSnapshotColumnsMu.Unlock()
+		return ready
+	}
+	r.citationSnapshotColumnsMu.Unlock()
+
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM information_schema.columns
+WHERE table_schema = current_schema()
+	AND table_name = 'citations'
+	AND column_name IN ('response_run_id', 'content_preview', 'is_source_available', 'source_unavailable_reason')`).Scan(&count)
+	ready := err == nil && count == 4
+
+	r.citationSnapshotColumnsMu.Lock()
+	r.citationSnapshotColumnsReady = &ready
+	r.citationSnapshotColumnsMu.Unlock()
+	return ready
+}
 
 func (r *Postgres) ListMessageCitations(ctx context.Context, userID, messageID string) ([]service.Citation, error) {
 	rows, err := r.pool.Query(ctx, citationSelect+` WHERE ci.message_id::text=$1 AND c.external_user_id=$2 AND c.deleted_at IS NULL ORDER BY ci.citation_no`, messageID, userID)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -17,8 +18,10 @@ import (
 )
 
 type Postgres struct {
-	pool    *pgxpool.Pool
-	queries *sqlc.Queries
+	pool                         *pgxpool.Pool
+	queries                      *sqlc.Queries
+	citationSnapshotColumnsMu    sync.Mutex
+	citationSnapshotColumnsReady *bool
 }
 
 func NewPostgres(ctx context.Context, databaseURL string) (*Postgres, error) {

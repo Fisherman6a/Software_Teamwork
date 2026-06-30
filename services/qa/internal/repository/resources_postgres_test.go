@@ -36,15 +36,18 @@ func TestApplyQAConfigVersionCompatibilityFieldsMirrorsAgentConfig(t *testing.T)
 	}
 }
 
-func TestMessageCitationSelectDoesNotRequireSnapshotMigrationColumns(t *testing.T) {
+func TestMessageCitationLegacySelectDoesNotRequireSnapshotMigrationColumns(t *testing.T) {
 	for _, column := range []string{
 		"ci.response_run_id",
 		"ci.content_preview",
 		"ci.is_source_available",
 		"ci.source_unavailable_reason",
 	} {
-		if strings.Contains(messageCitationSelect, column) {
-			t.Fatalf("message citation query should not require migration 0006 column %q: %s", column, messageCitationSelect)
+		if strings.Contains(messageCitationLegacySelect, column) {
+			t.Fatalf("legacy message citation query should not require migration 0006 column %q: %s", column, messageCitationLegacySelect)
 		}
+	}
+	if strings.Contains(messageCitationLegacySelect, "FALSE AS is_source_available") {
+		t.Fatalf("legacy message citation query should not hard-code source availability to false: %s", messageCitationLegacySelect)
 	}
 }

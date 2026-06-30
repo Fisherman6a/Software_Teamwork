@@ -9,6 +9,11 @@ import (
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/service/agent"
 )
 
+const (
+	maxCitationSnapshotTextRunes    = 2000
+	maxCitationSnapshotContextRunes = 4000
+)
+
 func citationsFromAgentMessages(messageID, runID string, messages []agent.Message) []Citation {
 	citations := make([]Citation, 0)
 	seen := map[string]struct{}{}
@@ -101,11 +106,13 @@ func citationFromRecord(record map[string]any) (Citation, bool) {
 		Text:                    firstString(record, "quoteText", "quote_text", "text", "contentPreview", "content_preview"),
 		ContentPreview:          firstString(record, "contentPreview", "content_preview", "preview", "text", "quoteText", "quote_text"),
 		Context:                 firstString(record, "context", "surroundingText", "surrounding_text"),
-		Content:                 firstString(record, "content", "fullText", "full_text"),
 		ChunkType:               firstString(record, "chunkType", "chunk_type"),
 		SourceUnavailableReason: firstString(record, "sourceUnavailableReason", "source_unavailable_reason"),
 		Metadata:                firstMap(record, "metadata", "meta"),
 	}
+	citation.Text = truncateRunes(citation.Text, maxCitationSnapshotTextRunes)
+	citation.ContentPreview = truncateRunes(citation.ContentPreview, maxCitationSnapshotTextRunes)
+	citation.Context = truncateRunes(citation.Context, maxCitationSnapshotContextRunes)
 	if page, ok := firstInt(record, "pageNumber", "page_number", "page"); ok {
 		citation.PageNumber = &page
 	}

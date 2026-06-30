@@ -231,11 +231,12 @@ type RuntimeProvider interface {
 }
 
 type QAService struct {
-	repository Repository
-	runtime    RuntimeProvider
-	now        func() time.Time
-	activeMu   sync.Mutex
-	activeRuns map[string]context.CancelFunc
+	repository    Repository
+	runtime       RuntimeProvider
+	sourceChecker CitationSourceChecker
+	now           func() time.Time
+	activeMu      sync.Mutex
+	activeRuns    map[string]context.CancelFunc
 }
 
 func NewQAService(repository Repository, runtime RuntimeProvider) (*QAService, error) {
@@ -243,6 +244,10 @@ func NewQAService(repository Repository, runtime RuntimeProvider) (*QAService, e
 		return nil, errors.New("repository and runtime provider are required")
 	}
 	return &QAService{repository: repository, runtime: runtime, now: time.Now, activeRuns: map[string]context.CancelFunc{}}, nil
+}
+
+func (s *QAService) SetCitationSourceChecker(checker CitationSourceChecker) {
+	s.sourceChecker = checker
 }
 
 func (s *QAService) CreateConversation(ctx context.Context, userID, title string) (Conversation, error) {
@@ -314,7 +319,14 @@ func (s *QAService) ListMessages(ctx context.Context, userID, conversationID str
 	if err != nil {
 		return Page[Message]{}, err
 	}
-	return s.repository.ListMessages(ctx, userID, conversationID, normalized)
+	page, err := s.repository.ListMessages(ctx, userID, conversationID, normalized)
+	if err != nil {
+		return Page[Message]{}, err
+	}
+	if normalized.IncludeCitations {
+		revalidateMessageCitations(ctx, userID, s.sourceChecker, page.Items)
+	}
+	return page, nil
 }
 
 func (s *QAService) Ask(ctx context.Context, userID, conversationID string, input AskInput, observe ProgressObserver) (AskResult, error) {

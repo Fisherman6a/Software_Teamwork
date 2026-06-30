@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -190,7 +191,7 @@ func (citationToolRunner) RunWithObserver(_ context.Context, input []agent.Messa
 		Role:       agent.RoleTool,
 		Name:       "search_knowledge",
 		ToolCallID: "call-1",
-		Content:    `{"data":{"results":[{"documentId":"doc-1","documentName":"Boiler Manual","knowledgeBaseId":"kb-1","chunkId":"chunk-7","sectionPath":"3.1","quoteText":"inspect the valve before startup","contentPreview":"inspect the valve before startup","context":"Operators inspect the valve before startup.","pageNumber":12,"score":0.91,"rerankScore":0.88,"chunkType":"paragraph","metadata":{"pageLabel":"12","objectKey":"secret","internalUrl":"http://internal/doc","vector":[0.1,0.2]}}]}}`,
+		Content:    `{"data":{"results":[{"documentId":"doc-1","documentName":"Boiler Manual","knowledgeBaseId":"kb-1","chunkId":"chunk-7","sectionPath":"3.1","quoteText":"inspect the valve before startup","contentPreview":"inspect the valve before startup","context":"Operators inspect the valve before startup.","content":"FULL RAW DOCUMENT BODY MUST NOT LEAK","fullText":"FULL RAW DOCUMENT BODY MUST NOT LEAK EITHER","pageNumber":12,"score":0.91,"rerankScore":0.88,"chunkType":"paragraph","metadata":{"pageLabel":"12","objectKey":"secret","internalUrl":"http://internal/doc","vector":[0.1,0.2]}}]}}`,
 	}
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with citation [1]"}
 	messages := append([]agent.Message{}, input...)
@@ -239,6 +240,18 @@ func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
 		QAConfigVersionID: "qa-config-id", LLMConfigVersionID: "llm-config-id",
 		MaxIterations: maxIterations, OverallTimeout: p.overallTimeout,
 	}, func() {}, nil
+}
+
+type fakeCitationSourceChecker struct {
+	availability map[string]bool
+	userID       string
+	documentIDs  []string
+}
+
+func (c *fakeCitationSourceChecker) CheckCitationSources(_ context.Context, userID string, documentIDs []string) (map[string]bool, error) {
+	c.userID = userID
+	c.documentIDs = append([]string(nil), documentIDs...)
+	return c.availability, nil
 }
 
 func TestAskPersistsConversationMessagesAndDisplayableSteps(t *testing.T) {
@@ -331,6 +344,42 @@ func TestListMessagesNormalizesDocumentedOptions(t *testing.T) {
 	}
 	if _, err = qa.ListMessages(context.Background(), "", "conversation-id", MessageListOptions{}); err == nil {
 		t.Fatal("expected missing user to fail")
+	}
+}
+
+func TestListMessagesRevalidatesEmbeddedCitationSources(t *testing.T) {
+	repository := &fakeRepository{
+		conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"},
+		messages: []Message{{
+			ID:             "assistant-message-id",
+			ConversationID: "conversation-id",
+			Role:           agent.RoleAssistant,
+			Citations: []Citation{{
+				ID:         "citation-id",
+				MessageID:  "assistant-message-id",
+				CitationNo: 1,
+				DocumentID: "doc-1",
+				Text:       "saved quote",
+			}},
+		}},
+	}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: &fakeAgentRunner{}, prompt: "system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := &fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}}
+	qa.SetCitationSourceChecker(checker)
+
+	page, err := qa.ListMessages(context.Background(), "user-id", "conversation-id", MessageListOptions{IncludeCitations: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checker.userID != "user-id" || len(checker.documentIDs) != 1 || checker.documentIDs[0] != "doc-1" {
+		t.Fatalf("source checker called with user=%q documents=%v", checker.userID, checker.documentIDs)
+	}
+	citation := page.Items[0].Citations[0]
+	if !citation.IsSourceAvailable || citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content" {
+		t.Fatalf("embedded citation source was not revalidated: %+v", citation)
 	}
 }
 
@@ -681,6 +730,12 @@ func TestAskPersistsCitationSnapshotsFromKnowledgeToolResults(t *testing.T) {
 	}
 	if citation.Source == nil || !citation.Source.Available || citation.Source.DownloadEndpoint != "/api/v1/documents/doc-1/content" {
 		t.Fatalf("unexpected citation source: %+v", citation.Source)
+	}
+	if strings.Contains(fmt.Sprintf("%#v", result.Citations), "FULL RAW DOCUMENT BODY") || strings.Contains(fmt.Sprintf("%#v", repository.savedEvents), "FULL RAW DOCUMENT BODY") {
+		t.Fatalf("raw tool content leaked through Ask result or events: result=%+v events=%+v", result.Citations, repository.savedEvents)
+	}
+	if citation.Content != "inspect the valve before startup" || citation.ContentPreview != "inspect the valve before startup" {
+		t.Fatalf("citation should expose only snapshot text, got %+v", citation)
 	}
 	if citation.Metadata["pageLabel"] != "12" {
 		t.Fatalf("safe metadata not preserved: %#v", citation.Metadata)
