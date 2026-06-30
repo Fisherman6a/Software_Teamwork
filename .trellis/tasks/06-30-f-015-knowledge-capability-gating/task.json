@@ -1,0 +1,29 @@
+{
+  "id": "f-015-knowledge-capability-gating",
+  "name": "f-015-knowledge-capability-gating",
+  "title": "F-015 Knowledge capability gating",
+  "description": "Implement issue #281 frontend capability gating for Knowledge Gateway 501/not_implemented/dependency_error responses.",
+  "status": "in_progress",
+  "dev_type": "frontend",
+  "scope": "knowledge",
+  "package": null,
+  "priority": "P1",
+  "creator": "EIR",
+  "assignee": "EIR",
+  "createdAt": "2026-06-30",
+  "completedAt": null,
+  "branch": "Frontend/feat/knowledge-capability-gating",
+  "base_branch": "develop",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "GitHub issue #281 / F-015. Frontend must distinguish ready, not implemented, permission denied, and dependency failures for Knowledge gateway active paths.",
+  "meta": {
+    "github_issue": "https://github.com/Sakayori-Iroha-168/Software_Teamwork/issues/281",
+    "suggested_branch": "Frontend/feat/knowledge-capability-gating"
+  }
+}
