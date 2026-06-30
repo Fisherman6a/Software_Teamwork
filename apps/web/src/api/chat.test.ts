@@ -97,4 +97,53 @@ describe('chat stream API', () => {
       expect.objectContaining({ content: 'root', seq: 2, sequenceNo: 1 }),
     )
   })
+
+  it('uses the dispatched max stream seq for fatal stream errors', async () => {
+    const onAnswerDelta = vi.fn()
+    const onError = vi.fn()
+    let pullCount = 0
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pullCount += 1
+            if (pullCount === 1) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  'event: answer.delta\ndata: {"content":"root","seq":50}\n\n',
+                ),
+              )
+              return
+            }
+            controller.error(new Error('connection lost'))
+          },
+        }),
+        {
+          headers: { 'Content-Type': 'text/event-stream' },
+          status: 200,
+        },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    streamChat('session-1', 'question', {
+      onAnswerDelta,
+      onError,
+    })
+
+    await vi.waitFor(() => expect(onAnswerDelta).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledTimes(1))
+
+    expect(onAnswerDelta).toHaveBeenCalledWith(
+      expect.objectContaining({ content: 'root', seq: 50 }),
+    )
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'network_error',
+        fatal: true,
+        message: 'connection lost',
+        seq: 51,
+      }),
+    )
+  })
 })

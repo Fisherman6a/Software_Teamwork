@@ -118,7 +118,17 @@ export function streamChat(
   signal?: AbortSignal,
 ): { abort: () => void } {
   let fallbackSeq = 0
+  let maxDispatchedSeq = 0
   let didAbort = false
+
+  const recordDispatchedSeq = (seq: number) => {
+    maxDispatchedSeq = Math.max(maxDispatchedSeq, seq)
+  }
+
+  const nextSyntheticSeq = () => {
+    maxDispatchedSeq += 1
+    return maxDispatchedSeq
+  }
 
   const stream = streamGateway(`/qa-sessions/${encodeURIComponent(sessionId)}/messages`, {
     body: { message },
@@ -130,7 +140,7 @@ export function streamChat(
         fatal: true,
         message: error.message,
         requestId: error.requestId,
-        seq: fallbackSeq + 1,
+        seq: nextSyntheticSeq(),
         status: error.status,
       })
     },
@@ -140,17 +150,15 @@ export function streamChat(
 
       try {
         const qaEvent = event as QASseEventType
-        dispatch(
-          qaEvent,
-          normalizeSsePayload(qaEvent, parseSsePayload(data, fallbackSeq)),
-          handlers,
-        )
+        const payload = normalizeSsePayload(qaEvent, parseSsePayload(data, fallbackSeq))
+        recordDispatchedSeq(payload.seq)
+        dispatch(qaEvent, payload, handlers)
       } catch {
         handlers.onError?.({
           code: 'invalid_sse_event',
           fatal: false,
           message: '收到无法解析的 QA 流式事件',
-          seq: fallbackSeq,
+          seq: nextSyntheticSeq(),
         })
       }
     },
