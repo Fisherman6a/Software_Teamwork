@@ -745,3 +745,36 @@ Rebased onto upstream/develop@6db45e7 after another develop update, refreshed Tr
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: F-016 rebase onto develop 92d3afc
+
+**Date**: 2026-06-30
+**Task**: F-016 rebase onto develop 92d3afc
+**Branch**: `Frontend/feat/qa-capability-aligned-chat`
+
+### Summary
+
+Rebased onto upstream/develop@92d3afc after another develop update, refreshed Trellis records, and reran frontend check, build, unit tests, and diff check.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8798068` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
