@@ -468,7 +468,7 @@ Addressed PR review finding by applying monotonic SSE sequence validation to ans
 
 | Hash | Message |
 |------|---------|
-| `0286325` | (see git log) |
+| `43f11fa` | (see git log) |
 
 ### Testing
 
@@ -501,7 +501,7 @@ Preserved the remote stream-ordering fix by preventing message payload sequenceN
 
 | Hash | Message |
 |------|---------|
-| `b3f07b6` | (see git log) |
+| `ca333e9` | (see git log) |
 
 ### Testing
 
@@ -534,7 +534,7 @@ Replaced archived Trellis context placeholders with real implementation/check re
 
 | Hash | Message |
 |------|---------|
-| `e499d8d` | (see git log) |
+| `bbf7efd` | (see git log) |
 
 ### Testing
 
@@ -567,7 +567,7 @@ Fixed fatal QA stream errors to use the next sequence after the max dispatched s
 
 | Hash | Message |
 |------|---------|
-| `c881401` | (see git log) |
+| `5bd7740` | (see git log) |
 
 ### Testing
 
@@ -600,7 +600,7 @@ Updated QA stream parsing to prefer SSE id as the cross-event sequence and cover
 
 | Hash | Message |
 |------|---------|
-| `9822960` | (see git log) |
+| `548269b` | (see git log) |
 
 ### Testing
 
@@ -633,7 +633,7 @@ Rebased F-016 branch onto the latest upstream/develop, refreshed Trellis record 
 
 | Hash | Message |
 |------|---------|
-| `8fad613` | (see git log) |
+| `8eef154` | (see git log) |
 
 ### Testing
 
@@ -666,7 +666,7 @@ Handled latest Codex review by accepting backend QA tool/reasoning payload shape
 
 | Hash | Message |
 |------|---------|
-| `88aa4c8` | (see git log) |
+| `431d35a` | (see git log) |
 
 ### Testing
 
@@ -699,7 +699,7 @@ Rebased onto upstream/develop@74652c3 after another develop update, refreshed Tr
 
 | Hash | Message |
 |------|---------|
-| `07ce70b` | (see git log) |
+| `58802c3` | (see git log) |
 
 ### Testing
 
@@ -732,7 +732,7 @@ Rebased onto upstream/develop@6db45e7 after another develop update, refreshed Tr
 
 | Hash | Message |
 |------|---------|
-| `168acc0` | (see git log) |
+| `e481f1e` | (see git log) |
 
 ### Testing
 
