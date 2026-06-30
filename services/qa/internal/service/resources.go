@@ -458,10 +458,8 @@ func revalidateCitationSources(ctx context.Context, userID string, sourceChecker
 		documentID := strings.TrimSpace(firstNonBlank(item.DocumentID, item.DocID))
 		if checkedOK && documentID != "" {
 			normalized = append(normalized, ApplyCitationSourceAvailability(item, availability[documentID]))
-		} else if !checkedOK {
-			normalized = append(normalized, NormalizeCitation(item))
 		} else {
-			normalized = append(normalized, NormalizeCitation(item))
+			normalized = append(normalized, ApplyCitationSourceAvailability(item, false))
 		}
 	}
 	return normalized
