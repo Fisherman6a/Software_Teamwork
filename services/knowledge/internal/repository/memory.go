@@ -493,7 +493,10 @@ func (r *MemoryRepository) ClaimProcessingJob(ctx context.Context, id string, up
 	if !exists {
 		return service.ProcessingJob{}, service.ErrNotFound
 	}
-	if job.Status != service.JobStatusQueued && job.Status != service.JobStatusFailed {
+	isStaleRunning := job.Status == service.JobStatusRunning &&
+		update.StaleRunningBefore != nil &&
+		job.UpdatedAt.Before(*update.StaleRunningBefore)
+	if job.Status != service.JobStatusQueued && job.Status != service.JobStatusFailed && !isStaleRunning {
 		return service.ProcessingJob{}, service.ErrConflict
 	}
 	if job.MaxAttempts > 0 && job.Attempts >= job.MaxAttempts {
@@ -506,7 +509,7 @@ func (r *MemoryRepository) ClaimProcessingJob(ctx context.Context, id string, up
 	job.ErrorCode = nil
 	job.ErrorMessage = nil
 	job.Attempts++
-	if update.StartedAt != nil && job.StartedAt == nil {
+	if update.StartedAt != nil {
 		job.StartedAt = cloneTimePtr(update.StartedAt)
 	}
 	job.FinishedAt = nil
@@ -560,6 +563,9 @@ func (r *MemoryRepository) CompleteIngestion(ctx context.Context, input service.
 	doc.Status = service.DocumentStatusReady
 	doc.ErrorCode = nil
 	doc.ErrorMessage = nil
+	if input.ParserBackend != nil {
+		doc.ParserBackend = cloneStringPtr(input.ParserBackend)
+	}
 	doc.UpdatedAt = input.UpdatedAt
 	r.documents[doc.ID] = doc
 

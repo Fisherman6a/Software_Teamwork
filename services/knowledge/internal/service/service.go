@@ -18,6 +18,8 @@ const (
 	defaultDocType  = "GENERAL"
 	maxTags         = 32
 	maxTagLength    = 64
+
+	defaultIngestionRunningLease = 30 * time.Minute
 )
 
 var (
@@ -32,16 +34,17 @@ type IDGenerator func(prefix string) string
 type Option func(*Service)
 
 type Service struct {
-	repo        Repository
-	files       FileClient
-	queue       IngestionQueue
-	source      SourceReader
-	parser      Parser
-	chunker     Chunker
-	embedder    Embedder
-	vectorIndex VectorIndex
-	now         Clock
-	newID       IDGenerator
+	repo         Repository
+	files        FileClient
+	queue        IngestionQueue
+	source       SourceReader
+	parser       Parser
+	chunker      Chunker
+	embedder     Embedder
+	vectorIndex  VectorIndex
+	now          Clock
+	newID        IDGenerator
+	runningLease time.Duration
 }
 
 func New(repo Repository) *Service {
@@ -50,7 +53,8 @@ func New(repo Repository) *Service {
 		now: func() time.Time {
 			return time.Now().UTC()
 		},
-		newID: newID,
+		newID:        newID,
+		runningLease: defaultIngestionRunningLease,
 	}
 }
 
@@ -66,11 +70,12 @@ func NewWithDependencies(repo Repository, files FileClient, queue IngestionQueue
 		idGenerator = newID
 	}
 	s := &Service{
-		repo:  repo,
-		files: files,
-		queue: queue,
-		now:   now,
-		newID: idGenerator,
+		repo:         repo,
+		files:        files,
+		queue:        queue,
+		now:          now,
+		newID:        idGenerator,
+		runningLease: defaultIngestionRunningLease,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -92,6 +97,14 @@ func WithVectorIndex(embedder Embedder, vectorIndex VectorIndex) Option {
 	return func(s *Service) {
 		s.embedder = embedder
 		s.vectorIndex = vectorIndex
+	}
+}
+
+func WithIngestionRunningLease(duration time.Duration) Option {
+	return func(s *Service) {
+		if duration > 0 {
+			s.runningLease = duration
+		}
 	}
 }
 

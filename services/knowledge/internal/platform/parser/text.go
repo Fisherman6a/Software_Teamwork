@@ -39,5 +39,6 @@ func (p *TextParser) Parse(ctx context.Context, input service.ParseInput) (servi
 	return service.ParsedDocument{
 		Content: content,
 		Title:   strings.TrimPrefix(firstNonEmptyLine(content), "# "),
+		Backend: "text",
 	}, nil
 }

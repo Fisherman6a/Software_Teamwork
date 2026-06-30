@@ -73,6 +73,9 @@ func TestIngestionHandlerProcessesA10PayloadFromFileServiceToReady(t *testing.T)
 	if doc.Status != service.DocumentStatusReady || doc.ChunkCount != 1 {
 		t.Fatalf("doc = %+v", doc)
 	}
+	if doc.ParserBackend == nil || *doc.ParserBackend != "router" {
+		t.Fatalf("parser backend = %v, want router", doc.ParserBackend)
+	}
 	chunks, err := svc.ListChunks(context.Background(), actorContext(), service.ListChunksInput{DocumentID: handoff.documentID})
 	if err != nil {
 		t.Fatalf("ListChunks() error = %v", err)
@@ -205,6 +208,55 @@ func TestIngestionHandlerAtomicallyClaimsDuplicateDeliveries(t *testing.T) {
 	}
 	if chunks.Page.Total != 1 || len(vectors.points) != 1 {
 		t.Fatalf("chunks = %+v, vectors = %+v", chunks, vectors.points)
+	}
+}
+
+func TestIngestionHandlerReclaimsStaleRunningJob(t *testing.T) {
+	source := newSourceStore()
+	source.Put("file_123", "content for a stale running job redelivery", "text/plain")
+	repo := repository.NewMemoryRepository()
+	seedKnowledgeBase(t, repo)
+	vectors := &recordingVectorIndex{}
+	now := fixedNow().Add(time.Hour)
+	svc := service.NewWithDependencies(
+		repo,
+		nil,
+		nil,
+		func() time.Time { return now },
+		sequenceIDs(),
+		service.WithProcessingPipeline(source, parser.NewRouter(), parser.NewFixedChunker()),
+		service.WithVectorIndex(embedding.NewLocalHasher("local_hashing", "local_hashing", 16), vectors),
+		service.WithIngestionRunningLease(5*time.Minute),
+	)
+	handler := worker.NewIngestionHandler(svc)
+	handoff := seedRunningIngestionJob(t, repo, "file_123", fixedNow())
+
+	if err := handler.HandleIngestionPayload(context.Background(), mustJSON(t, worker.IngestionPayload{
+		RequestID:       "req_worker",
+		JobID:           handoff.jobID,
+		DocumentID:      handoff.documentID,
+		KnowledgeBaseID: handoff.knowledgeBaseID,
+		UserID:          "usr_123",
+	})); err != nil {
+		t.Fatalf("HandleIngestionPayload() error = %v", err)
+	}
+
+	job, err := svc.GetJob(context.Background(), actorContext(), handoff.jobID)
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	if job.Status != service.JobStatusSucceeded || job.Attempts != 2 {
+		t.Fatalf("job = %+v", job)
+	}
+	doc, err := svc.GetDocument(context.Background(), actorContext(), handoff.documentID)
+	if err != nil {
+		t.Fatalf("GetDocument() error = %v", err)
+	}
+	if doc.Status != service.DocumentStatusReady || doc.ParserBackend == nil || *doc.ParserBackend != "router" {
+		t.Fatalf("doc = %+v", doc)
+	}
+	if source.readCount != 1 || len(vectors.points) != 1 {
+		t.Fatalf("source reads = %d, vector points = %+v", source.readCount, vectors.points)
 	}
 }
 
@@ -367,6 +419,30 @@ func seedIngestionJobWithMaxAttempts(t *testing.T, repo *repository.MemoryReposi
 		t.Fatalf("CreateDocumentWithJob() error = %v", err)
 	}
 	return ingestionHandoff{knowledgeBaseID: doc.KnowledgeBaseID, documentID: doc.ID, jobID: job.ID}
+}
+
+func seedRunningIngestionJob(t *testing.T, repo *repository.MemoryRepository, fileID string, runningAt time.Time) ingestionHandoff {
+	t.Helper()
+	handoff := seedIngestionJob(t, repo, fileID)
+	stage := "parsing"
+	attempts := int32(1)
+	if _, err := repo.UpdateJobState(context.Background(), handoff.jobID, service.JobStateUpdate{
+		Status:          service.JobStatusRunning,
+		CurrentStage:    &stage,
+		ProgressPercent: 20,
+		Attempts:        &attempts,
+		StartedAt:       &runningAt,
+		UpdatedAt:       runningAt,
+	}); err != nil {
+		t.Fatalf("UpdateJobState() error = %v", err)
+	}
+	if _, err := repo.UpdateDocumentProcessingState(context.Background(), handoff.documentID, service.DocumentStateUpdate{
+		Status:    service.DocumentStatusParsing,
+		UpdatedAt: runningAt,
+	}); err != nil {
+		t.Fatalf("UpdateDocumentProcessingState() error = %v", err)
+	}
+	return handoff
 }
 
 func seedKnowledgeBase(t *testing.T, repo *repository.MemoryRepository) {

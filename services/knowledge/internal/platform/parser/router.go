@@ -53,42 +53,53 @@ func (r *Router) Parse(ctx context.Context, input service.ParseInput) (service.P
 	}
 	switch format {
 	case formatText:
-		return r.text.Parse(ctx, service.ParseInput{
+		parsed, err := r.text.Parse(ctx, service.ParseInput{
 			Name:        input.Name,
 			ContentType: input.ContentType,
 			Body:        bytes.NewReader(data),
 			SizeBytes:   int64(len(data)),
 		})
+		return withBackend(parsed, "router"), err
 	case formatDOCX:
-		return parseDOCX(archive)
+		parsed, err := parseDOCX(archive)
+		return withBackend(parsed, "router"), err
 	case formatPPTX:
-		return parsePPTX(ctx, archive, r.ocr, ocrRequestContext{
+		parsed, err := parsePPTX(ctx, archive, r.ocr, ocrRequestContext{
 			requestID: input.RequestID,
 			userID:    input.UserID,
 		})
+		return withBackend(parsed, "router"), err
 	case formatXLSX:
-		return parseXLSX(archive)
+		parsed, err := parseXLSX(archive)
+		return withBackend(parsed, "router"), err
 	case formatPDF:
-		return parseWithOCR(ctx, r.ocr, OCRRequest{
+		parsed, err := parseWithOCR(ctx, r.ocr, OCRRequest{
 			DocumentName: input.Name,
 			ContentType:  "application/pdf",
 			Data:         data,
 			RequestID:    input.RequestID,
 			UserID:       input.UserID,
 		}, "pdf parsing is not supported without external parser")
+		return withBackend(parsed, "router"), err
 	case formatImage:
-		return parseWithOCR(ctx, r.ocr, OCRRequest{
+		parsed, err := parseWithOCR(ctx, r.ocr, OCRRequest{
 			DocumentName: input.Name,
 			ContentType:  imageContentType(input.Name, data),
 			Data:         data,
 			RequestID:    input.RequestID,
 			UserID:       input.UserID,
 		}, "image OCR is not supported without external parser")
+		return withBackend(parsed, "router"), err
 	case formatLegacyOffice:
 		return service.ParsedDocument{}, fmt.Errorf("legacy Office document parsing is not supported")
 	default:
 		return service.ParsedDocument{}, fmt.Errorf("unsupported document format")
 	}
+}
+
+func withBackend(parsed service.ParsedDocument, backend string) service.ParsedDocument {
+	parsed.Backend = backend
+	return parsed
 }
 
 func readBoundedDocument(body io.Reader) ([]byte, error) {

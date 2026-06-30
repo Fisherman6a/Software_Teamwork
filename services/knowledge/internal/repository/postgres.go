@@ -553,11 +553,18 @@ SET status = $2,
     error_code = NULL,
     error_message = NULL,
     attempts = attempts + 1,
-    started_at = COALESCE(started_at, $6),
+    started_at = COALESCE($6, started_at),
     finished_at = NULL,
     updated_at = $7
 WHERE id = $1
-  AND status IN ('queued', 'failed')
+  AND (
+    status IN ('queued', 'failed')
+    OR (
+      status = 'running'
+      AND $8::timestamptz IS NOT NULL
+      AND updated_at < $8
+    )
+  )
   AND (max_attempts <= 0 OR attempts < max_attempts)
 RETURNING id, knowledge_base_id, document_id, job_type, status, current_stage, progress_percent,
           message, error_code, error_message, attempts, max_attempts, started_at, finished_at, created_at, updated_at`,
@@ -568,6 +575,7 @@ RETURNING id, knowledge_base_id, document_id, job_type, status, current_stage, p
 		pgTextPtr(update.Message),
 		pgTimePtr(update.StartedAt),
 		pgTime(update.UpdatedAt),
+		pgTimePtr(update.StaleRunningBefore),
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return service.ProcessingJob{}, service.ErrConflict
@@ -652,10 +660,12 @@ UPDATE knowledge_documents
 SET status = 'ready',
     error_code = NULL,
     error_message = NULL,
-    updated_at = $2
+    parser_backend = COALESCE($2, parser_backend),
+    updated_at = $3
 WHERE id = $1
   AND deleted_at IS NULL`,
 		input.DocumentID,
+		pgTextPtr(input.ParserBackend),
 		pgTime(input.UpdatedAt),
 	)
 	if err != nil {

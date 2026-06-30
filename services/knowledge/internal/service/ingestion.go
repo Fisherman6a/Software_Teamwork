@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 func (s *Service) ProcessIngestionTask(ctx context.Context, reqCtx RequestContext, task DocumentIngestionTask) (ProcessingJob, error) {
@@ -37,13 +38,22 @@ func (s *Service) ProcessIngestionTask(ctx context.Context, reqCtx RequestContex
 	if job.KnowledgeBaseID != normalized.KnowledgeBaseID || strings.TrimSpace(*job.DocumentID) != normalized.DocumentID {
 		return ProcessingJob{}, ConflictError("worker payload does not match job", nil)
 	}
+	now := s.now()
+	staleRunningBefore := runningStaleBefore(now, s.runningLease)
 	if job.Status == JobStatusFailed && hasExhaustedJobAttempts(job) {
 		return job, ConflictError("job has reached max attempts", nil)
 	}
-	if job.Status == JobStatusRunning {
+	if job.Status == JobStatusRunning && isStaleRunningJob(job, staleRunningBefore) && hasExhaustedJobAttempts(job) {
+		failed, failErr := s.failProcessing(ctx, job, normalized.DocumentID, string(CodeDependency), "ingestion job reached max attempts")
+		if failErr != nil {
+			return failed, failErr
+		}
+		return failed, ConflictError("job has reached max attempts", nil)
+	}
+	if job.Status == JobStatusRunning && !isStaleRunningJob(job, staleRunningBefore) {
 		return job, DependencyError("job is already running", nil)
 	}
-	if job.Status != JobStatusQueued && job.Status != JobStatusFailed {
+	if job.Status != JobStatusQueued && job.Status != JobStatusFailed && job.Status != JobStatusRunning {
 		return job, ConflictError("job is not ready to run", nil)
 	}
 
@@ -59,14 +69,15 @@ func (s *Service) ProcessIngestionTask(ctx context.Context, reqCtx RequestContex
 		return ProcessingJob{}, repositoryError(err)
 	}
 
-	startedAt := s.now()
+	startedAt := now
 	parsingStage := "parsing"
 	job, err = s.repo.ClaimProcessingJob(ctx, job.ID, JobStateUpdate{
-		Status:          JobStatusRunning,
-		CurrentStage:    &parsingStage,
-		ProgressPercent: 20,
-		StartedAt:       &startedAt,
-		UpdatedAt:       startedAt,
+		Status:             JobStatusRunning,
+		CurrentStage:       &parsingStage,
+		ProgressPercent:    20,
+		StartedAt:          &startedAt,
+		UpdatedAt:          startedAt,
+		StaleRunningBefore: staleRunningBefore,
 	})
 	if err != nil {
 		if errors.Is(err, ErrConflict) {
@@ -130,6 +141,11 @@ func (s *Service) ProcessIngestionTask(ctx context.Context, reqCtx RequestContex
 		}
 		return s.failProcessingAndReturn(ctx, job, doc.ID, code, message,
 			ValidationError(message, map[string]string{"file": "could not be parsed"}))
+	}
+	parserBackend := strings.TrimSpace(parsed.Backend)
+	var parserBackendPtr *string
+	if parserBackend != "" {
+		parserBackendPtr = &parserBackend
 	}
 
 	chunkingAt := s.now()
@@ -207,11 +223,12 @@ func (s *Service) ProcessIngestionTask(ctx context.Context, reqCtx RequestContex
 
 	finishedAt := s.now()
 	completed, err := s.repo.CompleteIngestion(ctx, CompleteIngestionRecord{
-		DocumentID: doc.ID,
-		JobID:      job.ID,
-		Chunks:     chunks,
-		UpdatedAt:  finishedAt,
-		FinishedAt: finishedAt,
+		DocumentID:    doc.ID,
+		JobID:         job.ID,
+		ParserBackend: parserBackendPtr,
+		Chunks:        chunks,
+		UpdatedAt:     finishedAt,
+		FinishedAt:    finishedAt,
 	})
 	if err != nil {
 		if s.vectorIndex != nil {
@@ -433,6 +450,24 @@ func classifyProcessingDependencyCode(err error) string {
 
 func hasExhaustedJobAttempts(job ProcessingJob) bool {
 	return job.MaxAttempts > 0 && job.Attempts >= job.MaxAttempts
+}
+
+func runningStaleBefore(now time.Time, lease time.Duration) *time.Time {
+	if lease <= 0 {
+		return nil
+	}
+	cutoff := now.Add(-lease)
+	return &cutoff
+}
+
+func isStaleRunningJob(job ProcessingJob, staleBefore *time.Time) bool {
+	if job.Status != JobStatusRunning || staleBefore == nil {
+		return false
+	}
+	if job.UpdatedAt.Before(*staleBefore) {
+		return true
+	}
+	return false
 }
 
 func sanitizeProcessingFailureMessage(err error) string {

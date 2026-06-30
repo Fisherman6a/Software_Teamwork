@@ -270,6 +270,7 @@ type ParseInput struct {
 type ParsedDocument struct {
 	Content string
 	Title   string
+	Backend string
 }
 
 type Parser interface {
@@ -432,16 +433,17 @@ type DocumentStateUpdate struct {
 }
 
 type JobStateUpdate struct {
-	Status          string
-	CurrentStage    *string
-	ProgressPercent int32
-	Message         *string
-	ErrorCode       *string
-	ErrorMessage    *string
-	Attempts        *int32
-	StartedAt       *time.Time
-	FinishedAt      *time.Time
-	UpdatedAt       time.Time
+	Status             string
+	CurrentStage       *string
+	ProgressPercent    int32
+	Message            *string
+	ErrorCode          *string
+	ErrorMessage       *string
+	Attempts           *int32
+	StartedAt          *time.Time
+	FinishedAt         *time.Time
+	UpdatedAt          time.Time
+	StaleRunningBefore *time.Time
 }
 
 type DocumentChunk struct {
@@ -462,9 +464,10 @@ type DocumentChunk struct {
 }
 
 type CompleteIngestionRecord struct {
-	DocumentID string
-	JobID      string
-	Chunks     []DocumentChunk
-	UpdatedAt  time.Time
-	FinishedAt time.Time
+	DocumentID    string
+	JobID         string
+	ParserBackend *string
+	Chunks        []DocumentChunk
+	UpdatedAt     time.Time
+	FinishedAt    time.Time
 }
