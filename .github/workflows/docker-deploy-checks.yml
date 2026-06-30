@@ -112,7 +112,10 @@ jobs:
               }
             } else {
               for (const file of files) {
-                if (buildableDockerfilePattern.test(file)) {
+                if (
+                  buildableDockerfilePattern.test(file) &&
+                  currentBuildableDockerfiles.has(file)
+                ) {
                   dockerfiles.add(file);
                   continue;
                 }
@@ -130,7 +133,10 @@ jobs:
               }
             } else {
               for (const file of files) {
-                if (composeFilePattern.test(file)) {
+                if (
+                  composeFilePattern.test(file) &&
+                  knownComposeFiles.has(file)
+                ) {
                   composeFiles.add(file);
                   continue;
                 }
@@ -175,8 +181,10 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o bin/qa-server ./cmd/server
 
       - name: Build Dockerfile
+        env:
+          DOCKERFILE: ${{ matrix.dockerfile }}
         run: |
-          dockerfile="${{ matrix.dockerfile }}"
+          dockerfile="$DOCKERFILE"
           context="$(dirname "$dockerfile")"
           docker build --file "$dockerfile" "$context"
 
@@ -193,8 +201,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate Compose config
+        env:
+          COMPOSE_FILE: ${{ matrix.compose-file }}
         run: |
-          compose_file="${{ matrix.compose-file }}"
+          compose_file="$COMPOSE_FILE"
           if [ "$compose_file" = "deploy/docker-compose.yml" ]; then
             docker compose -f "$compose_file" --env-file deploy/.env.example config --quiet
             docker compose -f "$compose_file" --env-file deploy/.env.example --profile ai config --quiet
