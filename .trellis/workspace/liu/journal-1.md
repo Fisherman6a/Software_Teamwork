@@ -593,3 +593,36 @@ Rejected deleted report job creation before persistence, aligned target scope Op
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Address PR 334 generation review follow-ups
+
+**Date**: 2026-07-01
+**Task**: Address PR 334 generation review follow-ups
+**Branch**: `PrimeTeam/feat/report-generation-orchestration`
+
+### Summary
+
+Rejected section targets for non-section regeneration jobs and made AI outline plus section skeleton writes atomic.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `015fbe9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
