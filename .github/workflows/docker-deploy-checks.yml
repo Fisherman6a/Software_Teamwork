@@ -64,6 +64,9 @@ jobs:
               /^(deploy|services\/[^/]+)\/.*docker-compose[^/]*\.ya?ml$/u;
             const buildableDockerfilePattern =
               /^(apps\/web|deploy|services\/[^/]+)\/Dockerfile(?:\.migrate)?$/u;
+            const rootDeployComposeFile = 'deploy/docker-compose.yml';
+            const rootDeployComposeDependencyPattern =
+              /^deploy\/(?:\.env\.example|postgres\/init\/.+|seeds\/.+)$/u;
             const workflowPath = '.github/workflows/docker-deploy-checks.yml';
 
             const changedFiles = new Set();
@@ -119,22 +122,36 @@ jobs:
                 }
               }
             }
-            const composeFiles = workflowChanged
-              ? [...knownComposeFiles]
-              : files.filter((file) => composeFilePattern.test(file));
+            const composeFiles = new Set();
+            if (workflowChanged) {
+              for (const composeFile of knownComposeFiles) {
+                composeFiles.add(composeFile);
+              }
+            } else {
+              for (const file of files) {
+                if (composeFilePattern.test(file)) {
+                  composeFiles.add(file);
+                  continue;
+                }
+
+                if (rootDeployComposeDependencyPattern.test(file)) {
+                  composeFiles.add(rootDeployComposeFile);
+                }
+              }
+            }
 
             core.info(`Changed files: ${files.join(', ') || '(none)'}`);
             core.info(`Dockerfiles: ${[...dockerfiles].join(', ') || '(none)'}`);
-            core.info(`Compose files: ${composeFiles.join(', ') || '(none)'}`);
+            core.info(`Compose files: ${[...composeFiles].join(', ') || '(none)'}`);
             core.setOutput('dockerfiles', JSON.stringify([...dockerfiles].sort()));
             core.setOutput(
               'has-dockerfiles',
               dockerfiles.size > 0 ? 'true' : 'false'
             );
-            core.setOutput('compose-files', JSON.stringify(composeFiles.sort()));
+            core.setOutput('compose-files', JSON.stringify([...composeFiles].sort()));
             core.setOutput(
               'has-compose-files',
-              composeFiles.length > 0 ? 'true' : 'false'
+              composeFiles.size > 0 ? 'true' : 'false'
             );
 
   docker-build:
