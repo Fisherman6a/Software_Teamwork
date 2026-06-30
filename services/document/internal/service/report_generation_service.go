@@ -20,6 +20,8 @@ type ReportGenerationRepository interface {
 	CreateReportSection(ctx context.Context, value ReportSection) (ReportSection, error)
 	ListReportSections(ctx context.Context, reportID string) ([]ReportSection, error)
 	UpdateReportSection(ctx context.Context, value ReportSection) (ReportSection, error)
+	MarkReportSectionGenerationRunning(ctx context.Context, sectionID, jobID string, updatedAt time.Time) (ReportSection, error)
+	MarkReportSectionGenerationFailed(ctx context.Context, sectionID, jobID string, updatedAt time.Time) (ReportSection, error)
 	CreateReportSectionVersion(ctx context.Context, value ReportSectionVersion) (ReportSectionVersion, error)
 	ListReportSectionVersions(ctx context.Context, sectionID string) ([]ReportSectionVersion, error)
 	CreateReportEvent(ctx context.Context, value ReportEvent) (ReportEvent, error)
@@ -194,15 +196,10 @@ func (s *ReportGenerationService) executeContentGeneration(ctx context.Context, 
 			_ = s.recordEvent(ctx, report.ID, payload.JobID, "section.skipped", "section generation skipped because manual edits are preserved")
 			continue
 		}
-		section.GenerationStatus = JobStatusRunning
-		section.LastJobID = payload.JobID
-		section.UpdatedAt = s.clock()
-		_, _ = s.repo.UpdateReportSection(ctx, section)
+		section = s.markSectionGenerationRunning(ctx, section, payload.JobID)
 		generationContext, err := s.loadGenerationContext(ctx, reqCtx, report, section, job)
 		if err != nil {
-			section.GenerationStatus = JobStatusFailed
-			section.UpdatedAt = s.clock()
-			_, _ = s.repo.UpdateReportSection(ctx, section)
+			s.markSectionGenerationFailed(ctx, section.ID, payload.JobID)
 			_ = s.recordEvent(ctx, report.ID, payload.JobID, "section.failed", "section generation failed")
 			_ = s.repo.UpdateReportJobProgress(ctx, payload.JobID, completed, total)
 			if completed > 0 {
@@ -220,9 +217,7 @@ func (s *ReportGenerationService) executeContentGeneration(ctx context.Context, 
 			},
 		})
 		if err != nil {
-			section.GenerationStatus = JobStatusFailed
-			section.UpdatedAt = s.clock()
-			_, _ = s.repo.UpdateReportSection(ctx, section)
+			s.markSectionGenerationFailed(ctx, section.ID, payload.JobID)
 			_ = s.recordEvent(ctx, report.ID, payload.JobID, "section.failed", "section generation failed")
 			_ = s.repo.UpdateReportJobProgress(ctx, payload.JobID, completed, total)
 			if completed > 0 {
@@ -233,9 +228,7 @@ func (s *ReportGenerationService) executeContentGeneration(ctx context.Context, 
 		}
 		generated, err := parseGeneratedSection(resp.Content)
 		if err != nil {
-			section.GenerationStatus = JobStatusFailed
-			section.UpdatedAt = s.clock()
-			_, _ = s.repo.UpdateReportSection(ctx, section)
+			s.markSectionGenerationFailed(ctx, section.ID, payload.JobID)
 			_ = s.recordEvent(ctx, report.ID, payload.JobID, "section.failed", "section generation failed")
 			_ = s.repo.UpdateReportJobProgress(ctx, payload.JobID, completed, total)
 			if completed > 0 {
@@ -245,7 +238,7 @@ func (s *ReportGenerationService) executeContentGeneration(ctx context.Context, 
 			return ReportGenerationExecutionResult{}, err
 		}
 		now := s.clock()
-		beforeGeneratedWrite := section
+		sectionID := section.ID
 		var updated ReportSection
 		if err := s.repo.WithinGenerationTx(ctx, func(txRepo ReportGenerationRepository) error {
 			existingVersions, err := txRepo.ListReportSectionVersions(ctx, section.ID)
@@ -282,10 +275,7 @@ func (s *ReportGenerationService) executeContentGeneration(ctx context.Context, 
 			}
 			return nil
 		}); err != nil {
-			failed := beforeGeneratedWrite
-			failed.GenerationStatus = JobStatusFailed
-			failed.UpdatedAt = s.clock()
-			_, _ = s.repo.UpdateReportSection(ctx, failed)
+			s.markSectionGenerationFailed(ctx, sectionID, payload.JobID)
 			return ReportGenerationExecutionResult{}, err
 		}
 		completed++
@@ -294,6 +284,22 @@ func (s *ReportGenerationService) executeContentGeneration(ctx context.Context, 
 	}
 	_ = s.recordEvent(ctx, report.ID, payload.JobID, "content.succeeded", "content generation succeeded")
 	return ReportGenerationExecutionResult{Status: JobStatusSucceeded}, nil
+}
+
+func (s *ReportGenerationService) markSectionGenerationRunning(ctx context.Context, section ReportSection, jobID string) ReportSection {
+	updatedAt := s.clock()
+	section.GenerationStatus = JobStatusRunning
+	section.LastJobID = jobID
+	section.UpdatedAt = updatedAt
+	updated, err := s.repo.MarkReportSectionGenerationRunning(ctx, section.ID, jobID, updatedAt)
+	if err != nil {
+		return section
+	}
+	return updated
+}
+
+func (s *ReportGenerationService) markSectionGenerationFailed(ctx context.Context, sectionID, jobID string) {
+	_, _ = s.repo.MarkReportSectionGenerationFailed(ctx, sectionID, jobID, s.clock())
 }
 
 func validateSupportedAIReportType(reportType, generationKind string) error {

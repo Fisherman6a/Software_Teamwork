@@ -750,6 +750,12 @@ outline generation -> parse AI response outside transaction -> transaction inser
 - AI generation may call the model outside the database transaction, but the
   final generated content update plus `report_section_versions` insert must run
   in one short `WithinGenerationTx` operation.
+- If generated content persistence fails after the transaction rolls back,
+  failure compensation must use a narrow section status update only
+  (`generation_status`, `last_job_id`, `updated_at`). It must not write a stale
+  full `report_sections` snapshot over `content`, `tables_json`, `version`,
+  `content_source`, or `manual_edited`, and should require `last_job_id` to
+  still match the failed generation job before marking `failed`.
 - Manual edit preservation defaults to true. `preserveUserEdits=false` is the
   public option; `preserveManualEdits=false` remains a backward-compatible
   alias. Only an explicit false value may overwrite manual edits.
@@ -762,7 +768,7 @@ outline generation -> parse AI response outside transaction -> transaction inser
 | Target section belongs to another report | `404 not_found` |
 | Target section has `generation_status = running` | `409 conflict`; do not create a version |
 | Version insert succeeds but current-section switch fails | Roll back inserted version and return typed dependency/not-found error |
-| AI generated content update succeeds but version insert fails | Roll back the generated content switch; mark the section failed best-effort |
+| AI generated content update succeeds but version insert fails | Roll back the generated content switch; mark the section failed best-effort with a narrow, current-job-matched status update that preserves concurrent edits |
 | Manual edit changes only metadata | Do not create a new section version |
 
 ### 5. Good/Base/Bad Cases
@@ -783,6 +789,9 @@ outline generation -> parse AI response outside transaction -> transaction inser
 - Manual edit snapshot tests for single-section update and bulk save.
 - Generation tests for default preserve behavior, explicit
   `preserveUserEdits=false`, and rollback when version insertion fails.
+- Generation rollback tests must simulate a concurrent section edit after the
+  failed transaction rolls back and assert failure compensation preserves
+  `content`, `tables`, `version`, `content_source`, and `manual_edited`.
 - HTTP tests that assert `source`, `requirements`, `content`, and `tables` are
   passed through to the service and returned in the response DTO.
 - OpenAPI parse/schema checks that Document and Gateway section-version source
@@ -804,6 +813,18 @@ POST /sections/{id}/versions -> transaction:
   insert report_section_versions(version=3)
   update report_sections.content/tables/version/source
 return 201 after commit
+```
+
+#### Wrong
+
+```text
+generation tx fails -> restore old section snapshot -> UPDATE report_sections SET content=old_content, version=old_version, generation_status=failed
+```
+
+#### Correct
+
+```text
+generation tx fails -> rollback generated content/version -> UPDATE report_sections SET generation_status=failed, updated_at=now WHERE id=$section AND last_job_id=$job
 ```
 
 ## Scenario: Document Initial Report Defaults Seed

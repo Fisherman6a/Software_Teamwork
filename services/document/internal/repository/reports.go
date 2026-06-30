@@ -577,6 +577,52 @@ func (r *PostgresRepository) UpdateReportSection(ctx context.Context, value serv
 	return section, nil
 }
 
+func (r *PostgresRepository) MarkReportSectionGenerationRunning(ctx context.Context, sectionID, jobID string, updatedAt time.Time) (service.ReportSection, error) {
+	return r.updateReportSectionGenerationState(ctx, sectionID, service.JobStatusRunning, jobID, updatedAt, false)
+}
+
+func (r *PostgresRepository) MarkReportSectionGenerationFailed(ctx context.Context, sectionID, jobID string, updatedAt time.Time) (service.ReportSection, error) {
+	return r.updateReportSectionGenerationState(ctx, sectionID, service.JobStatusFailed, jobID, updatedAt, true)
+}
+
+func (r *PostgresRepository) updateReportSectionGenerationState(ctx context.Context, sectionID string, status service.JobStatus, jobID string, updatedAt time.Time, requireLastJobMatch bool) (service.ReportSection, error) {
+	parsedSectionID, err := parseUUID(sectionID)
+	if err != nil {
+		return service.ReportSection{}, service.NewError(service.CodeValidation, "invalid report section id", err)
+	}
+	parsedJobID, err := parseOptionalUUIDField(jobID, "jobId")
+	if err != nil {
+		return service.ReportSection{}, err
+	}
+	row := r.db.QueryRow(ctx, `
+		UPDATE report_sections SET
+			generation_status = $2,
+			last_job_id = NULLIF($3, '')::uuid,
+			updated_at = $4
+		WHERE id = $1
+			AND ($5::boolean = false OR last_job_id IS NOT DISTINCT FROM NULLIF($3, '')::uuid)
+		RETURNING
+			id::text, report_id::text, COALESCE(outline_id::text, ''), COALESCE(parent_id::text, ''),
+			COALESCE(outline_node_id, ''), section_path, title, level, sort_order,
+			COALESCE(numbering, ''), section_type, content, tables_json,
+			generation_status, COALESCE(content_source, ''), manual_edited, version,
+			COALESCE(last_job_id::text, ''), generated_at, created_at, updated_at`,
+		parsedSectionID,
+		string(status),
+		parsedJobID,
+		updatedAt,
+		requireLastJobMatch,
+	)
+	section, err := scanReportSection(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return service.ReportSection{}, service.NewError(service.CodeNotFound, "report section not found", err)
+		}
+		return service.ReportSection{}, fmt.Errorf("update report section generation state: %w", err)
+	}
+	return section, nil
+}
+
 // --- Section versions ---
 
 func (r *PostgresRepository) CreateReportSectionVersion(ctx context.Context, value service.ReportSectionVersion) (service.ReportSectionVersion, error) {
