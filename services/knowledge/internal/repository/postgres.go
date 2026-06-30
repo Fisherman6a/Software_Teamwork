@@ -428,7 +428,7 @@ func (r *PostgresRepository) FindChunksByIDs(ctx context.Context, ids []string) 
 		chunk.EmbeddingProvider = textPtr(embeddingProvider)
 		chunk.EmbeddingModel = textPtr(embeddingModel)
 		if embeddingDimension.Valid {
-			value := int(embeddingDimension.Int32)
+			value := embeddingDimension.Int32
 			chunk.EmbeddingDimension = &value
 		}
 		if len(metadata) > 0 {

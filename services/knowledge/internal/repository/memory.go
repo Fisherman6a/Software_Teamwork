@@ -18,7 +18,6 @@ type MemoryRepository struct {
 	jobs           map[string]service.ProcessingJob
 	parserConfigs  map[string]service.ParserConfig
 	parserAudits   []service.ParserConfigAudit
-	chunks         map[string]service.DocumentChunk
 }
 
 func NewMemoryRepository() *MemoryRepository {
@@ -28,7 +27,6 @@ func NewMemoryRepository() *MemoryRepository {
 		chunks:         map[string]service.DocumentChunk{},
 		jobs:           map[string]service.ProcessingJob{},
 		parserConfigs:  map[string]service.ParserConfig{},
-		chunks:         map[string]service.DocumentChunk{},
 	}
 }
 
@@ -834,26 +832,6 @@ func cloneDocument(doc service.KnowledgeDocument) service.KnowledgeDocument {
 		doc.DeletedAt = &value
 	}
 	return doc
-}
-
-func cloneChunk(chunk service.DocumentChunk) service.DocumentChunk {
-	chunk.SectionPath = cloneStringPtr(chunk.SectionPath)
-	chunk.ChunkType = cloneStringPtr(chunk.ChunkType)
-	chunk.QdrantPointID = cloneStringPtr(chunk.QdrantPointID)
-	chunk.EmbeddingProvider = cloneStringPtr(chunk.EmbeddingProvider)
-	chunk.EmbeddingModel = cloneStringPtr(chunk.EmbeddingModel)
-	if chunk.EmbeddingDimension != nil {
-		value := *chunk.EmbeddingDimension
-		chunk.EmbeddingDimension = &value
-	}
-	if chunk.Metadata != nil {
-		metadata := make(map[string]any, len(chunk.Metadata))
-		for key, value := range chunk.Metadata {
-			metadata[key] = value
-		}
-		chunk.Metadata = metadata
-	}
-	return chunk
 }
 
 func cloneJob(job service.ProcessingJob) service.ProcessingJob {

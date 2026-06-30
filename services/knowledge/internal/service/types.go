@@ -173,23 +173,6 @@ type KnowledgeDocument struct {
 	DeletedAt       *time.Time
 }
 
-type DocumentChunk struct {
-	ID                 string
-	KnowledgeBaseID    string
-	DocumentID         string
-	ChunkIndex         int
-	SectionPath        *string
-	Content            string
-	TokenCount         int
-	ChunkType          *string
-	QdrantPointID      *string
-	EmbeddingProvider  *string
-	EmbeddingModel     *string
-	EmbeddingDimension *int
-	Metadata           map[string]any
-	CreatedAt          time.Time
-}
-
 type ProcessingJob struct {
 	ID                   string
 	KnowledgeBaseID      string

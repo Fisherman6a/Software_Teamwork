@@ -334,7 +334,7 @@ func (s *Service) hydrateRetrievalResults(ctx context.Context, reqCtx RequestCon
 		if doc.Status != DocumentStatusReady || !containsAllTags(doc.Tags, tags) || !matchesChunkMetadata(chunk.Metadata, metadataFilter) {
 			continue
 		}
-		chunkIndex := chunk.ChunkIndex
+		chunkIndex := int(chunk.ChunkIndex)
 		results = append(results, KnowledgeQueryResult{
 			Score:           hit.Score,
 			KnowledgeBaseID: chunk.KnowledgeBaseID,
