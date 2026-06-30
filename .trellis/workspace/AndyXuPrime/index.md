@@ -29,14 +29,14 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
-| 20 | 2026-06-30 | F-016 rebase onto develop 74652c3 | `c600401` | `Frontend/feat/qa-capability-aligned-chat` |
-| 19 | 2026-06-30 | F-016 stream payload review follow-up | `9155a19` | `Frontend/feat/qa-capability-aligned-chat` |
-| 18 | 2026-06-30 | F-016 latest develop rebase | `b16d1af` | `Frontend/feat/qa-capability-aligned-chat` |
-| 17 | 2026-06-30 | F-016 SSE id sequence follow-up | `68e1cd2` | `Frontend/feat/qa-capability-aligned-chat` |
-| 16 | 2026-06-30 | F-016 stream error sequence follow-up | `1264c9d` | `Frontend/feat/qa-capability-aligned-chat` |
-| 15 | 2026-06-30 | F-016 archive context cleanup | `7d20acc` | `Frontend/feat/qa-capability-aligned-chat` |
-| 14 | 2026-06-30 | F-016 stream sequence preservation | `7ae551e` | `Frontend/feat/qa-capability-aligned-chat` |
-| 13 | 2026-06-30 | F-016 completed stream sequence follow-up | `af048ff` | `Frontend/feat/qa-capability-aligned-chat` |
+| 20 | 2026-06-30 | F-016 rebase onto develop 74652c3 | `07ce70b` | `Frontend/feat/qa-capability-aligned-chat` |
+| 19 | 2026-06-30 | F-016 stream payload review follow-up | `88aa4c8` | `Frontend/feat/qa-capability-aligned-chat` |
+| 18 | 2026-06-30 | F-016 latest develop rebase | `8fad613` | `Frontend/feat/qa-capability-aligned-chat` |
+| 17 | 2026-06-30 | F-016 SSE id sequence follow-up | `9822960` | `Frontend/feat/qa-capability-aligned-chat` |
+| 16 | 2026-06-30 | F-016 stream error sequence follow-up | `c881401` | `Frontend/feat/qa-capability-aligned-chat` |
+| 15 | 2026-06-30 | F-016 archive context cleanup | `e499d8d` | `Frontend/feat/qa-capability-aligned-chat` |
+| 14 | 2026-06-30 | F-016 stream sequence preservation | `b3f07b6` | `Frontend/feat/qa-capability-aligned-chat` |
+| 13 | 2026-06-30 | F-016 completed stream sequence follow-up | `0286325` | `Frontend/feat/qa-capability-aligned-chat` |
 | 12 | 2026-06-30 | F-016 PR review follow-up | `25ff65e` | `Frontend/feat/qa-capability-aligned-chat` |
 | 11 | 2026-06-30 | F-016 QA chat capability alignment | `879053b` | `Frontend/feat/qa-capability-aligned-chat` |
 | 10 | 2026-06-30 | Finalize PR 266 archive metadata | `f220499` | `Frontend/test/frontend-critical-flows` |
