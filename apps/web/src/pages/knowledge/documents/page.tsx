@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getKnowledgeBase } from '@/api/admin'
+import { getDocumentContent, getKnowledgeBase } from '@/api/admin'
 import { ConfirmDialog, InlineNotice, StateBlock, TableSkeleton } from '@/components/common'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
+  formatGatewayCapabilityError,
   useDeleteDocument,
   useDocuments,
   useKnowledgeBases,
@@ -229,12 +230,21 @@ export function KnowledgeDocumentsPage({
       return
     }
     let cancelled = false
-    getKnowledgeBase(knowledgeBaseId).then((kb) => {
-      if (!cancelled) {
-        KB_NAME_CACHE[knowledgeBaseId] = kb.name
-        setKbName(kb.name)
-      }
-    })
+    getKnowledgeBase(knowledgeBaseId)
+      .then((kb) => {
+        if (!cancelled) {
+          KB_NAME_CACHE[knowledgeBaseId] = kb.name
+          setKbName(kb.name)
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setNotification({
+            type: 'error',
+            text: formatGatewayCapabilityError(err, '知识库详情'),
+          })
+        }
+      })
     return () => {
       cancelled = true
     }
@@ -315,7 +325,10 @@ export function KnowledgeDocumentsPage({
           setPage(1)
         },
         onError: (err: Error) => {
-          setNotification({ type: 'error', text: `上传失败: ${err.message}` })
+          setNotification({
+            type: 'error',
+            text: formatGatewayCapabilityError(err, '文档上传'),
+          })
         },
       },
     )
@@ -343,7 +356,10 @@ export function KnowledgeDocumentsPage({
           setEditingDoc(null)
         },
         onError: (err: Error) => {
-          setNotification({ type: 'error', text: `更新失败: ${err.message}` })
+          setNotification({
+            type: 'error',
+            text: formatGatewayCapabilityError(err, '文档标签更新'),
+          })
         },
       },
     )
@@ -363,10 +379,31 @@ export function KnowledgeDocumentsPage({
         setDeletingDoc(null)
       },
       onError: (err: Error) => {
-        setNotification({ type: 'error', text: `删除失败: ${err.message}` })
+        setNotification({
+          type: 'error',
+          text: formatGatewayCapabilityError(err, '文档删除'),
+        })
       },
     })
   }, [deletingDoc, deleteMutation])
+
+  const handleDownload = useCallback((doc: DocumentSummary) => {
+    getDocumentContent(doc.id)
+      .then((blob) => {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = doc.name
+        a.click()
+        URL.revokeObjectURL(url)
+      })
+      .catch((err: unknown) => {
+        setNotification({
+          type: 'error',
+          text: formatGatewayCapabilityError(err, '文档原文下载'),
+        })
+      })
+  }, [])
 
   // ── Polling for processing documents ──
 
@@ -632,32 +669,7 @@ export function KnowledgeDocumentsPage({
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              onClick={() => {
-                                // Use direct link to document content
-                                const token = localStorage.getItem('auth_token')
-                                const a = document.createElement('a')
-                                a.href = `/api/v1/documents/${encodeURIComponent(doc.id)}/content`
-                                if (token) {
-                                  // Fetch with auth header to get blob
-                                  import('@/api/admin').then(({ getDocumentContent }) => {
-                                    getDocumentContent(doc.id)
-                                      .then((blob) => {
-                                        const url = URL.createObjectURL(blob)
-                                        const a2 = document.createElement('a')
-                                        a2.href = url
-                                        a2.download = doc.name
-                                        a2.click()
-                                        URL.revokeObjectURL(url)
-                                      })
-                                      .catch(() => {
-                                        setNotification({
-                                          type: 'error',
-                                          text: '下载失败，请检查网络连接',
-                                        })
-                                      })
-                                  })
-                                }
-                              }}
+                              onClick={() => handleDownload(doc)}
                               aria-label={`下载 ${doc.name}`}
                               title="下载原文"
                               disabled={doc.status === 'failed'}
