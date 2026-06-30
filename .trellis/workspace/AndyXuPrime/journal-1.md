@@ -468,7 +468,7 @@ Addressed PR review finding by applying monotonic SSE sequence validation to ans
 
 | Hash | Message |
 |------|---------|
-| `185ef48` | (see git log) |
+| `2216a08` | (see git log) |
 
 ### Testing
 
@@ -501,7 +501,7 @@ Preserved the remote stream-ordering fix by preventing message payload sequenceN
 
 | Hash | Message |
 |------|---------|
-| `5410d12` | (see git log) |
+| `e9c16d5` | (see git log) |
 
 ### Testing
 
@@ -534,7 +534,7 @@ Replaced archived Trellis context placeholders with real implementation/check re
 
 | Hash | Message |
 |------|---------|
-| `de16ac9` | (see git log) |
+| `3abfdf5` | (see git log) |
 
 ### Testing
 
@@ -567,7 +567,7 @@ Fixed fatal QA stream errors to use the next sequence after the max dispatched s
 
 | Hash | Message |
 |------|---------|
-| `d9e8ee8` | (see git log) |
+| `6d8a9c5` | (see git log) |
 
 ### Testing
 
@@ -600,7 +600,7 @@ Updated QA stream parsing to prefer SSE id as the cross-event sequence and cover
 
 | Hash | Message |
 |------|---------|
-| `1b2c201` | (see git log) |
+| `70b7638` | (see git log) |
 
 ### Testing
 
