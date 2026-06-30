@@ -98,6 +98,19 @@ func NormalizeCitation(item Citation) Citation {
 	return item
 }
 
+func ApplyCitationSourceAvailability(item Citation, available bool) Citation {
+	documentID := strings.TrimSpace(firstNonBlank(item.DocumentID, item.DocID))
+	item.DocumentID = documentID
+	item.DocID = documentID
+	item.IsSourceAvailable = available && documentID != ""
+	if item.IsSourceAvailable {
+		item.SourceUnavailableReason = ""
+	} else if strings.TrimSpace(item.SourceUnavailableReason) == "" {
+		item.SourceUnavailableReason = citationSourceUnavailableReason
+	}
+	return NormalizeCitation(item)
+}
+
 func SanitizeCitationMetadata(metadata map[string]any) map[string]any {
 	if len(metadata) == 0 {
 		return map[string]any{}
@@ -350,22 +363,29 @@ type ResourceRepository interface {
 type KnowledgeRetriever interface {
 	Retrieve(context.Context, string, RetrievalTestInput) ([]RetrievalTestResult, error)
 }
+
+type CitationSourceChecker interface {
+	CheckCitationSources(context.Context, string, []string) (map[string]bool, error)
+}
+
 type ActiveRunCanceller interface{ CancelActiveRun(string) }
 
 type ResourceService struct {
-	repository ResourceRepository
-	retriever  KnowledgeRetriever
-	llmTester  LLMConnectionTester
-	bootstrap  RuntimeLLMConfig
-	canceller  ActiveRunCanceller
-	now        func() time.Time
+	repository    ResourceRepository
+	retriever     KnowledgeRetriever
+	sourceChecker CitationSourceChecker
+	llmTester     LLMConnectionTester
+	bootstrap     RuntimeLLMConfig
+	canceller     ActiveRunCanceller
+	now           func() time.Time
 }
 
 func NewResourceService(repository ResourceRepository, retriever KnowledgeRetriever, tester LLMConnectionTester, bootstrap RuntimeLLMConfig, canceller ActiveRunCanceller) (*ResourceService, error) {
 	if repository == nil || retriever == nil || tester == nil || canceller == nil {
 		return nil, errors.New("resource repository, retriever, LLM tester and run canceller are required")
 	}
-	return &ResourceService{repository: repository, retriever: retriever, llmTester: tester, bootstrap: bootstrap, canceller: canceller, now: time.Now}, nil
+	sourceChecker, _ := retriever.(CitationSourceChecker)
+	return &ResourceService{repository: repository, retriever: retriever, sourceChecker: sourceChecker, llmTester: tester, bootstrap: bootstrap, canceller: canceller, now: time.Now}, nil
 }
 
 func (s *ResourceService) GetResponseRun(ctx context.Context, userID, id string) (ResponseRun, error) {
@@ -382,17 +402,63 @@ func (s *ResourceService) ListStreamEvents(ctx context.Context, userID, sessionI
 	return s.repository.ListStreamEvents(ctx, userID, sessionID, runID, after)
 }
 func (s *ResourceService) ListMessageCitations(ctx context.Context, userID, id string) ([]Citation, error) {
-	return s.repository.ListMessageCitations(ctx, userID, id)
+	items, err := s.repository.ListMessageCitations(ctx, userID, id)
+	if err != nil {
+		return nil, err
+	}
+	return s.revalidateCitationSources(ctx, userID, items), nil
 }
 func (s *ResourceService) GetCitation(ctx context.Context, userID, id string) (Citation, error) {
-	return s.repository.GetCitation(ctx, userID, id)
+	item, err := s.repository.GetCitation(ctx, userID, id)
+	if err != nil {
+		return Citation{}, err
+	}
+	items := s.revalidateCitationSources(ctx, userID, []Citation{item})
+	return items[0], nil
 }
 func (s *ResourceService) LookupCitations(ctx context.Context, userID string, ids []string) ([]Citation, error) {
 	if len(ids) == 0 || len(ids) > 100 {
 		return nil, ValidationError(map[string]string{"citationIds": "must contain between 1 and 100 items"})
 	}
-	return s.repository.LookupCitations(ctx, userID, ids)
+	items, err := s.repository.LookupCitations(ctx, userID, ids)
+	if err != nil {
+		return nil, err
+	}
+	return s.revalidateCitationSources(ctx, userID, items), nil
 }
+
+func (s *ResourceService) revalidateCitationSources(ctx context.Context, userID string, items []Citation) []Citation {
+	if len(items) == 0 {
+		return items
+	}
+	documentIDs := make([]string, 0, len(items))
+	seen := map[string]struct{}{}
+	for _, item := range items {
+		documentID := strings.TrimSpace(firstNonBlank(item.DocumentID, item.DocID))
+		if documentID == "" {
+			continue
+		}
+		if _, ok := seen[documentID]; ok {
+			continue
+		}
+		seen[documentID] = struct{}{}
+		documentIDs = append(documentIDs, documentID)
+	}
+	availability := map[string]bool{}
+	if s.sourceChecker != nil && len(documentIDs) > 0 {
+		checked, _ := s.sourceChecker.CheckCitationSources(ctx, userID, documentIDs)
+		if checked != nil {
+			availability = checked
+		}
+	}
+	normalized := make([]Citation, 0, len(items))
+	for _, item := range items {
+		documentID := strings.TrimSpace(firstNonBlank(item.DocumentID, item.DocID))
+		normalized = append(normalized, ApplyCitationSourceAvailability(item, documentID != "" && availability[documentID]))
+	}
+	return normalized
+}
+
 func (s *ResourceService) ListToolCalls(ctx context.Context, userID, id string) ([]AgentToolCall, error) {
 	return s.repository.ListToolCalls(ctx, userID, id)
 }

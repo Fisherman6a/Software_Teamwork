@@ -115,7 +115,7 @@ func scanCitation(row rowScanner) (service.Citation, error) {
 	if item.Metadata == nil {
 		item.Metadata = map[string]any{}
 	}
-	return service.NormalizeCitation(item), nil
+	return service.ApplyCitationSourceAvailability(item, false), nil
 }
 
 func (r *Postgres) ListToolCalls(ctx context.Context, userID, runID string) ([]service.AgentToolCall, error) {
