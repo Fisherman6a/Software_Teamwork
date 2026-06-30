@@ -13,6 +13,7 @@
 | Document 服务 Compose | partial | `services/document/docker-compose.yml` 会启动 Document PostgreSQL、Redis、migration 和 Document；不包含 File、AI Gateway。 |
 | AI Gateway 本地运行 | host-run | 需要手动准备 PostgreSQL、migration、service token hash、credential encryption key 和 provider profile。当前无服务级 Compose。 |
 | File / Knowledge 独立运行 | host-run | 需要手动准备各自依赖；MinIO、Qdrant adapter 尚未落地。 |
+| Parser Runtime | contract-only | 当前只有内部 OpenAPI、README 和目录 scaffold；Python packaging、PaddleOCR runtime、Docker image 和 HTTP smoke 尚未落地。 |
 | 前端联调入口 | host-run | 前端只调用 public Gateway `/api/v1/**`；不要直连内部服务。 |
 
 因此当前本地联调应按“服务级 smoke + 手动拼接关键链路”的方式执行。除非 #122/#125 合并，不要在 PR 或文档中声称已有完整一键本地 E2E 环境。
@@ -119,6 +120,7 @@ go run ./cmd/server
 | --- | --- | --- |
 | 根级全服务 Compose 缺失 | 不能一键启动 Auth/Gateway/File/Knowledge/QA/Document/AI Gateway。 | #122、#150 |
 | 跨服务契约测试和 E2E smoke 缺失 | 不能自动证明前端 -> Gateway -> 多服务链路可用。 | #125 |
+| Parser runtime 和 smoke 缺失 | 只能检查 `services/parser/api/openapi.yaml` 与文档一致性，不能验证真实 PaddleOCR 解析或 Knowledge -> Parser 调用链路。 | 待拆分 |
 | Qdrant adapter 和 MinIO adapter 未落地 | Knowledge 检索闭环和 File 对象存储闭环仍是局部实现。 | #152、#154 |
 | Document 真实 AI 生成和富 DOCX 工具链未落地 | 报告 job 状态机和基础 DOCX 导出可用；真实大纲/正文生成、Pandoc/LibreOffice 富 DOCX 转换和跨服务内容读取 smoke 仍需补齐。 | #160、#223 |
 | Document 跨服务 smoke 仍缺失 | settings/statistics/logs 已在服务端落地，但管理端、Gateway、File Service、Document worker 串联 smoke 仍未一键化。 | #159、#221 |
@@ -130,5 +132,6 @@ go run ./cmd/server
 - 只改文档：至少执行 `git diff --check`，并检查新增链接、相对路径和实现事实。
 - 改后端服务：执行对应服务 `go test ./...` 和 `go build ./cmd/server`；QA 还要 `go build ./cmd/agent`。
 - 改 migration：执行 goose apply；如果服务有 env-gated repository integration tests，尽量使用本地 PostgreSQL 跑一遍。
+- 改 Parser 契约或运行时规划：检查 `services/parser/api/openapi.yaml`、Parser README 和 Knowledge ingestion 文档是否一致；runtime 落地前不要记录 `pytest`、PaddleOCR smoke 或 Parser build 结果。
 - 改 Gateway OpenAPI：执行 `python3 scripts/verify_gateway_active_api.py`，前端类型相关改动还要执行 `bun run --cwd apps/web api:generate` 并检查生成 diff。
 - 改前端：执行 `bun install --frozen-lockfile`、`bun run --cwd apps/web check`、`bun run --cwd apps/web build`。
