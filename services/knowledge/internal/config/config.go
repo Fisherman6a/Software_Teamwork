@@ -40,6 +40,8 @@ type Config struct {
 	AIGatewayBaseURL     string
 	AIGatewayToken       string
 	AIGatewayProfileID   string
+	RerankModel          string
+	RerankProfileID      string
 	QdrantURL            string
 	QdrantAPIKey         string
 	QdrantCollection     string
@@ -64,8 +66,10 @@ func Load() (Config, error) {
 		EmbeddingDimension:   DefaultEmbeddingDimension,
 		AIGatewayBaseURL:     trimTrailingSlash(os.Getenv("AI_GATEWAY_BASE_URL")),
 		AIGatewayToken:       strings.TrimSpace(os.Getenv("AI_GATEWAY_SERVICE_TOKEN")),
-		AIGatewayProfileID:   strings.TrimSpace(os.Getenv("AI_GATEWAY_EMBEDDING_PROFILE_ID")),
-		QdrantURL:            trimTrailingSlash(os.Getenv("QDRANT_URL")),
+		AIGatewayProfileID:   firstNonEmptyEnv("AI_GATEWAY_EMBEDDING_PROFILE_ID", "EMBEDDING_PROFILE_ID"),
+		RerankModel:          strings.TrimSpace(os.Getenv("RERANK_MODEL")),
+		RerankProfileID:      strings.TrimSpace(os.Getenv("RERANK_PROFILE_ID")),
+		QdrantURL:            trimTrailingSlash(firstNonEmptyEnv("QDRANT_URL", "QDRANT_BASE_URL")),
 		QdrantAPIKey:         strings.TrimSpace(os.Getenv("QDRANT_API_KEY")),
 		QdrantCollection:     stringValue("QDRANT_COLLECTION", DefaultQdrantCollection),
 		ShutdownTimeout:      DefaultShutdownTimeout,
@@ -124,6 +128,25 @@ func Load() (Config, error) {
 			return Config{}, err
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(cfg.EmbeddingProvider), "ai_gateway") {
+		if cfg.AIGatewayBaseURL == "" {
+			return Config{}, fmt.Errorf("AI_GATEWAY_BASE_URL is required when EMBEDDING_PROVIDER=ai_gateway")
+		}
+		if cfg.AIGatewayToken == "" {
+			return Config{}, fmt.Errorf("AI_GATEWAY_SERVICE_TOKEN is required when EMBEDDING_PROVIDER=ai_gateway")
+		}
+	}
+	if cfg.RerankModel != "" || cfg.RerankProfileID != "" {
+		if cfg.AIGatewayBaseURL == "" {
+			return Config{}, fmt.Errorf("AI_GATEWAY_BASE_URL is required when reranker is configured")
+		}
+		if cfg.AIGatewayToken == "" {
+			return Config{}, fmt.Errorf("AI_GATEWAY_SERVICE_TOKEN is required when reranker is configured")
+		}
+		if cfg.RerankModel == "" {
+			return Config{}, fmt.Errorf("RERANK_MODEL is required when reranker is configured")
+		}
+	}
 
 	return cfg, nil
 }
@@ -133,6 +156,15 @@ func stringValue(key string, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func trimTrailingSlash(value string) string {

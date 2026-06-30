@@ -326,6 +326,7 @@ type VectorIndex interface {
 	Upsert(ctx context.Context, points []VectorPoint) error
 	DeleteByDocumentIngestionAttempt(ctx context.Context, documentID string, ingestionAttempt string) error
 	DeleteStaleDocumentPoints(ctx context.Context, documentID string, activeIngestionAttempt string) error
+	Search(ctx context.Context, request VectorSearchRequest) ([]VectorSearchHit, error)
 }
 
 type DocumentIngestionTask struct {
@@ -372,6 +373,7 @@ type Repository interface {
 	MarkDocumentJobFailed(ctx context.Context, documentID string, jobID string, expectedAttempts *int32, code string, message string, failedAt time.Time) error
 	ListDocumentsByKnowledgeBase(ctx context.Context, knowledgeBaseID string, status *DocumentStatus, scope AccessScope, page PageInput) (DocumentList, error)
 	GetDocument(ctx context.Context, id string, scope AccessScope) (KnowledgeDocument, error)
+	FindChunksByIDs(ctx context.Context, ids []string) ([]DocumentChunk, error)
 	ListParserConfigs(ctx context.Context, enabled *bool) ([]ParserConfig, error)
 	GetParserConfig(ctx context.Context, id string) (ParserConfig, error)
 	CreateParserConfig(ctx context.Context, config ParserConfig, audit ParserConfigAudit) (ParserConfig, error)
