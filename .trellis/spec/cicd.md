@@ -44,12 +44,13 @@ Use `docs/testing/strategy.md` as the authority for current CI coverage and
 required-check candidates. As of the current docs baseline:
 
 - Current CI covers collaboration guardrails, Go service tests/builds, goose
-  migration apply, Gateway contract drift, and frontend Gateway API type drift.
-- The best required-check candidates are Go service tests, goose migration
-  apply, Gateway contract/API drift, and API type drift.
-- Full frontend `check/build` CI, Vitest/React Testing Library/Playwright,
-  path-filter matrices, Docker image builds, full DB integration test jobs, and
-  cross-service E2E smoke are gaps until stable workflows and dependencies land.
+  migration apply, frontend check/build/unit/E2E smoke, Docker/Compose config
+  checks, Gateway contract drift, and frontend Gateway API type drift.
+- The best required-check candidates are frontend check/build, Go service tests,
+  goose migration apply, Docker/Compose config, Gateway contract/API drift, and
+  API type drift.
+- Full DB integration test jobs and backend cross-service E2E smoke are gaps
+  until stable workflows and dependencies land.
 - Open PRs, draft issues, and unmerged capabilities must be documented as
   pending/follow-up, not as current `develop` behavior.
 
@@ -342,18 +343,95 @@ Chinese PR template sections.
 
 ## Target Product Workflows
 
-Recommended workflow files after the corresponding implementation issues land:
+Product workflow files:
 
 | Workflow | Suggested File | Trigger |
 |----------|----------------|---------|
-| Frontend CI | `.github/workflows/frontend-ci.yml` | `apps/web/**` |
-| Go Services CI | `.github/workflows/go-services-ci.yml` | `services/**` |
-| Docker Build | `.github/workflows/docker-build.yml` | service Dockerfiles, service code, `deploy/**` |
+| Frontend CI | `.github/workflows/frontend.yml` | `apps/web/**` |
+| Go Services CI | `.github/workflows/go-services.yml` | `services/**` |
+| Docker / Deploy Checks | `.github/workflows/docker-deploy-checks.yml` | service image inputs, service Compose files, `deploy/**` |
 | Deploy | `.github/workflows/deploy.yml` | protected branch or manual dispatch |
 
 Use path filters so unrelated documentation or service changes do not run every
 job. A workflow may still run a cheap detection job to decide which service jobs
 are needed.
+
+## Scenario: Path-Derived Matrix Inputs
+
+### 1. Scope / Trigger
+
+- Trigger: a GitHub Actions workflow derives a job matrix from changed file
+  paths, pull request metadata, issue text, or other contributor-controlled
+  input.
+- Applies to `actions/github-script` detection jobs and downstream shell steps
+  that consume matrix values.
+
+### 2. Signatures
+
+- Detection output: JSON arrays written with `core.setOutput`, for example
+  `dockerfiles` or `compose-files`.
+- Matrix consumption: `${{ fromJSON(needs.detect.outputs.<name>) }}`.
+- Shell consumption: matrix values passed through step `env`, then read as
+  shell variables.
+
+### 3. Contracts
+
+- Detection jobs must whitelist path-derived matrix entries against a known set
+  or a repo-owned manifest before writing outputs.
+- PR changed-file detection must consider both `filename` and
+  `previous_filename` from `pulls.listFiles` so renamed files exercise checks
+  for the old and new affected paths.
+- Pattern checks alone are insufficient for contributor-controlled file names.
+- Shell steps must not interpolate `${{ matrix.* }}` directly inside `run`
+  scripts. Pass the value through `env` and quote the shell variable.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required handling |
+| --- | --- |
+| Changed path matches a broad glob but is not in the known set | Exclude it from the matrix output. |
+| PR file entry has `previous_filename` | Evaluate both old and new paths through the same whitelist/routing rules. |
+| Workflow file changes | Expand to the repo-owned known set, not arbitrary matching paths. |
+| Matrix value is consumed by a shell step | Use `env:` and quote the shell variable in `run`. |
+| A path contains quotes, command separators, spaces, or shell metacharacters | It must not reach shell execution unless it is an explicit known path. |
+
+### 5. Good/Base/Bad Cases
+
+- Good: `services/qa/Dockerfile.host` is in the known Dockerfile set and builds
+  through a quoted `DOCKERFILE` env variable.
+- Good: renaming a file from `services/auth/**` to `services/qa/**` selects both
+  affected services, because old and new paths are evaluated.
+- Base: a service `.dockerignore` change maps to that service's known
+  Dockerfiles.
+- Bad: `services/qa/Dockerfile";echo pwned #` matches a broad workflow trigger
+  and is interpolated directly into a `run` script.
+
+### 6. Tests Required
+
+- Parse changed-file detection scripts with `node --check`.
+- Add a local detection regression for valid known paths, workflow-file changes,
+  and malicious path strings containing shell metacharacters.
+- Run `actionlint` and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```yaml
+run: |
+  dockerfile="${{ matrix.dockerfile }}"
+  docker build --file "$dockerfile" "$(dirname "$dockerfile")"
+```
+
+#### Correct
+
+```yaml
+env:
+  DOCKERFILE: ${{ matrix.dockerfile }}
+run: |
+  dockerfile="$DOCKERFILE"
+  docker build --file "$dockerfile" "$(dirname "$dockerfile")"
+```
 
 ## Scenario: Gateway Active API Contract Workflow
 
@@ -456,12 +534,8 @@ Let .github/workflows/gateway-contract.yml enforce the same gate in PR
 
 ## Frontend CI Target
 
-Frontend CI is not yet a landed required workflow. Until it exists, frontend
-`check` and `build` remain PR-before local checks that should be reported in
-the PR body when frontend files change.
-
-When the workflow is added, it should run only when frontend files or
-frontend-related workflow files change.
+Frontend CI is a landed workflow. It runs only when frontend files, root
+frontend dependency files, or the frontend workflow file change.
 
 Target steps:
 
@@ -469,6 +543,8 @@ Target steps:
 bun install --frozen-lockfile
 bun run --cwd apps/web check
 bun run --cwd apps/web build
+bun run --cwd apps/web test:unit
+bun run --cwd apps/web test:e2e
 ```
 
 Rules:
@@ -541,6 +617,7 @@ services/auth/Dockerfile
 services/file/Dockerfile
 services/qa/Dockerfile
 services/knowledge/Dockerfile
+services/parser/Dockerfile
 services/document/Dockerfile
 services/ai-gateway/Dockerfile
 ```
@@ -550,6 +627,8 @@ Rules:
 - Use multi-stage builds for Go services.
 - Produce small runtime images.
 - Build images for changed services on PRs.
+- Treat service source, module/lock files, Dockerfile, and `.dockerignore`
+  changes as image inputs for the service's source-backed Dockerfiles.
 - Push images only from trusted branches or manual release workflows.
 - Tag images with commit SHA and, when applicable, branch or release tags.
 - Never build images with secrets baked into layers.
@@ -630,10 +709,13 @@ workflow sections above. For PRs:
 - PR Guard passes.
 - Commitlint passes.
 - Current product CI passes for touched areas when the workflow exists.
-- Frontend changes should report local `bun run --cwd apps/web check` and
-  `bun run --cwd apps/web build` until full frontend CI lands.
-- Docker build, full DB integration jobs, and cross-service smoke are future
-  gates until stable workflows land.
+- Frontend changes are covered by Frontend CI; local `bun run --cwd apps/web check`,
+  `bun run --cwd apps/web build`, and targeted tests remain useful PR-before
+  evidence.
+- Docker/Compose config checks are covered for affected service image inputs,
+  existing buildable Dockerfiles, and service Compose files; image push, full DB
+  integration jobs, and cross-service smoke remain future gates until stable
+  workflows land.
 - Documentation changes update README/specs when architecture, commands,
   contracts, or implementation status change.
 
