@@ -138,6 +138,34 @@ func TestCreateRetrievalTestRunMergesActiveConfigAndOverrides(t *testing.T) {
 	}
 }
 
+func TestCreateRetrievalTestRunFallsBackToDefaultsAfterKnowledgeBaseNormalization(t *testing.T) {
+	repository := &resourceRepositoryStub{activeQAConfig: QAConfigVersion{
+		ID:                      "qa-config-id",
+		DefaultKnowledgeBaseIDs: []string{" kb-default ", "kb-default"},
+		Retrieval:               RetrievalSettings{TopK: 5, ScoreThreshold: .7},
+	}}
+	retriever := &knowledgeRetrieverStub{results: []RetrievalTestResult{{DocumentID: "doc-1", Metadata: map[string]any{}}}}
+	resources, err := NewResourceService(repository, retriever, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resources.CreateRetrievalTestRun(context.Background(), "user-1", RetrievalTestInput{
+		Question:         "query",
+		KnowledgeBaseIDs: []string{" ", ""},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(retriever.input.KnowledgeBaseIDs, []string{"kb-default"}) {
+		t.Fatalf("knowledgeBaseIds=%+v, want default knowledge base", retriever.input.KnowledgeBaseIDs)
+	}
+	if !reflect.DeepEqual(repository.savedInput.KnowledgeBaseIDs, []string{"kb-default"}) {
+		t.Fatalf("saved knowledgeBaseIds=%+v, want default knowledge base", repository.savedInput.KnowledgeBaseIDs)
+	}
+}
+
 func TestCreateRetrievalTestRunCanDisableActiveRerank(t *testing.T) {
 	repository := &resourceRepositoryStub{activeQAConfig: QAConfigVersion{
 		ID:        "qa-config-id",
