@@ -165,9 +165,12 @@ func (c *Client) CheckCitationSources(ctx context.Context, userID string, docume
 }
 
 // GetStats fetches knowledge base and document counts from the knowledge
-// service by paginating through all knowledge bases. This is a best-effort
-// call: errors are returned to the caller so the ResourceService can fall
-// back to zero counts.
+// service by paginating through all knowledge bases. It sends the service
+// token and user identity but intentionally omits the caller's roles and
+// permissions so that knowledge can apply its own service-to-service
+// authorization rather than rejecting users who lack knowledge:read.
+// This is a best-effort call: errors are returned to the caller so the
+// ResourceService can fall back to zero counts.
 func (c *Client) GetStats(ctx context.Context, userID string) (int, int, error) {
 	const pageSize = 100
 	var (
@@ -181,7 +184,7 @@ func (c *Client) GetStats(ctx context.Context, userID string) (int, int, error) 
 		if err != nil {
 			return 0, 0, fmt.Errorf("create knowledge stats request: %w", err)
 		}
-		c.setTrustedHeaders(ctx, req, userID)
+		c.setStatsHeaders(ctx, req, userID)
 		resp, err := c.http.Do(req)
 		if err != nil {
 			return 0, 0, fmt.Errorf("knowledge stats request: %w", err)
@@ -220,6 +223,18 @@ func (c *Client) GetStats(ctx context.Context, userID string) (int, int, error) 
 		page++
 	}
 	return kbCount, docCount, nil
+}
+
+// setStatsHeaders sends the service token and user identity without the
+// caller's roles/permissions so that knowledge uses its own service-to-service
+// authorization instead of rejecting users without knowledge:read.
+func (c *Client) setStatsHeaders(ctx context.Context, req *http.Request, userID string) {
+	req.Header.Set("X-Service-Token", c.serviceToken)
+	req.Header.Set("X-Caller-Service", "qa")
+	req.Header.Set("X-User-Id", userID)
+	if requestID := service.RequestIDFromContext(ctx); requestID != "" {
+		req.Header.Set("X-Request-Id", requestID)
+	}
 }
 
 func (c *Client) setTrustedHeaders(ctx context.Context, req *http.Request, userID string) {
