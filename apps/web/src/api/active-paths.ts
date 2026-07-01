@@ -20,6 +20,8 @@ export const ACTIVE_GATEWAY_PATHS = [
   '/api/v1/admin/model-profiles/{profileId}',
   '/api/v1/admin/parser-configs',
   '/api/v1/admin/parser-configs/{parserConfigId}',
+  '/api/v1/admin/overview',
+  '/api/v1/admin/metrics',
   '/api/v1/report-types',
   '/api/v1/report-templates',
   '/api/v1/report-templates/{reportTemplateId}',
