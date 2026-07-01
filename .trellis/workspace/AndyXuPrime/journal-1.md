@@ -987,3 +987,69 @@ Reviewed PR #350 after latest develop update. Verified the submitted PR branch i
 ### Next Steps
 
 - None - task complete
+
+
+## Session 28: S-042 AI Gateway real provider readiness
+
+**Date**: 2026-07-01
+**Task**: S-042 AI Gateway real provider readiness
+**Branch**: `Special/test/real-provider-api-key-smoke`
+
+### Summary
+
+Implemented AI Gateway readiness distinction for missing, placeholder, and configured credentials; updated HMAC seed fingerprints, docs, OpenAPI, and env-gated smoke guidance for issue #378.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8ec4388` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 29: Review PR 404 readiness follow-up
+
+**Date**: 2026-07-01
+**Task**: Review PR 404 readiness follow-up
+**Branch**: `Special/test/real-provider-api-key-smoke`
+
+### Summary
+
+Rebased PR #404 branch onto latest upstream/develop d5e2e94, resolved docs/testing/strategy.md conflict by preserving develop QA fake-test guidance and AI Gateway real-provider smoke guidance, found and fixed readiness scanning so a placeholder or missing profile does not mask another non-placeholder configured profile for the same purpose, and reran relevant ai-gateway, OpenAPI, Docker policy, Compose, and smoke-skip checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4e3a703` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
