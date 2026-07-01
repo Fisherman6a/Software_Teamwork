@@ -68,7 +68,7 @@
 | 模型调用边界 | 文档要求业务服务通过 AI Gateway 调模型 | `services/qa/internal/config/config.go` 默认 `AI_GATEWAY_URL=http://localhost:8086/internal/v1/chat/completions`，token header 默认 `X-Service-Token`，不再要求 `DEEPSEEK_API_KEY` fallback | 与架构方向一致；仍需部署联调 token hash 和 caller header | 补 QA -> AI Gateway smoke。 |
 | Knowledge retrieval dependency | QA 文档将检索作为 RAG 主路径 | Knowledge 已实现 `knowledge-queries`，QA 仍缺完整 RAG/citation 跨服务 smoke | 单服务测试通过不等于用户问答闭环已验收 | 补 #304 端到端 sample、#95 retrieval tests 和 #93/#325 citation snapshot/detail/batch query。 |
 | Gateway active QA paths | Gateway 25 个 QA operations active | QA 内部 routes 全注册 | route 层对齐，但业务结果依赖外部服务 | 增加跨服务 contract smoke。 |
-| MCP 原始信息不得暴露 | 文档要求只返回脱敏摘要；QA 报告生成工具产物按 Gateway OpenAPI `QAReportArtifact` 暴露在 `tool.completed`/`tool.failed` 的 `payload.result.reportArtifact` 和 tool-call `resultSummary.reportArtifact` | 代码有 tool-call summary 和 local tool safety tests；Document 报告生成工具注册与 artifact 映射仍由 B-016 补实现 | 当前方向一致；实现时必须从 Document 工具结果映射安全摘要，不透传 MCP 原始 JSON | 持续补审计和字段级契约测试；B-016 需覆盖 job pending、export succeeded/failed、forbidden 和 dependency error。 |
+| MCP 原始信息不得暴露 | 文档要求只返回脱敏摘要；QA 报告生成工具产物按 Gateway OpenAPI `QAReportArtifact` 暴露在 `tool.completed`/`tool.failed` 的 `payload.result.reportArtifact` 和 tool-call `resultSummary.reportArtifact` | B-016 已通过 Document MCP 工具名识别和 `GenerateResultSummary` 映射实现 `reportArtifact`，并覆盖 job pending、export succeeded、forbidden 和 SSE payload 安全测试 | 当前方向一致；QA 通过 MCP ToolClient 消费 Document 安全结果，不 import Document internal 包、不透传 MCP 原始 JSON | 仍需在真实 Document MCP server 与 Gateway/Auth 联调环境补端到端 smoke。 |
 | Agent Run 状态 | README 描述 Agent Run、termination 和 maxIterations | develop 已包含 ResponseRun、终止原因、模型调用摘要、function-calling adapter 和基础测试 | 容易把 Agent Loop 可用误读为完整 RAG/citation 已完成 | 本文将 Agent Loop 和真实 RAG/citation smoke 分开记录。 |
 | `sqlc` 生成器版本 | 技术基线固定 `sqlc` CLI 推荐版本为 `v1.31.1` | `services/qa/internal/repository/sqlc/*.go` 头部仍记录 `sqlc v1.29.0`；本次版本修复不改非 Docker 生成代码 | 代码生成器版本与文档基线出入，后续 SQL 变更时容易继续沿用旧生成器 | 下次修改 QA SQL 或 repository 生成代码时，使用 `go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate` 重新生成并提交。 |
 
@@ -86,7 +86,7 @@
 - 无权限、依赖错误、导出失败只返回安全 `preview` 与状态字段，不返回 File internal ID、object key、bucket、内部 URL、prompt、provider 原始错误、MCP 原始参数或完整结果。
 - `preview` 只保留标题、章节标题、短摘要、进度和用户可见状态，不放完整报告正文。
 
-当前状态：契约已冻结；QA 端 Document 工具注册、fake Document MCP client 测试和映射实现由 B-016 完成。
+当前状态：B-016 已实现 QA 侧 Document report 工具摘要映射。默认工具白名单包含 `document__generate_report_outline`、`document__generate_report_text`、`document__get_generation_status`、`document__export_report_docx` 和 `document__get_report_result`；当运行时注册 alias 为 `document` 的 MCP server 且 tools/list 返回这些工具时，Agent 可在 `report_generation` 模式选择调用。QA 仅把 Document MCP tool result 映射为 `reportArtifact`，不透传原始 JSON。
 
 ## 7. MVP / mock / memory backend / 占位
 

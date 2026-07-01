@@ -163,6 +163,9 @@ func generateCitationArgumentsSummary(args map[string]any) map[string]any {
 // GenerateResultSummary creates a sanitized summary of tool results.
 // It must not expose full content, internal URLs, object keys, or secrets.
 func GenerateResultSummary(toolName string, resultContent string) map[string]any {
+	if summary, ok := generateDocumentReportResultSummary(toolName, resultContent); ok {
+		return summary
+	}
 	if summary, ok := toolFailureSummary(toolName, resultContent); ok {
 		summary["tool"] = toolName
 		return summary

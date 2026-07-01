@@ -857,6 +857,9 @@ func requestDirective(input AskInput) string {
 	if input.Mode != "" && input.Mode != "unknown" {
 		parts = append(parts, "The requested QA mode is "+input.Mode+".")
 	}
+	if input.Mode == "report_generation" {
+		parts = append(parts, "For report generation, use available Document report tools such as document__generate_report_outline, document__generate_report_text, document__get_generation_status, document__export_report_docx, and document__get_report_result. Treat accepted, pending, or running jobs as asynchronous work and avoid long blocking waits.")
+	}
 	if len(input.KnowledgeBaseIDs) > 0 {
 		parts = append(parts, "When a knowledge tool supports knowledge-base filtering, restrict it to: "+strings.Join(input.KnowledgeBaseIDs, ", ")+".")
 	}

@@ -144,6 +144,42 @@ Set `MCP_TRANSPORT=streamable_http` and provide `MCP_SERVER_URL` to merge remote
 tools with the built-in registry. Optional credentials use `MCP_SERVER_TOKEN`
 and `MCP_SERVER_TOKEN_HEADER`.
 
+### Document report tools
+
+Document report generation is integrated through the same MCP ToolClient
+boundary as other remote tools. QA does not import `services/document/internal`
+packages or read Document/File/Object Storage internals directly; the Document
+service owns report jobs, report files, provider prompts, and internal file
+references. Streamable HTTP MCP calls include the configured service token plus
+trusted context headers (`X-Caller-Service: qa`, `X-Request-Id`, `X-User-Id`,
+`X-User-Roles`, and `X-User-Permissions`) so Document can enforce permissions
+and preserve audit correlation.
+
+When the Document MCP server is registered with alias `document`, QA exposes
+the following model-facing tool names through the existing MCP prefixing rule:
+
+| Tool | Purpose |
+| --- | --- |
+| `document__generate_report_outline` | Create an outline generation job. |
+| `document__generate_report_text` | Create a content generation job. |
+| `document__get_generation_status` | Read async job status/progress. |
+| `document__export_report_docx` | Start or inspect DOCX export metadata. |
+| `document__get_report_result` | Read a safe report result summary. |
+
+These five names are included in the default QA tool whitelist. They are only
+listed to the model when a reachable MCP server actually returns matching
+tools, so environments without Document MCP support degrade to "tool not
+available" instead of panicking. Additional Document tools may be enabled by a
+new QA config version when their service contract is stable.
+
+Document MCP results are never forwarded as raw JSON to SSE, logs, or
+`agent_tool_calls.result_summary`. QA maps them into the Gateway
+`QAReportArtifact` shape under `result.reportArtifact`, preserving only public
+report/job/file identifiers, status, safe progress, and the public download
+path `/api/v1/report-files/{reportFileId}/content` when `fileStatus=succeeded`.
+Raw prompts, provider errors, internal URLs, object keys, File internal IDs,
+service tokens, and full report body text are stripped.
+
 ### MCP local integration
 
 Use this section to verify MCP client wiring without PostgreSQL, Gateway, or a

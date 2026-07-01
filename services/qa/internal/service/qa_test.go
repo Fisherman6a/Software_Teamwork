@@ -205,6 +205,34 @@ type citationToolRunner struct{}
 
 const citationToolResultContent = `{"data":{"results":[{"documentId":"doc-1","documentName":"Boiler Manual","knowledgeBaseId":"kb-1","chunkId":"chunk-7","sectionPath":"3.1","quoteText":"inspect the valve before startup","contentPreview":"inspect the valve before startup","context":"Operators inspect the valve before startup.","content":"FULL RAW DOCUMENT BODY MUST NOT LEAK","fullText":"FULL RAW DOCUMENT BODY MUST NOT LEAK EITHER","pageNumber":12,"score":0.91,"rerankScore":0.88,"chunkType":"paragraph","metadata":{"pageLabel":"12","objectKey":"secret","internalUrl":"http://internal/doc","vector":[0.1,0.2]}}]}}`
 
+type documentReportToolRunner struct{}
+
+const documentReportToolResultContent = `{"status":"accepted","reportFile":{"id":"rf-1","reportId":"rpt-1","jobId":"job-1","filename":"inspection.docx","format":"docx","fileSize":2048,"status":"succeeded","contentPath":"http://internal/file/ref"}}`
+
+func (documentReportToolRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	return documentReportToolRunner{}.RunWithToolResultCallback(context.Background(), input, observer, nil)
+}
+
+func (documentReportToolRunner) RunWithToolResultCallback(_ context.Context, input []agent.Message, observer agent.Observer, toolObserver agent.ToolObserver) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	observer(agent.Event{Type: agent.EventToolStarted, Iteration: 1, ToolCallID: "call-doc-1", ToolName: "document__export_report_docx"})
+	if toolObserver != nil {
+		toolObserver(agent.ToolObservation{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: "call-doc-1", ToolName: "document__export_report_docx", Result: documentReportToolResultContent})
+	}
+	observer(agent.Event{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: "call-doc-1", ToolName: "document__export_report_docx"})
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 8, CompletionTokens: 6, TotalTokens: 14}})
+	toolResult := agent.Message{
+		Role:       agent.RoleTool,
+		Name:       "document__export_report_docx",
+		ToolCallID: "call-doc-1",
+		Content:    documentReportToolResultContent,
+	}
+	final := agent.Message{Role: agent.RoleAssistant, Content: "report exported"}
+	messages := append([]agent.Message{}, input...)
+	messages = append(messages, toolResult, final)
+	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
+}
+
 func (citationToolRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
 	observer(agent.Event{Type: agent.EventToolStarted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge"})
@@ -858,6 +886,41 @@ func TestAskToolProgressEventsExposeOnlySafeSummaries(t *testing.T) {
 	if !seenToolEvent {
 		t.Fatal("expected tool progress events")
 	}
+}
+
+func TestAskDocumentReportToolProgressCarriesReportArtifact(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: documentReportToolRunner{}, prompt: "system prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events []ProgressEvent
+	_, err = qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "export report", Mode: "report_generation"}, func(event ProgressEvent) {
+		events = append(events, event)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var artifact map[string]any
+	for _, event := range events {
+		if event.Type != "tool.completed" {
+			continue
+		}
+		result, _ := event.Payload["result"].(map[string]any)
+		artifact, _ = result["reportArtifact"].(map[string]any)
+	}
+	if artifact == nil {
+		t.Fatalf("missing reportArtifact in events: %+v", events)
+	}
+	if artifact["downloadPath"] != "/api/v1/report-files/rf-1/content" || artifact["fileStatus"] != "succeeded" {
+		t.Fatalf("artifact=%#v", artifact)
+	}
+	if len(repository.savedEvents) == 0 {
+		t.Fatal("expected persisted stream events")
+	}
+	assertProgressPayloadsDoNotLeakSensitiveData(t, events)
+	assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 }
 
 func TestAskPersistsCitationSnapshotsFromKnowledgeToolResults(t *testing.T) {
