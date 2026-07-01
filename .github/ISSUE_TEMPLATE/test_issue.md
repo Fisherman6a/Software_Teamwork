@@ -67,7 +67,7 @@ assignees: ''
 
 ## 交付物
 
-- 测试报告或轻量执行记录：复杂测试必须使用 `docs/testing/templates/test-report-template.md`，并提交到 `docs/testing/reports/YYYY-MM-DD/<scope>-test-report.md`；纯单元/组件自动化可在 issue/PR 中记录命令、环境、结果和失败证据。
+- 测试报告或轻量执行记录：复杂测试必须使用 `docs/testing/templates/test-report-template.md`，并提交到 `docs/testing/reports/YYYY-MM-DD/<scope>-test-report.md`；纯单元/组件自动化或静态检查可在 issue/PR 中记录命令、环境、结果和失败证据。
 - 测试代码、测试清单、脚本或 runbook。
 - 实际执行记录：命令、环境、结果、失败证据和未运行原因。
 - 发现问题的处理结论：已修复、已转 issue 或暂不处理及原因。
@@ -75,7 +75,7 @@ assignees: ''
 ## 验收标准
 
 - [ ] 已按任务范围实际运行测试，而不是只提交测试代码或清单。
-- [ ] 已按测试类型留下证据：纯单元/组件自动化有轻量执行记录；复杂测试已按模板生成完整报告并按日期提交到 `docs/testing/reports/YYYY-MM-DD/`。
+- [ ] 已按测试类型留下证据：纯单元/组件自动化或静态检查有轻量执行记录；复杂测试已按模板生成完整报告并按日期提交到 `docs/testing/reports/YYYY-MM-DD/`。
 - [ ] issue/PR 中记录了执行命令、环境、结果和失败证据。
 - [ ] 测试失败时已判断问题等级，并按规则修复或新建 owner issue。
 - [ ] 未运行的测试写清楚环境缺口、跳过条件和残余风险。
