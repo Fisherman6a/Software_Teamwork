@@ -168,6 +168,129 @@ func TestDocumentListAndDetailExcludeDeletedKnowledgeBase(t *testing.T) {
 	}
 }
 
+func TestDeleteKnowledgeBaseHidesChunksContentAndQueryResults(t *testing.T) {
+	now := time.Date(2026, 6, 29, 10, 30, 0, 0, time.UTC)
+	repo := repository.NewMemoryRepository()
+	fileRef := "file_1"
+	repo.SeedKnowledgeBase(service.KnowledgeBase{
+		ID:                "kb_1",
+		Name:              "规程库",
+		Description:       "",
+		DocType:           "GENERAL",
+		ChunkStrategy:     json.RawMessage(`{}`),
+		RetrievalStrategy: json.RawMessage(`{}`),
+		CreatedBy:         "usr_1",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
+	repo.SeedDocument(service.KnowledgeDocument{
+		ID:              "doc_1",
+		KnowledgeBaseID: "kb_1",
+		FileRef:         &fileRef,
+		Name:            "规程.pdf",
+		Status:          service.DocumentStatusReady,
+		ChunkCount:      1,
+		Tags:            []string{"锅炉"},
+		CreatedBy:       "usr_1",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
+	tokenCount := int32(8)
+	repo.SeedDocumentChunk(service.DocumentChunk{
+		ID:              "chunk_1",
+		KnowledgeBaseID: "kb_1",
+		DocumentID:      "doc_1",
+		ChunkIndex:      0,
+		Content:         "锅炉运行规程",
+		TokenCount:      &tokenCount,
+		Metadata:        map[string]any{"source": "parser"},
+		CreatedAt:       now,
+	})
+	contentCalls := 0
+	files := &uploadFileClient{
+		contentFn: func(ctx context.Context, reqCtx service.RequestContext, fileID string) (service.FileContent, error) {
+			contentCalls++
+			if fileID != "file_1" || reqCtx.RequestID != "req_content" {
+				t.Fatalf("content call fileID=%q reqCtx=%+v", fileID, reqCtx)
+			}
+			return service.FileContent{
+				Content:     io.NopCloser(strings.NewReader("pdf-bytes")),
+				ContentType: "application/pdf",
+				SizeBytes:   9,
+			}, nil
+		},
+	}
+	queue := &uploadQueue{}
+	vector := &lifecycleVectorIndex{hits: []service.VectorSearchHit{{
+		ID:      "point_1",
+		Score:   1,
+		Payload: map[string]any{"chunk_id": "chunk_1"},
+	}}}
+	svc := service.NewWithDependencies(repo, files, queue, func() time.Time {
+		return now.Add(time.Hour)
+	}, func(prefix string) string {
+		return prefix + "_test"
+	}, service.WithProcessingPipeline(files, nil, nil), service.WithVectorIndex(lifecycleEmbedder{}, vector))
+
+	chunks, err := svc.ListDocumentChunks(context.Background(), readContext("usr_1"), service.ListDocumentChunksInput{DocumentID: "doc_1"})
+	if err != nil {
+		t.Fatalf("ListDocumentChunks() before kb delete error = %v", err)
+	}
+	if chunks.Page.Total != 1 || len(chunks.Items) != 1 || chunks.Items[0].ID != "chunk_1" {
+		t.Fatalf("chunks before kb delete = %+v", chunks)
+	}
+	content, err := svc.GetDocumentContent(context.Background(), service.RequestContext{RequestID: "req_content", UserID: "usr_1"}, "doc_1")
+	if err != nil {
+		t.Fatalf("GetDocumentContent() before kb delete error = %v", err)
+	}
+	body, err := io.ReadAll(content.Body)
+	if err != nil {
+		t.Fatalf("read content before kb delete: %v", err)
+	}
+	_ = content.Body.Close()
+	if string(body) != "pdf-bytes" || content.ContentType != "application/pdf" || contentCalls != 1 {
+		t.Fatalf("content before kb delete body=%q type=%q calls=%d", string(body), content.ContentType, contentCalls)
+	}
+	query, err := svc.CreateKnowledgeQuery(context.Background(), readContext("usr_1"), service.KnowledgeQueryInput{
+		Query: "锅炉运行",
+		TopK:  1,
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledgeQuery() before kb delete error = %v", err)
+	}
+	if len(query.Results) != 1 || query.Results[0].DocumentID != "doc_1" || query.Results[0].ChunkID != "chunk_1" {
+		t.Fatalf("query results before kb delete = %+v", query.Results)
+	}
+
+	if err := svc.DeleteKnowledgeBase(context.Background(), writeContext("usr_1"), "kb_1"); err != nil {
+		t.Fatalf("DeleteKnowledgeBase() error = %v", err)
+	}
+	if queue.cleanupCalls != 1 || queue.cleanupTask.DocumentID != "doc_1" || queue.cleanupTask.KnowledgeBaseID != "kb_1" {
+		t.Fatalf("cleanup task = %+v calls=%d", queue.cleanupTask, queue.cleanupCalls)
+	}
+	_, err = svc.ListDocumentChunks(context.Background(), readContext("usr_1"), service.ListDocumentChunksInput{DocumentID: "doc_1"})
+	if !hasCode(err, service.CodeNotFound) {
+		t.Fatalf("ListDocumentChunks() after kb delete error = %v", err)
+	}
+	_, err = svc.GetDocumentContent(context.Background(), service.RequestContext{RequestID: "req_content", UserID: "usr_1"}, "doc_1")
+	if !hasCode(err, service.CodeNotFound) {
+		t.Fatalf("GetDocumentContent() after kb delete error = %v", err)
+	}
+	if contentCalls != 1 {
+		t.Fatalf("GetDocumentContent() after kb delete called file service %d times", contentCalls)
+	}
+	query, err = svc.CreateKnowledgeQuery(context.Background(), readContext("usr_1"), service.KnowledgeQueryInput{
+		Query: "锅炉运行",
+		TopK:  1,
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledgeQuery() after kb delete error = %v", err)
+	}
+	if len(query.Results) != 0 {
+		t.Fatalf("query results after kb delete = %+v, want empty", query.Results)
+	}
+}
+
 func TestDeleteKnowledgeBaseEnqueuesCleanupForEveryDeletedDocument(t *testing.T) {
 	now := time.Date(2026, 6, 29, 11, 0, 0, 0, time.UTC)
 	repo := repository.NewMemoryRepository()
