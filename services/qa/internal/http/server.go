@@ -532,6 +532,8 @@ func statusForCode(code service.Code) int {
 		return http.StatusUnsupportedMediaType
 	case service.CodeUnsupportedIntent:
 		return http.StatusUnprocessableEntity
+	case service.CodeTooLarge:
+		return http.StatusRequestEntityTooLarge
 	case service.CodeDependency:
 		return http.StatusBadGateway
 	default:

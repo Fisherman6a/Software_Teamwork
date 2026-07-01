@@ -252,6 +252,36 @@ func (r *Postgres) PurgeAttachments(ctx context.Context, ids []string, now time.
 	return nil
 }
 
+func (r *Postgres) CheckAttachmentQuota(ctx context.Context, sessionID, userID string, sizeBytes int64, maxPerSession int, maxSessionBytes int64) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin attachment quota check: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var conversationID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM conversations WHERE id::text=$1 AND external_user_id=$2 AND deleted_at IS NULL FOR UPDATE`, sessionID, userID).Scan(&conversationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return service.NewError(service.CodeNotFound, "conversation not found", err)
+	}
+	if err != nil {
+		return fmt.Errorf("lock attachment conversation for quota: %w", err)
+	}
+
+	var activeCount int
+	var activeBytes int64
+	if err := tx.QueryRow(ctx, `SELECT count(*), COALESCE(sum(size_bytes),0) FROM session_attachments WHERE conversation_id::text=$1 AND external_user_id=$2 AND deleted_at IS NULL`, sessionID, userID).Scan(&activeCount, &activeBytes); err != nil {
+		return fmt.Errorf("read session attachment quota: %w", err)
+	}
+	if activeCount >= maxPerSession {
+		return service.NewError(service.CodeConflict, "session attachment limit reached", nil)
+	}
+	if sizeBytes > maxSessionBytes-activeBytes {
+		return service.NewError(service.CodeConflict, "session attachment size quota exceeded", nil)
+	}
+	return tx.Commit(ctx)
+}
+
 func scanAttachment(row attachmentScanner) (service.SessionAttachment, error) {
 	var a service.SessionAttachment
 	err := row.Scan(&a.ID, &a.SessionID, &a.OwnerUserID, &a.FileRef, &a.Filename, &a.ContentType, &a.SizeBytes, &a.Status, &a.ErrorSummary, &a.PageCount, &a.ChunkCount, &a.ExpiresAt, &a.DeletedAt, &a.CreatedAt, &a.UpdatedAt)

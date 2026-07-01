@@ -116,6 +116,7 @@ type AttachmentRepository interface {
 	SearchSessionAttachmentChunks(context.Context, string, string, []string, string, int) ([]SessionAttachmentChunk, error)
 	ListExpiredAttachments(context.Context, time.Time, int) ([]SessionAttachment, error)
 	PurgeAttachments(context.Context, []string, time.Time) error
+	CheckAttachmentQuota(context.Context, string, string, int64, int, int64) error
 }
 
 type AttachmentService struct {
@@ -177,6 +178,9 @@ func (s *AttachmentService) Upload(ctx context.Context, userID, sessionID string
 		return AttachmentUploadResult{}, err
 	}
 	if _, err := s.repository.GetConversation(ctx, userID, sessionID); err != nil {
+		return AttachmentUploadResult{}, err
+	}
+	if err := s.repository.CheckAttachmentQuota(ctx, sessionID, userID, input.SizeBytes, s.maxPerSession, maxSessionAttachmentBytes); err != nil {
 		return AttachmentUploadResult{}, err
 	}
 	fileRef, err := s.fileClient.Upload(ctx, filename, contentType, input.SizeBytes, input.Body)

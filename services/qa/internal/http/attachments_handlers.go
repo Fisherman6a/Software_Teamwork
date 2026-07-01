@@ -69,7 +69,7 @@ func (s *Server) handleUploadAttachment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if size > maxFileBytes {
-		writeError(w, r, service.ValidationError(map[string]string{"file": "exceeds maximum upload size"}))
+		writeError(w, r, service.NewError(service.CodeTooLarge, "file exceeds maximum upload size", nil))
 		return
 	}
 	contentType := strings.TrimSpace(header.Header.Get("Content-Type"))

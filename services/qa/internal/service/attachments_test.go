@@ -159,6 +159,24 @@ func (s *attachmentRepoStub) PurgeAttachments(_ context.Context, ids []string, n
 	return nil
 }
 
+func (s *attachmentRepoStub) CheckAttachmentQuota(_ context.Context, sessionID, _ string, sizeBytes int64, maxPerSession int, maxSessionBytes int64) error {
+	var activeCount int
+	var activeBytes int64
+	for _, item := range s.attachments {
+		if item.SessionID == sessionID && item.DeletedAt == nil {
+			activeCount++
+			activeBytes += item.SizeBytes
+		}
+	}
+	if activeCount >= maxPerSession {
+		return NewError(CodeConflict, "session attachment limit reached", nil)
+	}
+	if sizeBytes > maxSessionBytes-activeBytes {
+		return NewError(CodeConflict, "session attachment size quota exceeded", nil)
+	}
+	return nil
+}
+
 func (s *attachmentRepoStub) setStatus(sessionID, attachmentID, status, summary string, now time.Time) error {
 	for i, item := range s.attachments {
 		if item.ID == attachmentID && item.SessionID == sessionID {

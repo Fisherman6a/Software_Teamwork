@@ -29,6 +29,7 @@ const (
 	CodeInternal          Code = "internal_error"
 	CodeUnsupportedMedia  Code = "unsupported_media_type"
 	CodeUnsupportedIntent Code = "unsupported_intent"
+	CodeTooLarge         Code = "too_large"
 )
 
 type AppError struct {

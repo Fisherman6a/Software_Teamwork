@@ -222,7 +222,7 @@ func (c *ParserHTTPClient) Parse(ctx context.Context, filename, contentType stri
 			} `json:"pages"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(io.LimitReader(res.Body, 8<<20)).Decode(&envelope); err != nil {
+	if err := json.NewDecoder(io.LimitReader(res.Body, 32<<20)).Decode(&envelope); err != nil {
 		return service.ParsedAttachment{}, err
 	}
 	chunks := make([]service.ParsedAttachmentChunk, 0, len(envelope.Data.Pages))
