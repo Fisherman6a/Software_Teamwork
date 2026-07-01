@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/index.md", "reason": "Backend entrypoint and pre-development checklist for Document contract tests"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "Gateway, Document, File Service, and cross-service API contract rules"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Stable service error and HTTP envelope rules"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Required Document service checks"}

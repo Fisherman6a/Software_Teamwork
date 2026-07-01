@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check required backend validation commands"}
+{"file": ".trellis/spec/backend/api-contracts.md", "reason": "Check public response and cross-service contract compliance"}
