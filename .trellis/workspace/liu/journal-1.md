@@ -953,3 +953,36 @@ Fixed the latest PR #350 review findings by returning dependency errors when sec
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: Issue 305 local seed baseline
+
+**Date**: 2026-07-01
+**Task**: Issue 305 local seed baseline
+**Branch**: `Special/chore/local-seed-baseline`
+
+### Summary
+
+Added deterministic local integration seed data for Auth, Knowledge, Document, QA, kept AI Gateway placeholder seed coverage, documented admin login and cleanup commands, added seed contract verification, and validated Compose seed/idempotency plus Gateway admin login smoke.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1e328af` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
