@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/service/tools"
 )
 
 type ResponseRun struct {
@@ -213,7 +215,9 @@ func DefaultAgentConfig() AgentConfig {
 		ToolTimeoutSeconds:    10,
 		ModelTimeoutSeconds:   60,
 		OverallTimeoutSeconds: 120,
-		EnabledToolNames:      []string{"search_knowledge"},
+		EnabledToolNames: append([]string{
+			"search_knowledge",
+		}, tools.DefaultDocumentReportToolNames...),
 	}
 }
 
@@ -427,10 +431,10 @@ type ResourceService struct {
 	retriever      KnowledgeRetriever
 	sourceChecker  CitationSourceChecker
 	knowledgeStats KnowledgeStatsProvider
-	llmTester     LLMConnectionTester
-	bootstrap     RuntimeLLMConfig
-	canceller     ActiveRunCanceller
-	now           func() time.Time
+	llmTester      LLMConnectionTester
+	bootstrap      RuntimeLLMConfig
+	canceller      ActiveRunCanceller
+	now            func() time.Time
 }
 
 func NewResourceService(repository ResourceRepository, retriever KnowledgeRetriever, tester LLMConnectionTester, bootstrap RuntimeLLMConfig, canceller ActiveRunCanceller) (*ResourceService, error) {
