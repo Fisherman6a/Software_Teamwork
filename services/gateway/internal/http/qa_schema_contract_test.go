@@ -52,7 +52,11 @@ func TestQAActiveOpenAPIContractsHaveSchemasAndAuth(t *testing.T) {
 			assertQueryParameterSchema(t, operation, parameters, "pageSize", "integer")
 		}
 
-		if operation.Method == http.MethodPost || operation.Method == http.MethodPatch {
+		// Skip JSON schema check for upload endpoints (they use multipart/form-data)
+		reqBody := resolveOpenAPIMapValue(t, document, operation.Operation["requestBody"])
+		isUpload := reqBody != nil && resolveOpenAPIMapValue(t, document, reqBody["content"]) != nil &&
+			resolveOpenAPIMapValue(t, document, reqBody["content"].(map[string]any)["multipart/form-data"]) != nil
+		if !isUpload && (operation.Method == http.MethodPost || operation.Method == http.MethodPatch) {
 			assertJSONRequestSchema(t, document, operation)
 		}
 		assertQASuccessResponseSchemas(t, document, operation)
