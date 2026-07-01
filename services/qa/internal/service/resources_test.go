@@ -12,8 +12,15 @@ import (
 
 type resourceRepositoryStub struct {
 	activeQAConfig   QAConfigVersion
+	activeLLMConfig  LLMConfigVersion
 	createdQAInput   CreateQAConfigVersionInput
+	createdLLMInput  CreateLLMConfigVersionInput
 	createQACalled   bool
+	createLLMCalled  bool
+	createQAErr      error
+	createLLMErr     error
+	restoredQAID     string
+	restoredLLMID    string
 	savedInput       RetrievalTestInput
 	savedRunErr      error
 	saveCalled       bool
@@ -51,13 +58,47 @@ func (r *resourceRepositoryStub) GetActiveQAConfigVersion(context.Context) (QACo
 func (r *resourceRepositoryStub) CreateQAConfigVersionResource(_ context.Context, _ string, input CreateQAConfigVersionInput) (QAConfigVersion, error) {
 	r.createQACalled = true
 	r.createdQAInput = input
-	return QAConfigVersion{ID: "qa-config-id"}, nil
+	replacedID := ""
+	if r.activeQAConfig.IsActive {
+		replacedID = r.activeQAConfig.ID
+		r.activeQAConfig.IsActive = false
+	}
+	r.activeQAConfig = QAConfigVersion{ID: "qa-config-id", IsActive: shouldActivateConfig(input.Activate), ReplacedActiveVersionID: replacedID}
+	return r.activeQAConfig, r.createQAErr
+}
+func (r *resourceRepositoryStub) RestoreQAConfigActiveVersion(_ context.Context, failedVersionID, restoreVersionID string) error {
+	r.restoredQAID = restoreVersionID
+	if r.activeQAConfig.ID == failedVersionID {
+		r.activeQAConfig.IsActive = false
+		if restoreVersionID != "" {
+			r.activeQAConfig = QAConfigVersion{ID: restoreVersionID, IsActive: true}
+		}
+	}
+	return nil
 }
 func (r *resourceRepositoryStub) GetActiveLLMConfigVersion(context.Context) (LLMConfigVersion, error) {
-	return LLMConfigVersion{}, nil
+	return r.activeLLMConfig, nil
 }
-func (r *resourceRepositoryStub) CreateLLMConfigVersionResource(context.Context, string, CreateLLMConfigVersionInput) (LLMConfigVersion, error) {
-	return LLMConfigVersion{}, nil
+func (r *resourceRepositoryStub) CreateLLMConfigVersionResource(_ context.Context, _ string, input CreateLLMConfigVersionInput) (LLMConfigVersion, error) {
+	r.createLLMCalled = true
+	r.createdLLMInput = input
+	replacedID := ""
+	if r.activeLLMConfig.IsActive {
+		replacedID = r.activeLLMConfig.ID
+		r.activeLLMConfig.IsActive = false
+	}
+	r.activeLLMConfig = LLMConfigVersion{ID: "llm-config-id", IsActive: shouldActivateConfig(input.Activate), ReplacedActiveVersionID: replacedID}
+	return r.activeLLMConfig, r.createLLMErr
+}
+func (r *resourceRepositoryStub) RestoreLLMConfigActiveVersion(_ context.Context, failedVersionID, restoreVersionID string) error {
+	r.restoredLLMID = restoreVersionID
+	if r.activeLLMConfig.ID == failedVersionID {
+		r.activeLLMConfig.IsActive = false
+		if restoreVersionID != "" {
+			r.activeLLMConfig = LLMConfigVersion{ID: restoreVersionID, IsActive: true}
+		}
+	}
+	return nil
 }
 func (r *resourceRepositoryStub) SaveLLMConnectionTest(context.Context, string, LLMProfileTestResult) (LLMProfileTestResult, error) {
 	return LLMProfileTestResult{}, nil
@@ -110,6 +151,16 @@ func (llmTesterStub) TestLLM(context.Context, RuntimeLLMConfig) (LLMConnectionTe
 type runCancellerStub struct{}
 
 func (runCancellerStub) CancelActiveRun(string) {}
+
+type resourceReloaderStub struct {
+	called int
+	err    error
+}
+
+func (r *resourceReloaderStub) Reload(context.Context) error {
+	r.called++
+	return r.err
+}
 
 func TestListStreamEventsRejectsCursorOverflow(t *testing.T) {
 	repository := &resourceRepositoryStub{}
@@ -328,6 +379,250 @@ func TestCreateQAConfigVersionPreservesExplicitEmptyAgentToolWhitelist(t *testin
 	}
 	if repository.createdQAInput.Agent.EnabledToolNames == nil || len(repository.createdQAInput.Agent.EnabledToolNames) != 0 {
 		t.Fatalf("agent.enabledToolNames=%#v, want explicit empty whitelist", repository.createdQAInput.Agent.EnabledToolNames)
+	}
+}
+
+func TestCreateQAConfigVersionTreatsExplicitZeroScoreThresholdAsConfiguredDuringValidation(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resources.CreateQAConfigVersion(context.Background(), "user-1", CreateQAConfigVersionInput{
+		Retrieval:           RetrievalSettings{TopK: 5, ScoreThreshold: 0}.WithScoreThresholdConfigured(),
+		SimilarityThreshold: 2,
+	})
+	if err != nil {
+		t.Fatalf("error=%v, want explicit zero threshold to ignore legacy invalid threshold", err)
+	}
+	if !repository.createQACalled {
+		t.Fatal("CreateQAConfigVersionResource was not called")
+	}
+}
+
+func TestCreateQAConfigVersionReloadsRuntimeWhenActivated(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	reloader := &resourceReloaderStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+
+	_, err = resources.CreateQAConfigVersion(context.Background(), "user-1", CreateQAConfigVersionInput{
+		Retrieval: RetrievalSettings{TopK: 5, ScoreThreshold: .2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloader.called != 1 {
+		t.Fatalf("reload called %d times, want 1", reloader.called)
+	}
+}
+
+func TestCreateQAConfigVersionSkipsRuntimeReloadWhenInactive(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	reloader := &resourceReloaderStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+	activate := false
+
+	_, err = resources.CreateQAConfigVersion(context.Background(), "user-1", CreateQAConfigVersionInput{
+		Retrieval: RetrievalSettings{TopK: 5, ScoreThreshold: .2},
+		Activate:  &activate,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloader.called != 0 {
+		t.Fatalf("reload called %d times, want 0", reloader.called)
+	}
+}
+
+func TestCreateQAConfigVersionRollsBackActiveVersionWhenReloadFails(t *testing.T) {
+	repository := &resourceRepositoryStub{activeQAConfig: QAConfigVersion{ID: "qa-old", IsActive: true}}
+	reloader := &resourceReloaderStub{err: errors.New("reload failed")}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+
+	_, err = resources.CreateQAConfigVersion(context.Background(), "user-1", CreateQAConfigVersionInput{
+		Retrieval: RetrievalSettings{TopK: 5, ScoreThreshold: .2},
+	})
+
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency {
+		t.Fatalf("error=%v, want dependency error", err)
+	}
+	if repository.restoredQAID != "qa-old" {
+		t.Fatalf("restored qa id=%q, want qa-old", repository.restoredQAID)
+	}
+	if repository.activeQAConfig.ID != "qa-old" || !repository.activeQAConfig.IsActive {
+		t.Fatalf("active QA config=%+v, want restored old active", repository.activeQAConfig)
+	}
+}
+
+func TestCreateQAConfigVersionDeactivatesFailedVersionWhenReloadFailsWithoutPreviousActive(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	reloader := &resourceReloaderStub{err: errors.New("reload failed")}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+
+	_, err = resources.CreateQAConfigVersion(context.Background(), "user-1", CreateQAConfigVersionInput{
+		Retrieval: RetrievalSettings{TopK: 5, ScoreThreshold: .2},
+	})
+
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency {
+		t.Fatalf("error=%v, want dependency error", err)
+	}
+	if repository.restoredQAID != "" {
+		t.Fatalf("restored qa id=%q, want empty", repository.restoredQAID)
+	}
+	if repository.activeQAConfig.ID != "qa-config-id" || repository.activeQAConfig.IsActive {
+		t.Fatalf("active QA config=%+v, want failed config inactive", repository.activeQAConfig)
+	}
+}
+
+func TestCreateQAConfigVersionRollsBackWhenPostCommitReadFails(t *testing.T) {
+	repository := &resourceRepositoryStub{
+		activeQAConfig: QAConfigVersion{ID: "qa-old", IsActive: true},
+		createQAErr:    errors.New("post commit read failed"),
+	}
+	reloader := &resourceReloaderStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+
+	_, err = resources.CreateQAConfigVersion(context.Background(), "user-1", CreateQAConfigVersionInput{
+		Retrieval: RetrievalSettings{TopK: 5, ScoreThreshold: .2},
+	})
+
+	if err == nil {
+		t.Fatal("expected post-commit create error")
+	}
+	if reloader.called != 0 {
+		t.Fatalf("reload called %d times, want 0", reloader.called)
+	}
+	if repository.restoredQAID != "qa-old" {
+		t.Fatalf("restored qa id=%q, want qa-old", repository.restoredQAID)
+	}
+	if repository.activeQAConfig.ID != "qa-old" || !repository.activeQAConfig.IsActive {
+		t.Fatalf("active QA config=%+v, want restored old active", repository.activeQAConfig)
+	}
+}
+
+func TestCreateLLMConfigVersionReloadsRuntimeWhenActivated(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	reloader := &resourceReloaderStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+
+	_, err = resources.CreateLLMConfigVersion(context.Background(), "user-1", CreateLLMConfigVersionInput{
+		Provider: "ai-gateway", ProfileID: "profile-1", ModelName: "K2.6", TimeoutSeconds: 60,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloader.called != 1 {
+		t.Fatalf("reload called %d times, want 1", reloader.called)
+	}
+	if !repository.createLLMCalled || repository.createdLLMInput.ModelName != "K2.6" {
+		t.Fatalf("llm input not persisted through stub: called=%v input=%+v", repository.createLLMCalled, repository.createdLLMInput)
+	}
+}
+
+func TestCreateLLMConfigVersionRollsBackActiveVersionWhenReloadFails(t *testing.T) {
+	repository := &resourceRepositoryStub{activeLLMConfig: LLMConfigVersion{ID: "llm-old", IsActive: true}}
+	reloader := &resourceReloaderStub{err: errors.New("reload failed")}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+
+	_, err = resources.CreateLLMConfigVersion(context.Background(), "user-1", CreateLLMConfigVersionInput{
+		Provider: "ai-gateway", ProfileID: "profile-1", ModelName: "K2.6", TimeoutSeconds: 60,
+	})
+
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency {
+		t.Fatalf("error=%v, want dependency error", err)
+	}
+	if repository.restoredLLMID != "llm-old" {
+		t.Fatalf("restored llm id=%q, want llm-old", repository.restoredLLMID)
+	}
+	if repository.activeLLMConfig.ID != "llm-old" || !repository.activeLLMConfig.IsActive {
+		t.Fatalf("active LLM config=%+v, want restored old active", repository.activeLLMConfig)
+	}
+}
+
+func TestCreateLLMConfigVersionDeactivatesFailedVersionWhenReloadFailsWithoutPreviousActive(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	reloader := &resourceReloaderStub{err: errors.New("reload failed")}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+
+	_, err = resources.CreateLLMConfigVersion(context.Background(), "user-1", CreateLLMConfigVersionInput{
+		Provider: "ai-gateway", ProfileID: "profile-1", ModelName: "K2.6", TimeoutSeconds: 60,
+	})
+
+	appErr, ok := Classify(err)
+	if !ok || appErr.Code != CodeDependency {
+		t.Fatalf("error=%v, want dependency error", err)
+	}
+	if repository.restoredLLMID != "" {
+		t.Fatalf("restored llm id=%q, want empty", repository.restoredLLMID)
+	}
+	if repository.activeLLMConfig.ID != "llm-config-id" || repository.activeLLMConfig.IsActive {
+		t.Fatalf("active LLM config=%+v, want failed config inactive", repository.activeLLMConfig)
+	}
+}
+
+func TestCreateLLMConfigVersionRollsBackWhenPostCommitReadFails(t *testing.T) {
+	repository := &resourceRepositoryStub{
+		activeLLMConfig: LLMConfigVersion{ID: "llm-old", IsActive: true},
+		createLLMErr:    errors.New("post commit read failed"),
+	}
+	reloader := &resourceReloaderStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources.SetReloader(reloader)
+
+	_, err = resources.CreateLLMConfigVersion(context.Background(), "user-1", CreateLLMConfigVersionInput{
+		Provider: "ai-gateway", ProfileID: "profile-1", ModelName: "K2.6", TimeoutSeconds: 60,
+	})
+
+	if err == nil {
+		t.Fatal("expected post-commit create error")
+	}
+	if reloader.called != 0 {
+		t.Fatalf("reload called %d times, want 0", reloader.called)
+	}
+	if repository.restoredLLMID != "llm-old" {
+		t.Fatalf("restored llm id=%q, want llm-old", repository.restoredLLMID)
+	}
+	if repository.activeLLMConfig.ID != "llm-old" || !repository.activeLLMConfig.IsActive {
+		t.Fatalf("active LLM config=%+v, want restored old active", repository.activeLLMConfig)
 	}
 }
 
