@@ -166,7 +166,7 @@ func scanCitation(row rowScanner) (service.Citation, error) {
 }
 
 func (r *Postgres) ListToolCalls(ctx context.Context, userID, runID string) ([]service.AgentToolCall, error) {
-	rows, err := r.pool.Query(ctx, `SELECT tc.id::text,tc.response_run_id::text,COALESCE(tc.model_invocation_id::text,''),tc.iteration_no,tc.tool_call_id,tc.tool_name,tc.arguments_summary,tc.result_summary,tc.status,COALESCE(tc.latency_ms,0),tc.started_at,tc.finished_at FROM agent_tool_calls tc JOIN response_runs rr ON rr.id=tc.response_run_id JOIN conversations c ON c.id=rr.conversation_id WHERE tc.response_run_id::text=$1 AND c.external_user_id=$2 AND c.deleted_at IS NULL ORDER BY tc.started_at,tc.id`, runID, userID)
+	rows, err := r.pool.Query(ctx, `SELECT tc.id::text,tc.response_run_id::text,COALESCE(tc.model_invocation_id::text,''),tc.iteration_no,tc.tool_call_id,tc.tool_name,COALESCE(tc.mcp_server_name,''),tc.arguments_summary,tc.result_summary,tc.status,COALESCE(tc.latency_ms,0),COALESCE(tc.error_code,''),COALESCE(tc.error_message,''),tc.started_at,tc.finished_at FROM agent_tool_calls tc JOIN response_runs rr ON rr.id=tc.response_run_id JOIN conversations c ON c.id=rr.conversation_id WHERE tc.response_run_id::text=$1 AND c.external_user_id=$2 AND c.deleted_at IS NULL ORDER BY tc.started_at,tc.id`, runID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("list tool calls: %w", err)
 	}
@@ -175,7 +175,7 @@ func (r *Postgres) ListToolCalls(ctx context.Context, userID, runID string) ([]s
 	for rows.Next() {
 		var item service.AgentToolCall
 		var args, result []byte
-		if err := rows.Scan(&item.ID, &item.ResponseRunID, &item.ModelInvocationID, &item.IterationNo, &item.ToolCallID, &item.ToolName, &args, &result, &item.Status, &item.LatencyMS, &item.StartedAt, &item.FinishedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.ResponseRunID, &item.ModelInvocationID, &item.IterationNo, &item.ToolCallID, &item.ToolName, &item.MCPServerName, &args, &result, &item.Status, &item.LatencyMS, &item.ErrorCode, &item.ErrorMessage, &item.StartedAt, &item.FinishedAt); err != nil {
 			return nil, fmt.Errorf("scan tool call: %w", err)
 		}
 		_ = json.Unmarshal(args, &item.ArgumentsSummary)
@@ -287,37 +287,7 @@ func (r *Postgres) CreateQAConfigVersionResource(ctx context.Context, userID str
 	if retrieval.RerankTopN == 0 {
 		retrieval.RerankTopN = input.RerankTopN
 	}
-	agent := input.Agent
-	if agent.MaxIterations == 0 {
-		agent.MaxIterations = input.MaxIterations
-	}
-	if agent.MaxIterations == 0 {
-		agent.MaxIterations = 5
-	}
-	if agent.ToolTimeoutSeconds == 0 {
-		agent.ToolTimeoutSeconds = input.ToolTimeoutSeconds
-	}
-	if agent.ToolTimeoutSeconds == 0 {
-		agent.ToolTimeoutSeconds = 10
-	}
-	if agent.ModelTimeoutSeconds == 0 {
-		agent.ModelTimeoutSeconds = input.ModelTimeoutSeconds
-	}
-	if agent.ModelTimeoutSeconds == 0 {
-		agent.ModelTimeoutSeconds = 60
-	}
-	if agent.OverallTimeoutSeconds == 0 {
-		agent.OverallTimeoutSeconds = input.OverallTimeoutSeconds
-	}
-	if agent.OverallTimeoutSeconds == 0 {
-		agent.OverallTimeoutSeconds = 120
-	}
-	if len(agent.EnabledToolNames) == 0 {
-		agent.EnabledToolNames = input.EnabledToolNames
-	}
-	if agent.EnabledToolNames == nil {
-		agent.EnabledToolNames = []string{}
-	}
+	agent := agentConfigFromCreateInput(input)
 	activate := input.Activate == nil || *input.Activate
 	kbs := input.KnowledgeBases
 	if len(kbs) == 0 {
@@ -353,6 +323,30 @@ func (r *Postgres) CreateQAConfigVersionResource(ctx context.Context, userID str
 		return service.QAConfigVersion{}, err
 	}
 	return r.getQAConfigVersion(ctx, id, false)
+}
+
+func agentConfigFromCreateInput(input service.CreateQAConfigVersionInput) service.AgentConfig {
+	agent := input.Agent
+	if agent.MaxIterations == 0 {
+		agent.MaxIterations = input.MaxIterations
+	}
+	if agent.ToolTimeoutSeconds == 0 {
+		agent.ToolTimeoutSeconds = input.ToolTimeoutSeconds
+	}
+	if agent.ModelTimeoutSeconds == 0 {
+		agent.ModelTimeoutSeconds = input.ModelTimeoutSeconds
+	}
+	if agent.OverallTimeoutSeconds == 0 {
+		agent.OverallTimeoutSeconds = input.OverallTimeoutSeconds
+	}
+	if agent.EnabledToolNames == nil {
+		if input.EnabledToolNames != nil {
+			agent.EnabledToolNames = input.EnabledToolNames
+		} else {
+			agent.EnabledToolNames = service.DefaultAgentConfig().EnabledToolNames
+		}
+	}
+	return service.NormalizeAgentConfig(agent)
 }
 
 func (r *Postgres) GetActiveLLMConfigVersion(ctx context.Context) (service.LLMConfigVersion, error) {

@@ -128,7 +128,7 @@ paths:
             text/event-stream:
               schema:
                 type: string
-                description: SSE stream. Events include message.created, agent.iteration.started, tool.started, tool.completed, tool.failed, reasoning.step, answer.delta, citation.delta, answer.completed, error.
+                description: SSE stream. Events include message.created, agent.iteration.started, tool.started, tool.completed, tool.failed, reasoning.step, answer.delta, citation.delta, answer.completed, error, heartbeat.
         default: { $ref: '#/components/responses/Error' }
   /qa-sessions/{sessionId}/attachments:
     parameters:
@@ -755,7 +755,7 @@ components:
         eventSeq: { type: integer }
         eventType:
           type: string
-          enum: [message.created, agent.iteration.started, reasoning.step, tool.started, tool.completed, tool.failed, answer.delta, citation.delta, answer.completed, error]
+          enum: [message.created, agent.iteration.started, reasoning.step, tool.started, tool.completed, tool.failed, answer.delta, citation.delta, answer.completed, error, heartbeat]
         payload:
           type: object
           additionalProperties: true
@@ -794,8 +794,11 @@ components:
       properties:
         id: { type: string }
         responseRunId: { type: string }
+        modelInvocationId: { type: string }
+        iterationNo: { type: integer }
         toolCallId: { type: string }
         toolName: { type: string }
+        mcpServerName: { type: string }
         argumentsSummary:
           type: object
           additionalProperties: true
@@ -804,6 +807,13 @@ components:
           additionalProperties: true
         status: { type: string, enum: [running, completed, failed, cancelled] }
         latencyMs: { type: integer }
+        errorCode: { type: string }
+        errorMessage: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
     QaSettings:
       type: object
       properties:

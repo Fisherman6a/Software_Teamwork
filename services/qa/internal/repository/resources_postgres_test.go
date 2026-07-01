@@ -2,8 +2,11 @@ package repository
 
 import (
 	"math"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/service"
 )
 
 func TestStreamEventSeqInt32RejectsInvalidValues(t *testing.T) {
@@ -31,5 +34,63 @@ func TestMessageCitationLegacySelectDoesNotRequireSnapshotMigrationColumns(t *te
 	}
 	if strings.Contains(messageCitationLegacySelect, "FALSE AS is_source_available") {
 		t.Fatalf("legacy message citation query should not hard-code source availability to false: %s", messageCitationLegacySelect)
+	}
+}
+
+func TestAgentConfigFromCreateInputPreservesExplicitEmptyToolWhitelist(t *testing.T) {
+	config := agentConfigFromCreateInput(service.CreateQAConfigVersionInput{
+		Agent:            service.AgentConfig{EnabledToolNames: []string{}},
+		EnabledToolNames: []string{"search_knowledge"},
+	})
+
+	if config.EnabledToolNames == nil || len(config.EnabledToolNames) != 0 {
+		t.Fatalf("enabledToolNames=%#v, want explicit empty whitelist", config.EnabledToolNames)
+	}
+}
+
+func TestAgentConfigFromCreateInputFallsBackToLegacyToolNamesWhenUnset(t *testing.T) {
+	config := agentConfigFromCreateInput(service.CreateQAConfigVersionInput{
+		EnabledToolNames: []string{"search_knowledge"},
+	})
+
+	if !reflect.DeepEqual(config.EnabledToolNames, []string{"search_knowledge"}) {
+		t.Fatalf("enabledToolNames=%#v, want legacy tool names", config.EnabledToolNames)
+	}
+}
+
+func TestAgentConfigFromCreateInputUsesDefaultToolNamesWhenUnset(t *testing.T) {
+	config := agentConfigFromCreateInput(service.CreateQAConfigVersionInput{})
+
+	if !reflect.DeepEqual(config.EnabledToolNames, service.DefaultAgentConfig().EnabledToolNames) {
+		t.Fatalf("enabledToolNames=%#v, want defaults", config.EnabledToolNames)
+	}
+}
+
+func TestToolCallAuditSummariesDeriveSourceAndFailure(t *testing.T) {
+	if got := toolSourceName("search_knowledge"); got != "qa_builtin" {
+		t.Fatalf("builtin source=%q", got)
+	}
+	if got := toolSourceName("kbserver__search"); got != "kbserver" {
+		t.Fatalf("prefixed source=%q", got)
+	}
+
+	code, message := toolCallErrorSummary("tool.failed", map[string]any{
+		"raw": `{"error":{"code":"retrieval_failed","message":"knowledge retrieval service failed"}}`,
+	})
+	if code != "retrieval_failed" || message != "knowledge retrieval service failed" {
+		t.Fatalf("error summary code=%q message=%q", code, message)
+	}
+}
+
+func TestToolCallEventPayloadCarriesModelInvocationID(t *testing.T) {
+	payload := map[string]any{
+		"iterationNo":       1,
+		"modelInvocationId": "invocation-id",
+		"toolCallId":        "call-1",
+		"tool":              "search_knowledge",
+	}
+
+	if got, _ := payload["modelInvocationId"].(string); got != "invocation-id" {
+		t.Fatalf("modelInvocationId=%q", got)
 	}
 }

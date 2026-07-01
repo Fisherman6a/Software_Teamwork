@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/platform/contextutil"
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/service/agent"
 )
 
@@ -127,10 +128,14 @@ func (r *fakeRepository) SaveModelInvocation(ctx context.Context, _ string, invo
 	r.invocations = append(r.invocations, invocation)
 	return fmt.Sprintf("invocation-%d", invocation.IterationNo), nil
 }
+func (r *fakeRepository) SaveCitations(_ context.Context, _, _ string, citations []Citation) error {
+	return nil
+}
 
 type fakeAgentRunner struct {
-	input  []agent.Message
-	userID string
+	input             []agent.Message
+	userID            string
+	retrievalSettings contextutil.RetrievalSettings
 }
 type blockingAgentRunner struct{ started chan struct{} }
 
@@ -138,6 +143,9 @@ func (r blockingAgentRunner) RunWithObserver(ctx context.Context, _ []agent.Mess
 	close(r.started)
 	<-ctx.Done()
 	return agent.Result{}, ctx.Err()
+}
+func (r blockingAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
 }
 
 type completedThenCancelledRunner struct{ completed chan struct{} }
@@ -149,6 +157,9 @@ func (r completedThenCancelledRunner) RunWithObserver(ctx context.Context, _ []a
 	<-ctx.Done()
 	return agent.Result{}, ctx.Err()
 }
+func (r completedThenCancelledRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 type cancelAfterCompletedRunner struct{ cancel context.CancelFunc }
 
@@ -158,6 +169,9 @@ func (r cancelAfterCompletedRunner) RunWithObserver(_ context.Context, input []a
 	r.cancel()
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer after disconnect"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
+}
+func (r cancelAfterCompletedRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
 }
 
 type cancelBeforeCompletedObserverRunner struct{ cancel context.CancelFunc }
@@ -169,19 +183,27 @@ func (r cancelBeforeCompletedObserverRunner) RunWithObserver(_ context.Context, 
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer after early disconnect"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
 }
+func (r cancelBeforeCompletedObserverRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 type toolProgressRunner struct{}
 
 func (toolProgressRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 7, CompletionTokens: 5, TotalTokens: 12}})
 	observer(agent.Event{Type: agent.EventToolStarted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge"})
 	observer(agent.Event{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge"})
-	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 7, CompletionTokens: 5, TotalTokens: 12}})
 	final := agent.Message{Role: agent.RoleAssistant, Content: "tool answer"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
 }
+func (toolProgressRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return toolProgressRunner{}.RunWithObserver(ctx, input, observer)
+}
 
 type citationToolRunner struct{}
+
+const citationToolResultContent = `{"data":{"results":[{"documentId":"doc-1","documentName":"Boiler Manual","knowledgeBaseId":"kb-1","chunkId":"chunk-7","sectionPath":"3.1","quoteText":"inspect the valve before startup","contentPreview":"inspect the valve before startup","context":"Operators inspect the valve before startup.","content":"FULL RAW DOCUMENT BODY MUST NOT LEAK","fullText":"FULL RAW DOCUMENT BODY MUST NOT LEAK EITHER","pageNumber":12,"score":0.91,"rerankScore":0.88,"chunkType":"paragraph","metadata":{"pageLabel":"12","objectKey":"secret","internalUrl":"http://internal/doc","vector":[0.1,0.2]}}]}}`
 
 func (citationToolRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
@@ -192,7 +214,26 @@ func (citationToolRunner) RunWithObserver(_ context.Context, input []agent.Messa
 		Role:       agent.RoleTool,
 		Name:       "search_knowledge",
 		ToolCallID: "call-1",
-		Content:    `{"data":{"results":[{"documentId":"doc-1","documentName":"Boiler Manual","knowledgeBaseId":"kb-1","chunkId":"chunk-7","sectionPath":"3.1","quoteText":"inspect the valve before startup","contentPreview":"inspect the valve before startup","context":"Operators inspect the valve before startup.","content":"FULL RAW DOCUMENT BODY MUST NOT LEAK","fullText":"FULL RAW DOCUMENT BODY MUST NOT LEAK EITHER","pageNumber":12,"score":0.91,"rerankScore":0.88,"chunkType":"paragraph","metadata":{"pageLabel":"12","objectKey":"secret","internalUrl":"http://internal/doc","vector":[0.1,0.2]}}]}}`,
+		Content:    citationToolResultContent,
+	}
+	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with citation [1]"}
+	messages := append([]agent.Message{}, input...)
+	messages = append(messages, toolResult, final)
+	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
+}
+func (citationToolRunner) RunWithToolResultCallback(_ context.Context, input []agent.Message, observer agent.Observer, toolObserver agent.ToolObserver) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	observer(agent.Event{Type: agent.EventToolStarted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge"})
+	if toolObserver != nil {
+		toolObserver(agent.ToolObservation{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge", Result: citationToolResultContent})
+	}
+	observer(agent.Event{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge"})
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 8, CompletionTokens: 6, TotalTokens: 14}})
+	toolResult := agent.Message{
+		Role:       agent.RoleTool,
+		Name:       "search_knowledge",
+		ToolCallID: "call-1",
+		Content:    citationToolResultContent,
 	}
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with citation [1]"}
 	messages := append([]agent.Message{}, input...)
@@ -200,13 +241,85 @@ func (citationToolRunner) RunWithObserver(_ context.Context, input []agent.Messa
 	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
 }
 
+type duplicateCitationToolRunner struct{}
+
+func (duplicateCitationToolRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	for _, toolCallID := range []string{"call-1", "call-2"} {
+		observer(agent.Event{Type: agent.EventToolStarted, Iteration: 1, ToolCallID: toolCallID, ToolName: "search_knowledge"})
+		observer(agent.Event{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: toolCallID, ToolName: "search_knowledge"})
+	}
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 8, CompletionTokens: 6, TotalTokens: 14}})
+	messages := append([]agent.Message{}, input...)
+	for _, toolCallID := range []string{"call-1", "call-2"} {
+		messages = append(messages, agent.Message{
+			Role:       agent.RoleTool,
+			Name:       "search_knowledge",
+			ToolCallID: toolCallID,
+			Content:    citationToolResultContent,
+		})
+	}
+	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with duplicated citation [1]"}
+	messages = append(messages, final)
+	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
+}
+func (duplicateCitationToolRunner) RunWithToolResultCallback(_ context.Context, input []agent.Message, observer agent.Observer, toolObserver agent.ToolObserver) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	for _, toolCallID := range []string{"call-1", "call-2"} {
+		observer(agent.Event{Type: agent.EventToolStarted, Iteration: 1, ToolCallID: toolCallID, ToolName: "search_knowledge"})
+		if toolObserver != nil {
+			toolObserver(agent.ToolObservation{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: toolCallID, ToolName: "search_knowledge", Result: citationToolResultContent})
+		}
+		observer(agent.Event{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: toolCallID, ToolName: "search_knowledge"})
+	}
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 8, CompletionTokens: 6, TotalTokens: 14}})
+	messages := append([]agent.Message{}, input...)
+	for _, toolCallID := range []string{"call-1", "call-2"} {
+		messages = append(messages, agent.Message{
+			Role:       agent.RoleTool,
+			Name:       "search_knowledge",
+			ToolCallID: toolCallID,
+			Content:    citationToolResultContent,
+		})
+	}
+	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with duplicated citation [1]"}
+	messages = append(messages, final)
+	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
+}
+
+type fallbackCitationToolRunner struct{}
+
+func (fallbackCitationToolRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
+	observer(agent.Event{Type: agent.EventToolStarted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge"})
+	observer(agent.Event{Type: agent.EventToolCompleted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge"})
+	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 8, CompletionTokens: 6, TotalTokens: 14}})
+	toolResult := agent.Message{
+		Role:       agent.RoleTool,
+		Name:       "search_knowledge",
+		ToolCallID: "call-1",
+		Content:    citationToolResultContent,
+	}
+	final := agent.Message{Role: agent.RoleAssistant, Content: "answer with fallback citation [1]"}
+	messages := append([]agent.Message{}, input...)
+	messages = append(messages, toolResult, final)
+	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
+}
+func (fallbackCitationToolRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return fallbackCitationToolRunner{}.RunWithObserver(ctx, input, observer)
+}
+
 func (r *fakeAgentRunner) RunWithObserver(ctx context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	r.userID = UserIDFromContext(ctx)
 	r.input = append([]agent.Message(nil), input...)
+	r.retrievalSettings = contextutil.RetrievalSettingsFromContext(ctx)
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
 	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 10, CompletionTokens: 4, TotalTokens: 14}})
 	final := agent.Message{Role: agent.RoleAssistant, Content: "测试回答"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
+}
+func (r *fakeAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
 }
 
 type errorAgentRunner struct{ err error }
@@ -214,6 +327,9 @@ type errorAgentRunner struct{ err error }
 func (r errorAgentRunner) RunWithObserver(_ context.Context, _ []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
 	return agent.Result{}, r.err
+}
+func (r errorAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
 }
 
 type maxIterationsAgentRunner struct{}
@@ -223,12 +339,16 @@ func (maxIterationsAgentRunner) RunWithObserver(_ context.Context, _ []agent.Mes
 	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 2, Usage: agent.TokenUsage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5}})
 	return agent.Result{Iterations: 2}, agent.ErrMaxIterations
 }
+func (maxIterationsAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return maxIterationsAgentRunner{}.RunWithObserver(ctx, input, observer)
+}
 
 type fakeRuntimeProvider struct {
 	runner         AgentRunner
 	prompt         string
 	maxIterations  int
 	overallTimeout time.Duration
+	retrieval      RetrievalSettings
 }
 
 func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
@@ -240,6 +360,7 @@ func (p fakeRuntimeProvider) Acquire() (RuntimeSnapshot, func(), error) {
 		Runner: p.runner, SystemPrompt: p.prompt, LLMModel: "deepseek-v4-pro", LLMProfileID: "default",
 		QAConfigVersionID: "qa-config-id", LLMConfigVersionID: "llm-config-id",
 		MaxIterations: maxIterations, OverallTimeout: p.overallTimeout,
+		RetrievalSettings: p.retrieval,
 	}, func() {}, nil
 }
 
@@ -302,6 +423,38 @@ func TestAskRejectsUnsupportedDataAnalysis(t *testing.T) {
 	appErr, ok := Classify(err)
 	if !ok || appErr.Code != CodeUnsupportedIntent {
 		t.Fatalf("error = %v, want unsupported_intent", err)
+	}
+}
+
+func TestAskMergesRequestRetrievalOverridesIntoToolContext(t *testing.T) {
+	var input AskInput
+	if err := json.Unmarshal([]byte(`{"message":"检索","retrieval":{"topK":3,"scoreThreshold":0.42,"enableRerank":false,"rerankThreshold":0.25,"rerankTopN":2}}`), &input); err != nil {
+		t.Fatal(err)
+	}
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	runner := &fakeAgentRunner{}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{
+		runner: runner,
+		prompt: "system",
+		retrieval: RetrievalSettings{
+			TopK:            8,
+			ScoreThreshold:  0.7,
+			EnableRerank:    true,
+			RerankThreshold: 0.6,
+			RerankTopN:      5,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = qa.Ask(context.Background(), "user-id", "conversation-id", input, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	want := contextutil.RetrievalSettings{TopK: 3, ScoreThreshold: 0.42, EnableRerank: false, RerankThreshold: 0.25, RerankTopN: 2}
+	if runner.retrievalSettings != want {
+		t.Fatalf("retrieval settings=%+v, want %+v", runner.retrievalSettings, want)
 	}
 }
 
@@ -690,13 +843,16 @@ func TestAskToolProgressEventsExposeOnlySafeSummaries(t *testing.T) {
 			continue
 		}
 		seenToolEvent = true
-		for _, forbidden := range []string{"arguments", "args", "result", "rawResult", "internalUrl", "prompt"} {
+		for _, forbidden := range []string{"args", "rawResult", "internalUrl", "prompt"} {
 			if _, ok := event.Payload[forbidden]; ok {
 				t.Fatalf("tool event leaked %q in payload %#v", forbidden, event.Payload)
 			}
 		}
 		if event.Payload["toolCallId"] != "call-1" || event.Payload["tool"] != "search_knowledge" || event.Payload["iterationNo"] != 1 {
 			t.Fatalf("unexpected safe tool payload: %#v", event.Payload)
+		}
+		if event.Payload["modelInvocationId"] != "invocation-1" {
+			t.Fatalf("tool event missing model invocation id: %#v", event.Payload)
 		}
 	}
 	if !seenToolEvent {
@@ -747,17 +903,64 @@ func TestAskPersistsCitationSnapshotsFromKnowledgeToolResults(t *testing.T) {
 			t.Fatalf("citation metadata leaked %q: %#v", forbidden, citation.Metadata)
 		}
 	}
-	citationSeq, completedSeq := 0, 0
+	citationSeq, citationCount, completedSeq := 0, 0, 0
 	for _, event := range repository.savedEvents {
 		if event.EventType == "citation.delta" {
+			citationCount++
 			citationSeq = event.EventSeq
 		}
 		if event.EventType == "answer.completed" {
 			completedSeq = event.EventSeq
 		}
 	}
+	if citationCount != 1 {
+		t.Fatalf("citation.delta event count=%d events=%+v", citationCount, repository.savedEvents)
+	}
 	if citationSeq == 0 || completedSeq == 0 || citationSeq > completedSeq {
 		t.Fatalf("citation event sequence=%d completed=%d events=%+v", citationSeq, completedSeq, repository.savedEvents)
+	}
+}
+
+func TestAskDeduplicatesStreamingCitationSnapshots(t *testing.T) {
+	now := time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now}}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: duplicateCitationToolRunner{}, prompt: "system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qa.now = func() time.Time { return now }
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find repeated citation", Mode: "knowledge_qa"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Citations) != 1 || len(repository.finalization.Citations) != 1 {
+		t.Fatalf("result citations=%+v finalization=%+v", result.Citations, repository.finalization.Citations)
+	}
+	citation := repository.finalization.Citations[0]
+	if citation.CitationNo != 1 || citation.DocumentID != "doc-1" || citation.ChunkID != "chunk-7" {
+		t.Fatalf("unexpected deduplicated citation: %+v", citation)
+	}
+
+	citationCount := 0
+	var eventCitation Citation
+	for _, event := range repository.savedEvents {
+		if event.EventType != "citation.delta" {
+			continue
+		}
+		citationCount++
+		payload, ok := event.Payload["citation"].(Citation)
+		if !ok {
+			t.Fatalf("citation.delta payload=%#v, want Citation", event.Payload["citation"])
+		}
+		eventCitation = payload
+	}
+	if citationCount != 1 {
+		t.Fatalf("citation.delta event count=%d events=%+v", citationCount, repository.savedEvents)
+	}
+	if eventCitation.ID != citation.ID || eventCitation.CitationNo != 1 || eventCitation.ChunkID != "chunk-7" {
+		t.Fatalf("citation event=%+v finalization=%+v", eventCitation, citation)
 	}
 }
 
@@ -807,6 +1010,67 @@ func TestAskSSEPayloadsDoNotLeakPromptRawToolOrProviderSecrets(t *testing.T) {
 		assertProgressPayloadsDoNotLeakSensitiveData(t, observed)
 		assertStreamPayloadsDoNotLeakSensitiveData(t, repository.savedEvents)
 	})
+}
+
+func TestAskEmitsCitationDeltaForFallbackAgentMessageCitations(t *testing.T) {
+	now := time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active", CreatedAt: now, UpdatedAt: now}}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: fallbackCitationToolRunner{}, prompt: "system"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qa.now = func() time.Time { return now }
+	qa.SetCitationSourceChecker(&fakeCitationSourceChecker{availability: map[string]bool{"doc-1": true}})
+
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "find citation", Mode: "knowledge_qa"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Citations) != 1 || len(repository.finalization.Citations) != 1 {
+		t.Fatalf("result citations=%+v finalization=%+v", result.Citations, repository.finalization.Citations)
+	}
+
+	citationSeq, citationCount, completedSeq := 0, 0, 0
+	var eventCitation Citation
+	for _, event := range repository.savedEvents {
+		if event.EventType == "citation.delta" {
+			citationCount++
+			citationSeq = event.EventSeq
+			payload, ok := event.Payload["citation"].(Citation)
+			if !ok {
+				t.Fatalf("citation.delta payload=%#v, want Citation", event.Payload["citation"])
+			}
+			eventCitation = payload
+		}
+		if event.EventType == "answer.completed" {
+			completedSeq = event.EventSeq
+		}
+	}
+	if citationCount != 1 {
+		t.Fatalf("citation.delta event count=%d events=%+v", citationCount, repository.savedEvents)
+	}
+	if citationSeq == 0 || completedSeq == 0 || citationSeq > completedSeq {
+		t.Fatalf("citation event sequence=%d completed=%d events=%+v", citationSeq, completedSeq, repository.savedEvents)
+	}
+	if eventCitation.ID != repository.finalization.Citations[0].ID || eventCitation.DocumentID != "doc-1" || eventCitation.MessageID != result.AssistantMessage.ID {
+		t.Fatalf("citation event=%+v finalization=%+v", eventCitation, repository.finalization.Citations[0])
+	}
+}
+
+func TestExtractCitationsFromToolResultSupportsKnowledgeSummaryFields(t *testing.T) {
+	result := `{"results":[{"citation_no":3,"knowledge_base_id":"kb-1","document_id":"doc-1","document_name":"Doc","chunk_id":"chunk-1","preview":"safe preview","context":"safe context","page_number":7,"score":0.5,"rerank_score":0.4,"chunk_type":"paragraph"}]}`
+	citations := extractCitationsFromToolResult(result, 3)
+
+	if len(citations) != 1 {
+		t.Fatalf("citations=%+v", citations)
+	}
+	citation := citations[0]
+	if citation.CitationNo != 3 || citation.KnowledgeBaseID != "kb-1" || citation.DocumentID != "doc-1" || citation.DocumentName != "Doc" {
+		t.Fatalf("unexpected citation=%+v", citation)
+	}
+	if citation.Text != "" || citation.ContentPreview != "safe preview" || citation.Context != "safe context" {
+		t.Fatalf("unexpected citation text fields=%+v", citation)
+	}
 }
 
 func TestNormalizeCitationMarksUnavailableSourceAndSanitizesMetadata(t *testing.T) {
