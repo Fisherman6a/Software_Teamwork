@@ -794,8 +794,11 @@ components:
       properties:
         id: { type: string }
         responseRunId: { type: string }
+        modelInvocationId: { type: string }
+        iterationNo: { type: integer }
         toolCallId: { type: string }
         toolName: { type: string }
+        mcpServerName: { type: string }
         argumentsSummary:
           type: object
           additionalProperties: true
@@ -804,6 +807,13 @@ components:
           additionalProperties: true
         status: { type: string, enum: [running, completed, failed, cancelled] }
         latencyMs: { type: integer }
+        errorCode: { type: string }
+        errorMessage: { type: string }
+        startedAt: { type: string, format: date-time }
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
     QaSettings:
       type: object
       properties:
