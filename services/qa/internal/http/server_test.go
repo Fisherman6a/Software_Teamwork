@@ -693,7 +693,7 @@ func newTestServerSettingsOpen(t *testing.T, qa fakeQAService, resources Resourc
 			return service.AskResult{}, nil
 		}
 	}
-	server, err := NewServer(qa, fakeSettingsService{}, resources, Config{MaxRequestBytes: 4096, ServiceToken: "test-service-token", SettingsOpen: true})
+	server, err := NewServer(qa, fakeSettingsService{}, resources, fakeAttachmentService{}, Config{MaxRequestBytes: 4096, ServiceToken: "test-service-token", SettingsOpen: true})
 	if err != nil {
 		t.Fatal(err)
 	}
