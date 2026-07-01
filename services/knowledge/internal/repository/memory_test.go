@@ -160,3 +160,59 @@ func TestMemoryRepositoryMarkFailedKeepsJobTerminalWhenDocumentWasDeleted(t *tes
 		t.Fatalf("failed job = %+v", failedJob)
 	}
 }
+
+func TestMemoryRepositoryDeletedDocumentCleanupTargetReadsSoftDeletedDocumentOnly(t *testing.T) {
+	repo := repository.NewMemoryRepository()
+	now := time.Date(2026, 6, 29, 15, 0, 0, 0, time.UTC)
+	scope := service.AccessScope{UserID: "usr_1", CanWrite: true}
+	fileRef := "file_1"
+	repo.SeedKnowledgeBase(service.KnowledgeBase{
+		ID:                "kb_1",
+		Name:              "规程库",
+		Description:       "",
+		DocType:           "GENERAL",
+		ChunkStrategy:     json.RawMessage(`{}`),
+		RetrievalStrategy: json.RawMessage(`{}`),
+		CreatedBy:         "usr_1",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
+	repo.SeedDocument(service.KnowledgeDocument{
+		ID:              "doc_1",
+		KnowledgeBaseID: "kb_1",
+		FileRef:         &fileRef,
+		Name:            "规程.pdf",
+		Status:          service.DocumentStatusReady,
+		CreatedBy:       "usr_1",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
+	if _, err := repo.GetDeletedDocumentCleanupTarget(context.Background(), "job_cleanup"); err != service.ErrNotFound {
+		t.Fatalf("GetDeletedDocumentCleanupTarget() before delete error = %v, want not found", err)
+	}
+	if err := repo.SoftDeleteDocument(context.Background(), service.DeleteDocumentRecord{
+		DocumentID:  "doc_1",
+		JobID:       "job_cleanup",
+		JobType:     service.JobTypeDeleteCleanup,
+		JobStatus:   service.JobStatusQueued,
+		JobStage:    "delete_cleanup",
+		JobMessage:  "document marked deleted; cleanup is pending",
+		MaxAttempts: 3,
+		DeletedAt:   now.Add(time.Minute),
+		CreatedAt:   now.Add(time.Minute),
+		UpdatedAt:   now.Add(time.Minute),
+	}, scope); err != nil {
+		t.Fatalf("SoftDeleteDocument() error = %v", err)
+	}
+
+	target, err := repo.GetDeletedDocumentCleanupTarget(context.Background(), "job_cleanup")
+	if err != nil {
+		t.Fatalf("GetDeletedDocumentCleanupTarget() error = %v", err)
+	}
+	if target.DocumentID != "doc_1" || target.KnowledgeBaseID != "kb_1" || target.FileRef == nil || *target.FileRef != "file_1" {
+		t.Fatalf("cleanup target = %+v", target)
+	}
+	if _, err := repo.GetDocument(context.Background(), "doc_1", scope); err != service.ErrNotFound {
+		t.Fatalf("GetDocument() after delete error = %v, want not found", err)
+	}
+}

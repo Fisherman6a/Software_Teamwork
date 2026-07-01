@@ -215,6 +215,13 @@ func TestPostgresRepositoryDocumentLifecycleUpdateAndDelete(t *testing.T) {
 	if _, err := repo.GetDocument(ctx, doc.ID, ownerScope); err == nil {
 		t.Fatal("GetDocument() after delete succeeded, want not found")
 	}
+	target, err := repo.GetDeletedDocumentCleanupTarget(ctx, "job_delete_cleanup_lifecycle")
+	if err != nil {
+		t.Fatalf("GetDeletedDocumentCleanupTarget() error = %v", err)
+	}
+	if target.DocumentID != doc.ID || target.KnowledgeBaseID != kb.ID || target.FileRef == nil || *target.FileRef != "file_lifecycle" {
+		t.Fatalf("cleanup target = %+v", target)
+	}
 
 	list, err := repo.ListDocumentsByKnowledgeBase(ctx, kb.ID, nil, ownerScope, service.PageInput{Page: 1, PageSize: 20})
 	if err != nil {

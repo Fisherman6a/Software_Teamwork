@@ -765,6 +765,28 @@ func (r *MemoryRepository) SoftDeleteDocument(ctx context.Context, input service
 	return nil
 }
 
+func (r *MemoryRepository) GetDeletedDocumentCleanupTarget(ctx context.Context, jobID string) (service.DeletedDocumentCleanupTarget, error) {
+	if err := ctx.Err(); err != nil {
+		return service.DeletedDocumentCleanupTarget{}, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	job, jobExists := r.jobs[jobID]
+	if !jobExists || job.JobType != service.JobTypeDeleteCleanup || job.DocumentID == nil {
+		return service.DeletedDocumentCleanupTarget{}, service.ErrNotFound
+	}
+	doc, docExists := r.documents[*job.DocumentID]
+	if !docExists || doc.DeletedAt == nil {
+		return service.DeletedDocumentCleanupTarget{}, service.ErrNotFound
+	}
+	return service.DeletedDocumentCleanupTarget{
+		DocumentID:      doc.ID,
+		KnowledgeBaseID: doc.KnowledgeBaseID,
+		FileRef:         cloneStringPtr(doc.FileRef),
+	}, nil
+}
+
 func (r *MemoryRepository) ListDocumentChunks(ctx context.Context, documentID string, scope service.AccessScope, page service.PageInput) (service.DocumentChunkList, error) {
 	return r.ListChunks(ctx, documentID, scope, page)
 }

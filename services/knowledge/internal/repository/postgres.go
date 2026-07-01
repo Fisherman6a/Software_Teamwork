@@ -477,6 +477,26 @@ func (r *PostgresRepository) SoftDeleteDocument(ctx context.Context, input servi
 	return nil
 }
 
+func (r *PostgresRepository) GetDeletedDocumentCleanupTarget(ctx context.Context, jobID string) (service.DeletedDocumentCleanupTarget, error) {
+	var target service.DeletedDocumentCleanupTarget
+	var fileRef pgtype.Text
+	err := r.pool.QueryRow(ctx, `
+SELECT d.id, d.knowledge_base_id, d.file_ref
+FROM processing_jobs j
+JOIN knowledge_documents d ON d.id = j.document_id
+WHERE j.id = $1
+  AND j.job_type = $2
+  AND d.deleted_at IS NOT NULL`,
+		jobID,
+		service.JobTypeDeleteCleanup,
+	).Scan(&target.DocumentID, &target.KnowledgeBaseID, &fileRef)
+	if err != nil {
+		return service.DeletedDocumentCleanupTarget{}, wrapPostgresError("get deleted document cleanup target", err)
+	}
+	target.FileRef = textPtr(fileRef)
+	return target, nil
+}
+
 func (r *PostgresRepository) ListDocumentChunks(ctx context.Context, documentID string, scope service.AccessScope, page service.PageInput) (service.DocumentChunkList, error) {
 	return r.ListChunks(ctx, documentID, scope, page)
 }

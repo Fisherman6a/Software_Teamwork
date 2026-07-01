@@ -504,6 +504,61 @@ func TestUploadDocumentMarksFailureWhenQueueHandoffFails(t *testing.T) {
 	}
 }
 
+func TestDeleteDocumentKeepsDocumentHiddenWhenCleanupQueueHandoffFails(t *testing.T) {
+	now := time.Date(2026, 6, 30, 8, 30, 0, 0, time.UTC)
+	repo := repository.NewMemoryRepository()
+	fileRef := "file_1"
+	repo.SeedKnowledgeBase(service.KnowledgeBase{
+		ID:                "kb_1",
+		Name:              "规程库",
+		Description:       "",
+		DocType:           "GENERAL",
+		ChunkStrategy:     json.RawMessage(`{}`),
+		RetrievalStrategy: json.RawMessage(`{}`),
+		CreatedBy:         "usr_1",
+		CreatedAt:         now,
+		UpdatedAt:         now,
+	})
+	repo.SeedDocument(service.KnowledgeDocument{
+		ID:              "doc_1",
+		KnowledgeBaseID: "kb_1",
+		FileRef:         &fileRef,
+		Name:            "规程.pdf",
+		Status:          service.DocumentStatusReady,
+		CreatedBy:       "usr_1",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	})
+	queue := &uploadQueue{err: errors.New("redis unavailable with secret file_1")}
+	svc := service.NewWithDependencies(repo, nil, queue, func() time.Time {
+		return now.Add(time.Hour)
+	}, func(prefix string) string {
+		return prefix + "_test"
+	})
+
+	err := svc.DeleteDocument(context.Background(), writeContext("usr_1"), "doc_1")
+	if !hasCode(err, service.CodeDependency) {
+		t.Fatalf("DeleteDocument() error = %v", err)
+	}
+	if queue.cleanupCalls != 1 || queue.cleanupTask.DocumentID != "doc_1" {
+		t.Fatalf("cleanup task = %+v calls=%d", queue.cleanupTask, queue.cleanupCalls)
+	}
+	_, err = svc.GetDocument(context.Background(), readContext("usr_1"), "doc_1")
+	if !hasCode(err, service.CodeNotFound) {
+		t.Fatalf("GetDocument() after queue failure error = %v", err)
+	}
+	job, err := repo.GetProcessingJob(context.Background(), "job_test")
+	if err != nil {
+		t.Fatalf("GetProcessingJob() error = %v", err)
+	}
+	if job.Status != service.JobStatusFailed || job.ErrorMessage == nil || *job.ErrorMessage != "delete cleanup queue handoff failed" {
+		t.Fatalf("job = %+v", job)
+	}
+	if strings.Contains(*job.ErrorMessage, "file_1") || strings.Contains(*job.ErrorMessage, "secret") {
+		t.Fatalf("job error leaked sensitive detail: %q", *job.ErrorMessage)
+	}
+}
+
 func TestDocumentLifecycleUpdateDeleteChunksAndContent(t *testing.T) {
 	now := time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC)
 	repo := repository.NewMemoryRepository()
@@ -553,11 +608,17 @@ func TestDocumentLifecycleUpdateDeleteChunksAndContent(t *testing.T) {
 			}, nil
 		},
 	}
-	svc := service.NewWithDependencies(repo, files, nil, func() time.Time {
+	queue := &uploadQueue{}
+	vector := &lifecycleVectorIndex{hits: []service.VectorSearchHit{{
+		ID:      "point_1",
+		Score:   1,
+		Payload: map[string]any{"chunk_id": "chunk_1"},
+	}}}
+	svc := service.NewWithDependencies(repo, files, queue, func() time.Time {
 		return now.Add(time.Hour)
 	}, func(prefix string) string {
 		return prefix + "_cleanup"
-	}, service.WithProcessingPipeline(files, nil, nil))
+	}, service.WithProcessingPipeline(files, nil, nil), service.WithVectorIndex(lifecycleEmbedder{}, vector))
 
 	updatedTags := []string{"锅炉", "锅炉", " 规程 "}
 	updated, err := svc.UpdateDocument(context.Background(), writeContext("usr_1"), service.UpdateDocumentInput{
@@ -598,9 +659,42 @@ func TestDocumentLifecycleUpdateDeleteChunksAndContent(t *testing.T) {
 	if err := svc.DeleteDocument(context.Background(), writeContext("usr_1"), "doc_1"); err != nil {
 		t.Fatalf("DeleteDocument() error = %v", err)
 	}
+	if queue.cleanupCalls != 1 ||
+		queue.cleanupTask.JobID != "job_cleanup" ||
+		queue.cleanupTask.DocumentID != "doc_1" ||
+		queue.cleanupTask.KnowledgeBaseID != "kb_1" ||
+		queue.cleanupTask.UserID != "usr_1" {
+		t.Fatalf("cleanup queue task = %+v calls=%d", queue.cleanupTask, queue.cleanupCalls)
+	}
 	_, err = svc.GetDocument(context.Background(), readContext("usr_1"), "doc_1")
 	if !hasCode(err, service.CodeNotFound) {
 		t.Fatalf("GetDocument() after delete error = %v", err)
+	}
+	list, err := svc.ListDocuments(context.Background(), readContext("usr_1"), service.ListDocumentsInput{KnowledgeBaseID: "kb_1"})
+	if err != nil {
+		t.Fatalf("ListDocuments() after delete error = %v", err)
+	}
+	if list.Page.Total != 0 || len(list.Items) != 0 {
+		t.Fatalf("ListDocuments() after delete = %+v, want empty", list)
+	}
+	_, err = svc.ListDocumentChunks(context.Background(), readContext("usr_1"), service.ListDocumentChunksInput{DocumentID: "doc_1"})
+	if !hasCode(err, service.CodeNotFound) {
+		t.Fatalf("ListDocumentChunks() after delete error = %v", err)
+	}
+	_, err = svc.GetDocumentContent(context.Background(), service.RequestContext{RequestID: "req_content", UserID: "usr_1"}, "doc_1")
+	if !hasCode(err, service.CodeNotFound) {
+		t.Fatalf("GetDocumentContent() after delete error = %v", err)
+	}
+	query, err := svc.CreateKnowledgeQuery(context.Background(), readContext("usr_1"), service.KnowledgeQueryInput{
+		Query:            "第一段",
+		KnowledgeBaseIDs: []string{"kb_1"},
+		TopK:             1,
+	})
+	if err != nil {
+		t.Fatalf("CreateKnowledgeQuery() after delete error = %v", err)
+	}
+	if len(query.Results) != 0 {
+		t.Fatalf("query results after delete = %+v, want empty", query.Results)
 	}
 }
 
@@ -646,15 +740,45 @@ func (f *uploadFileClient) ReadSource(ctx context.Context, reqCtx service.Reques
 }
 
 type uploadQueue struct {
-	task  service.DocumentIngestionTask
-	calls int
-	err   error
+	task         service.DocumentIngestionTask
+	cleanupTask  service.DocumentDeleteCleanupTask
+	calls        int
+	cleanupCalls int
+	err          error
 }
 
 func (q *uploadQueue) EnqueueDocumentIngestion(ctx context.Context, task service.DocumentIngestionTask) error {
 	q.calls++
 	q.task = task
 	return q.err
+}
+
+func (q *uploadQueue) EnqueueDocumentDeleteCleanup(ctx context.Context, task service.DocumentDeleteCleanupTask) error {
+	q.cleanupCalls++
+	q.cleanupTask = task
+	return q.err
+}
+
+type lifecycleEmbedder struct{}
+
+func (lifecycleEmbedder) Embed(context.Context, service.EmbeddingRequest) (service.EmbeddingResult, error) {
+	return service.EmbeddingResult{Vectors: [][]float32{{1, 0}}, Provider: "fake", Model: "fake", Dimension: 2}, nil
+}
+
+type lifecycleVectorIndex struct {
+	hits []service.VectorSearchHit
+}
+
+func (*lifecycleVectorIndex) Upsert(context.Context, []service.VectorPoint) error { return nil }
+func (*lifecycleVectorIndex) DeleteByDocument(context.Context, string) error      { return nil }
+func (*lifecycleVectorIndex) DeleteByDocumentIngestionAttempt(context.Context, string, string) error {
+	return nil
+}
+func (*lifecycleVectorIndex) DeleteStaleDocumentPoints(context.Context, string, string) error {
+	return nil
+}
+func (i *lifecycleVectorIndex) Search(context.Context, service.VectorSearchRequest) ([]service.VectorSearchHit, error) {
+	return append([]service.VectorSearchHit(nil), i.hits...), nil
 }
 
 type uploadRepository struct {

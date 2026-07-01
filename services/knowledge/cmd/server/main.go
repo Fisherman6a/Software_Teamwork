@@ -107,6 +107,10 @@ func main() {
 	asynqMux.HandleFunc(queue.DocumentIngestionTaskType, func(ctx context.Context, task *asynq.Task) error {
 		return ingestionHandler.HandleIngestionPayload(ctx, task.Payload())
 	})
+	deleteCleanupHandler := worker.NewDeleteCleanupHandler(knowledgeService, logger)
+	asynqMux.HandleFunc(queue.DocumentDeleteCleanupTaskType, func(ctx context.Context, task *asynq.Task) error {
+		return deleteCleanupHandler.HandleDeleteCleanupPayload(ctx, task.Payload())
+	})
 
 	go func() {
 		logger.Info("knowledge service starting", "service", "knowledge", "addr", cfg.HTTPAddr, "environment", cfg.Environment)
@@ -116,9 +120,9 @@ func main() {
 		}
 	}()
 	go func() {
-		logger.Info("knowledge ingestion worker starting", "service", "knowledge", "queue", queue.DocumentIngestionTaskType)
+		logger.Info("knowledge workers starting", "service", "knowledge", "queues", []string{queue.DocumentIngestionTaskType, queue.DocumentDeleteCleanupTaskType})
 		if err := asynqServer.Run(asynqMux); err != nil {
-			logger.Error("knowledge ingestion worker stopped unexpectedly", "service", "knowledge", "error", err)
+			logger.Error("knowledge worker stopped unexpectedly", "service", "knowledge", "error", err)
 			stop()
 		}
 	}()

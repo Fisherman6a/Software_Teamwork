@@ -9,7 +9,10 @@ import (
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
 )
 
-const DocumentIngestionTaskType = "knowledge:document:ingest"
+const (
+	DocumentIngestionTaskType     = "knowledge:document:ingest"
+	DocumentDeleteCleanupTaskType = "knowledge:document:delete_cleanup"
+)
 
 type AsynqQueue struct {
 	client *asynq.Client
@@ -34,6 +37,25 @@ func (q *AsynqQueue) EnqueueDocumentIngestion(ctx context.Context, task service.
 	_, err = q.client.EnqueueContext(ctx, asynq.NewTask(DocumentIngestionTaskType, payload), asynq.MaxRetry(maxRetries))
 	if err != nil {
 		return service.NewError(service.CodeDependency, "ingestion queue handoff failed", err)
+	}
+	return nil
+}
+
+func (q *AsynqQueue) EnqueueDocumentDeleteCleanup(ctx context.Context, task service.DocumentDeleteCleanupTask) error {
+	payload, err := json.Marshal(task)
+	if err != nil {
+		return service.NewError(service.CodeInternal, "delete cleanup task payload is invalid", err)
+	}
+	if q == nil || q.client == nil {
+		return service.NewError(service.CodeDependency, "delete cleanup queue is not configured", nil)
+	}
+	maxRetries := int(service.DefaultIngestionMaxAttempts - 1)
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	_, err = q.client.EnqueueContext(ctx, asynq.NewTask(DocumentDeleteCleanupTaskType, payload), asynq.MaxRetry(maxRetries))
+	if err != nil {
+		return service.NewError(service.CodeDependency, "delete cleanup queue handoff failed", err)
 	}
 	return nil
 }
