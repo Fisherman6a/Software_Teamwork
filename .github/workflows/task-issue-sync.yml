@@ -112,9 +112,13 @@ jobs:
             const readField = (label) => readBodyField(body, label);
             const readHourField = (baseLabel) => readField(`${baseLabel}（小时数）`) || readField(baseLabel);
 
-            const parseHourNumber = (value, label) => {
+            const parseHourNumber = (value, label, options = {}) => {
+              const { allowEmptyAsZero = true, allowZero = true } = options;
               const normalized = cleanValue(value || '');
               if (!normalized || normalized === '待估' || normalized === '未填写') {
+                if (!allowEmptyAsZero) {
+                  throw new Error(`${label} must be estimated before sync; use a positive hour number such as 0.5, 1, or 2.`);
+                }
                 return { number: 0, text: '0' };
               }
               if (!/^\d+(?:\.\d+)?$/u.test(normalized)) {
@@ -123,6 +127,9 @@ jobs:
               const number = Number(normalized);
               if (!Number.isFinite(number) || number < 0) {
                 throw new Error(`${label} must be a finite non-negative hour number.`);
+              }
+              if (!allowZero && number === 0) {
+                throw new Error(`${label} must be greater than 0 before sync; use a concrete estimate such as 0.5, 1, or 2.`);
               }
               return { number, text: String(number) };
             };
@@ -654,7 +661,10 @@ jobs:
                 await updateSingleSelect('Module', moduleName);
               };
 
-              const expectedHours = parseHourNumber(expectedHoursRaw, '预期工时（小时数）');
+              const expectedHours = parseHourNumber(expectedHoursRaw, '预期工时（小时数）', {
+                allowEmptyAsZero: issueStatus === 'Draft',
+                allowZero: issueStatus === 'Draft',
+              });
               const actualHours = parseHourNumber(actualHoursRaw, '实际工时（小时数）');
 
               await updateSingleSelect('Status', projectStatus);

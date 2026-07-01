@@ -106,6 +106,8 @@ Project `Software Teamwork` 需要包含以下工时字段：
 
 工时字段只填写小时数，允许整数或浮点数，例如 `0`、`0.5`、`1.25`。workflow 会兼容远端仍是
 Text 的旧字段并写入数字字符串，但后续统计功能依赖 GitHub Project 字段为 Number。
+新建或编辑非 `Draft` 任务时，`预期工时（小时数）` 必须是大于 `0` 的具体估算；只有
+`Draft` 可以临时留空、写 `待估` 或写 `0`。`实际工时（小时数）` 可在任务完成前保持 `0`。
 
 GitHub user-level Projects v2 通常需要额外 token。维护者应创建一个有 Project
 读写权限的 fine-grained token 或 classic token，并在仓库 Secrets 中配置：
