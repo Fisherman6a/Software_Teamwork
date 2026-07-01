@@ -197,7 +197,13 @@ func (s *ReportGenerationService) executeContentGeneration(ctx context.Context, 
 			_ = s.recordEvent(ctx, report.ID, payload.JobID, "section.skipped", "section generation skipped because manual edits are preserved")
 			continue
 		}
-		section = s.markSectionGenerationRunning(ctx, section, payload.JobID)
+		section, err = s.markSectionGenerationRunning(ctx, section, payload.JobID)
+		if err != nil {
+			s.markSectionGenerationFailed(ctx, section.ID, payload.JobID)
+			_ = s.recordEvent(ctx, report.ID, payload.JobID, "section.failed", "section generation failed")
+			_ = s.repo.UpdateReportJobProgress(ctx, payload.JobID, completed, total)
+			return ReportGenerationExecutionResult{}, err
+		}
 		generationContext, err := s.loadGenerationContext(ctx, reqCtx, report, section, job)
 		if err != nil {
 			s.markSectionGenerationFailed(ctx, section.ID, payload.JobID)
@@ -306,16 +312,13 @@ func (s *ReportGenerationService) executeContentGeneration(ctx context.Context, 
 	return ReportGenerationExecutionResult{Status: JobStatusSucceeded}, nil
 }
 
-func (s *ReportGenerationService) markSectionGenerationRunning(ctx context.Context, section ReportSection, jobID string) ReportSection {
+func (s *ReportGenerationService) markSectionGenerationRunning(ctx context.Context, section ReportSection, jobID string) (ReportSection, error) {
 	updatedAt := s.clock()
-	section.GenerationStatus = JobStatusRunning
-	section.LastJobID = jobID
-	section.UpdatedAt = updatedAt
 	updated, err := s.repo.MarkReportSectionGenerationRunning(ctx, section.ID, jobID, updatedAt)
 	if err != nil {
-		return section
+		return section, dependencyError("mark report section generation running", err)
 	}
-	return updated
+	return updated, nil
 }
 
 func (s *ReportGenerationService) markSectionGenerationFailed(ctx context.Context, sectionID, jobID string) {

@@ -761,6 +761,12 @@ outline generation -> parse AI response outside transaction -> transaction inser
 - AI generation may call the model outside the database transaction, but the
   final generated content update plus `report_section_versions` insert must run
   in one short `WithinGenerationTx` operation.
+- Before calling the model for a section, the generation service must persist
+  `generation_status = running` and `last_job_id = <current job>`. If that
+  marker update fails, return `dependency_error`, record `section.failed`, keep
+  progress at the current completed count, and do not call the AI provider. A
+  failed running-marker write is infrastructure failure, not a stale response
+  skip.
 - Before persisting a successful generated section after the model call, re-read
   and lock the target section inside `WithinGenerationTx`. The current section
   must still have `last_job_id` equal to the executing job, `generation_status =
@@ -795,6 +801,7 @@ outline generation -> parse AI response outside transaction -> transaction inser
 | Target section belongs to another report | `404 not_found` |
 | Target section has `generation_status = running` | `409 conflict`; do not create a version |
 | Manual update/save write transaction sees a deleted report or running section | `409 conflict`; do not mutate the current section or create a manual version |
+| Running-marker update before AI section generation fails | `dependency_error`; record `section.failed`; update progress with the current completed count; do not call the AI provider, increment completed progress, create a version, or mark the section skipped |
 | Successful AI response finds a different `last_job_id`, non-running status, changed version, or changed manual-edit state | Skip the stale section on the non-error execution path; update progress and `section.skipped`; do not create a version, overwrite current section content, or mark the section/job/report failed |
 | Version insert succeeds but current-section switch fails | Roll back inserted version and return typed dependency/not-found error |
 | AI generated content update succeeds but version insert fails | Roll back the generated content switch; mark the section failed best-effort with a narrow, current-job-matched status update that preserves concurrent edits |
@@ -825,6 +832,10 @@ outline generation -> parse AI response outside transaction -> transaction inser
   no manual section-version row.
 - Generation tests for default preserve behavior, explicit
   `preserveUserEdits=false`, and rollback when version insertion fails.
+- Generation tests must simulate `MarkReportSectionGenerationRunning` failure
+  before the model call and assert `dependency_error`, no chat request,
+  `section.failed`, unchanged section content/status, and no stale skip/success
+  event.
 - Generation success-path tests must simulate a concurrent manual edit and a
   superseding generation job after the AI call but before the write transaction;
   both cases must preserve the current section, preserve current generation
@@ -882,6 +893,18 @@ AI call returns -> transaction:
   SELECT report_sections FOR UPDATE
   require last_job_id=$job, generation_status=running, version/manual_edited unchanged
   update generated content and insert report_section_versions
+```
+
+#### Wrong
+
+```text
+mark section running fails -> call AI anyway -> success write sees conflict -> count section as skipped -> job succeeds
+```
+
+#### Correct
+
+```text
+mark section running fails -> record section.failed -> return dependency_error -> worker marks job/report failed
 ```
 
 ## Scenario: Document Initial Report Defaults Seed

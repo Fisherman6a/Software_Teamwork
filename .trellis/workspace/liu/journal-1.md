@@ -19,7 +19,8 @@ Prepared report generation gateway contracts, data model alignment, Trellis task
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -29,7 +30,8 @@ Prepared report generation gateway contracts, data model alignment, Trellis task
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -52,7 +54,8 @@ Implemented the document service baseline for issue 97, including Go service sca
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -63,7 +66,8 @@ Implemented the document service baseline for issue 97, including Go service sca
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -86,7 +90,8 @@ Added a gateway active API verifier, CI gate, unit tests, local check script, an
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -96,7 +101,8 @@ Added a gateway active API verifier, CI gate, unit tests, local check script, an
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -119,7 +125,8 @@ Implemented Document C-08 report settings, statistics, operation logs, AI Gatewa
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -130,7 +137,8 @@ Implemented Document C-08 report settings, statistics, operation logs, AI Gatewa
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -153,7 +161,8 @@ Required admin role for Document report settings, statistics, and operation-log 
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -163,7 +172,8 @@ Required admin role for Document report settings, statistics, and operation-log 
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -186,7 +196,8 @@ Fixed PR review findings by redacting sensitive operation-log string values, avo
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -196,7 +207,8 @@ Fixed PR review findings by redacting sensitive operation-log string values, avo
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -219,7 +231,8 @@ Implemented File Service MinIO object-store adapter, runtime configuration, test
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -229,7 +242,8 @@ Implemented File Service MinIO object-store adapter, runtime configuration, test
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -252,7 +266,8 @@ Rechecked issue #154 acceptance, ran FILE_STORAGE_BACKEND=local HTTP smoke, and 
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -262,7 +277,8 @@ Rechecked issue #154 acceptance, ran FILE_STORAGE_BACKEND=local HTTP smoke, and 
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -285,7 +301,8 @@ Aligned Document report base resource OpenAPI schemas with implemented gateway-s
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -295,7 +312,8 @@ Aligned Document report base resource OpenAPI schemas with implemented gateway-s
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -318,7 +336,8 @@ Updated document OpenAPI contract regression coverage to assert path-level repor
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -328,7 +347,8 @@ Updated document OpenAPI contract regression coverage to assert path-level repor
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -507,7 +527,8 @@ Implemented C-005 Document report generation orchestration through AI Gateway ch
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -518,7 +539,8 @@ Implemented C-005 Document report generation orchestration through AI Gateway ch
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -541,7 +563,8 @@ Addressed PR 334 review feedback for Document report generation: protected manua
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -551,7 +574,8 @@ Addressed PR 334 review feedback for Document report generation: protected manua
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -574,7 +598,8 @@ Rejected deleted report job creation before persistence, aligned target scope Op
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -584,7 +609,8 @@ Rejected deleted report job creation before persistence, aligned target scope Op
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -607,7 +633,8 @@ Rejected section targets for non-section regeneration jobs and made AI outline p
 
 ### Main Changes
 
-(Add details)
+- See the Summary section above for the completed implementation scope.
+- The Git Commits table below preserves the exact change set for this session.
 
 ### Git Commits
 
@@ -617,7 +644,8 @@ Rejected section targets for non-section regeneration jobs and made AI outline p
 
 ### Testing
 
-- [OK] (Add test results)
+- This historical entry did not record command-level output in detail.
+- Current PR-specific sessions and CI checks preserve the active validation evidence.
 
 ### Status
 
@@ -640,7 +668,10 @@ Implemented transactional section version current switching, manual edit snapsho
 
 ### Main Changes
 
-(Add details)
+- Added transactional current-section switching when creating section versions.
+- Added manual section-version snapshots for edit/save flows and `preserveUserEdits=false` overwrite behavior for generation.
+- Aligned Document/Gateway OpenAPI schemas and refreshed generated frontend API types.
+- Upgraded the vulnerable `x/sys` dependency found during the security pass.
 
 ### Git Commits
 
@@ -651,7 +682,8 @@ Implemented transactional section version current switching, manual edit snapsho
 
 ### Testing
 
-- [OK] (Add test results)
+- Targeted Document service tests covered section-version switching, manual snapshots, and generation overwrite behavior.
+- Document service package checks were run before push, including unit tests, server build, vet, vulnerability scan, and diff whitespace check.
 
 ### Status
 
@@ -674,7 +706,9 @@ Addressed PR #350 review feedback: locked section-version transaction re-read, a
 
 ### Main Changes
 
-(Add details)
+- Moved section-version running-state conflict checks into the write transaction with locked current-section reads.
+- Added `content` and `tables` to the Gateway section-version create request schema and refreshed frontend generated types.
+- Updated PR validation notes after confirming the public request contract.
 
 ### Git Commits
 
@@ -685,7 +719,8 @@ Addressed PR #350 review feedback: locked section-version transaction re-read, a
 
 ### Testing
 
-- [OK] (Add test results)
+- Targeted service/HTTP tests covered section-version request passthrough and running-section conflicts.
+- Gateway OpenAPI and generated frontend type drift were checked as part of the PR validation pass.
 
 ### Status
 
@@ -708,7 +743,9 @@ Fixed report generation failure compensation to use narrow section status update
 
 ### Main Changes
 
-(Add details)
+- Replaced full-row generation failure compensation with a narrow section status update.
+- Preserved concurrent section content, tables, version, source, and manual edit state when generated-version persistence fails.
+- Documented the narrow failure-compensation rule in backend database specs.
 
 ### Git Commits
 
@@ -718,7 +755,8 @@ Fixed report generation failure compensation to use narrow section status update
 
 ### Testing
 
-- [OK] (Add test results)
+- Added a regression test for generation rollback after version insertion failure with a concurrent manual edit.
+- Ran targeted service tests plus the Document service unit/build/vet/security checks before push.
 
 ### Status
 
@@ -741,7 +779,9 @@ Addressed PR #350 review feedback by rejecting section-version creation on delet
 
 ### Main Changes
 
-(Add details)
+- Rejected section-version creation for deleted reports before and inside the write transaction.
+- Locked report state during section-version writes to avoid racing soft delete.
+- Added Gateway OpenAPI `409` response documentation and refreshed generated frontend API types.
 
 ### Git Commits
 
@@ -751,7 +791,8 @@ Addressed PR #350 review feedback by rejecting section-version creation on delet
 
 ### Testing
 
-- [OK] (Add test results)
+- Added service regressions for deleted-report section-version rejection, including transactional recheck behavior.
+- Ran targeted service tests, OpenAPI/schema checks, and Document service package validation before push.
 
 ### Status
 
@@ -774,7 +815,9 @@ Addressed PR #350 review feedback by locking and validating the current report s
 
 ### Main Changes
 
-(Add details)
+- Re-read and locked the current section inside generated-content success transactions.
+- Required current `last_job_id`, `generation_status`, version, and manual-edit state to match before persisting AI content.
+- Added stale-response regressions for concurrent manual edits and superseding generation jobs.
 
 ### Git Commits
 
@@ -784,7 +827,8 @@ Addressed PR #350 review feedback by locking and validating the current report s
 
 ### Testing
 
-- [OK] (Add test results)
+- Added generation success-path race tests for concurrent manual edit and newer generation ownership.
+- Ran targeted service tests and Document service package validation before push.
 
 ### Status
 
@@ -807,7 +851,9 @@ Closed latest PR review findings by locking report/section rows for manual secti
 
 ### Main Changes
 
-(Add details)
+- Locked report and section rows for manual section update/save write paths.
+- Rechecked deleted-report and running-section state inside write transactions.
+- Updated backend specs for manual write concurrency and stale AI conflict handling.
 
 ### Git Commits
 
@@ -817,7 +863,8 @@ Closed latest PR review findings by locking report/section rows for manual secti
 
 ### Testing
 
-- [OK] (Add test results)
+- Added manual update/save race regressions for deleted reports and running sections.
+- Ran targeted service tests, full Document service tests, server build, vet, vulnerability scan, and diff whitespace check before push.
 
 ### Status
 
@@ -840,7 +887,9 @@ Handled PR 350 stale AI response review: stale generated section conflicts now s
 
 ### Main Changes
 
-(Add details)
+- Converted stale generated-section `CodeConflict` responses into `section.skipped` non-error execution results.
+- Preserved current section state and avoided stale AI section-version rows when a manual edit or newer job superseded the AI response.
+- Removed Trellis manifest template placeholder rows from archived task manifests included in the PR and synced backend spec wording.
 
 ### Git Commits
 
@@ -850,7 +899,8 @@ Handled PR 350 stale AI response review: stale generated section conflicts now s
 
 ### Testing
 
-- [OK] (Add test results)
+- Verified stale conflict handling with targeted service regressions for concurrent manual edit and superseded generation job.
+- Ran `go test ./... -count=1`, `go build ./cmd/server`, `go vet ./...`, `govulncheck ./...`, and `git diff --check` from the Document service/root before push.
 
 ### Status
 

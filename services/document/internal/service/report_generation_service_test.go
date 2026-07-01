@@ -170,6 +170,64 @@ func TestReportGenerationServiceKeepsGeneratedSectionsOnPartialFailure(t *testin
 	}
 }
 
+func TestReportGenerationServiceFailsWhenSectionRunningMarkerCannotPersist(t *testing.T) {
+	repo := newFakeReportGenerationRepository()
+	repo.reports["report-1"] = Report{
+		ID:         "report-1",
+		Name:       "Summer peak inspection",
+		ReportType: "summer_peak_inspection",
+		Topic:      "summer power supply",
+		CreatorID:  "user-1",
+		Status:     ReportStatusOutlineGenerated,
+	}
+	repo.jobs["job-1"] = ReportJob{
+		ID:         "job-1",
+		JobType:    JobTypeSectionRegeneration,
+		ReportID:   "report-1",
+		TargetID:   "section-1",
+		TargetType: "section",
+	}
+	repo.sections["section-1"] = ReportSection{
+		ID:               "section-1",
+		ReportID:         "report-1",
+		Title:            "Pending section",
+		SortOrder:        0,
+		Version:          1,
+		GenerationStatus: JobStatusPending,
+	}
+	repo.markSectionRunningErr = errors.New("update running marker failed")
+	chat := &fakeGenerationChatClient{
+		responses: []ChatCompletionResponse{{Content: `{"content":"generated body","tables":[]}`}},
+	}
+	svc := NewReportGenerationService(repo, chat)
+
+	_, err := svc.ExecuteReportGeneration(context.Background(), ReportGenerationExecutionPayload{
+		RequestID: "req-content",
+		JobType:   JobTypeSectionRegeneration,
+		JobID:     "job-1",
+		UserID:    "user-1",
+	})
+	if code := errorCode(t, err); code != CodeDependency {
+		t.Fatalf("error code = %q, want %q", code, CodeDependency)
+	}
+	if len(chat.requests) != 0 {
+		t.Fatalf("chat request count = %d, want 0 when running marker cannot persist", len(chat.requests))
+	}
+	got := repo.sections["section-1"]
+	if got.GenerationStatus != JobStatusPending || got.LastJobID != "" || got.Content != "" {
+		t.Fatalf("section changed after failed running marker: %+v", got)
+	}
+	if !hasReportEvent(repo.events, "section.failed") {
+		t.Fatalf("expected section.failed event, got %+v", repo.events)
+	}
+	if hasReportEvent(repo.events, "section.skipped") || hasReportEvent(repo.events, "content.succeeded") {
+		t.Fatalf("unexpected success/skip event after running marker failure: %+v", repo.events)
+	}
+	if len(repo.progressUpdates) != 1 || repo.progressUpdates[0]["completed"] != 0 || repo.progressUpdates[0]["total"] != 1 {
+		t.Fatalf("progress updates = %+v, want one 0/1 update", repo.progressUpdates)
+	}
+}
+
 func TestReportGenerationServiceContentGenerationUsesCurrentOutlineSections(t *testing.T) {
 	repo := newFakeReportGenerationRepository()
 	repo.reports["report-1"] = Report{
@@ -915,6 +973,7 @@ type fakeReportGenerationRepository struct {
 	createSectionErrAfter   int
 	createdSectionCount     int
 	createSectionVersionErr error
+	markSectionRunningErr   error
 	beforeGenerationTx      func(*fakeReportGenerationRepository)
 	afterGenerationRollback func(*fakeReportGenerationRepository)
 }
@@ -1065,6 +1124,9 @@ func (f *fakeReportGenerationRepository) UpdateReportSection(_ context.Context, 
 }
 
 func (f *fakeReportGenerationRepository) MarkReportSectionGenerationRunning(_ context.Context, sectionID, jobID string, updatedAt time.Time) (ReportSection, error) {
+	if f.markSectionRunningErr != nil {
+		return ReportSection{}, f.markSectionRunningErr
+	}
 	return f.updateReportSectionGenerationState(sectionID, jobID, JobStatusRunning, updatedAt, false)
 }
 

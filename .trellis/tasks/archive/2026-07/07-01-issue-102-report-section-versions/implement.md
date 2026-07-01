@@ -21,10 +21,10 @@
 
 ## Validation Commands
 
-- `C:/Users/liu/codex_tools/go1.25.11/go/bin/go.exe test ./internal/service -count=1`
-- `C:/Users/liu/codex_tools/go1.25.11/go/bin/go.exe test ./... -count=1`
-- `C:/Users/liu/codex_tools/go1.25.11/go/bin/go.exe build ./cmd/server`
-- `C:/Users/liu/codex_tools/go1.25.11/go/bin/go.exe run golang.org/x/vuln/cmd/govulncheck@latest ./...`
+- `go test ./internal/service -count=1`
+- `go test ./... -count=1`
+- `go build ./cmd/server`
+- `go run golang.org/x/vuln/cmd/govulncheck@latest ./...`
 - `git diff --check`
 
 Run from `services/document` for Go commands.

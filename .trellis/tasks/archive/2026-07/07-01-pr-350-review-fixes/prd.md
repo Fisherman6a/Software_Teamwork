@@ -28,8 +28,8 @@ description.
   after the fix.
 - [x] Document and Gateway public OpenAPI section-version request/response schemas
   remain aligned.
-- [x] PR body on GitHub uses generic `go` commands instead of
-  `C:/Users/liu/.../go.exe`.
+- [x] PR body on GitHub uses generic `go` commands instead of local absolute
+  Go binary paths.
 
 ## Notes
 

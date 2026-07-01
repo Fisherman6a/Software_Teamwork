@@ -4,7 +4,7 @@
 
 Close the latest PR #350 review findings by ensuring stale AI section responses
 do not make the worker mark a generation job/report failed, and by removing
-Trellis `_example` manifest placeholders from archived/current task context.
+Trellis template manifest placeholders from archived/current task context.
 
 ## Requirements
 
@@ -19,7 +19,7 @@ Trellis `_example` manifest placeholders from archived/current task context.
 - The worker must not mark job/report failed for this stale-section path. The
   existing non-error generation result path should be used so normal final
   status handling applies.
-- Remove `_example` placeholder rows from Trellis `implement.jsonl` /
+- Remove Trellis template placeholder rows from Trellis `implement.jsonl` /
   `check.jsonl` manifests in current and archived tasks included in this PR so
   future Trellis context and review scans do not ingest template text.
 
@@ -30,7 +30,7 @@ Trellis `_example` manifest placeholders from archived/current task context.
   no AI section version.
 - [x] The existing worker path receives a non-error generation result for stale
   section skips, so it does not call `markFailed`.
-- [x] Repository scan for `_example` under `.trellis/tasks` returns no matches
+- [x] Repository scan for template manifest placeholders under `.trellis/tasks` returns no matches
   for task manifests included in the PR.
 - [x] `cd services/document && go test ./internal/service -run ... -count=1`
   shows RED before implementation and GREEN after implementation for stale
