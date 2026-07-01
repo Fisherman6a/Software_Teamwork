@@ -826,3 +826,36 @@ Closed latest PR review findings by locking report/section rows for manual secti
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: PR 350 stale conflict handling
+
+**Date**: 2026-07-01
+**Task**: PR 350 stale conflict handling
+**Branch**: `PrimeTeam/feat/report-section-versions`
+
+### Summary
+
+Handled PR 350 stale AI response review: stale generated section conflicts now skip without worker failure, backend spec documents the non-error path, and Trellis manifest placeholder rows were removed.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0242872` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

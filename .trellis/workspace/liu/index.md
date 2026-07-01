@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 24
+- **Total Sessions**: 25
 - **Last Active**: 2026-07-01
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~828 | Active |
+| `journal-1.md` | ~861 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 25 | 2026-07-01 | PR 350 stale conflict handling | `0242872` | `PrimeTeam/feat/report-section-versions` |
 | 24 | 2026-07-01 | PR 350 section write concurrency guards | `7108a3e` | `PrimeTeam/feat/report-section-versions` |
 | 23 | 2026-07-01 | PR 350 generated section success race fix | `302428a` | `PrimeTeam/feat/report-section-versions` |
 | 22 | 2026-07-01 | PR 350 deleted-report section version review fix | `d376913` | `PrimeTeam/feat/report-section-versions` |
