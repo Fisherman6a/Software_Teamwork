@@ -247,7 +247,7 @@ func (s *Server) handleMetricsOverview(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireSettingsPermission(w, r, "qa:settings:read"); !ok {
 		return
 	}
-	days, err := positiveQuery(r, "days", 1, false)
+	days, err := metricsDaysQuery(r, "days", 1)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -263,7 +263,7 @@ func (s *Server) handleMetricsTrend(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireSettingsPermission(w, r, "qa:settings:read"); !ok {
 		return
 	}
-	days, err := positiveQuery(r, "days", 30, false)
+	days, err := metricsDaysQuery(r, "days", 30)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -279,7 +279,7 @@ func (s *Server) handleTopQueries(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireSettingsPermission(w, r, "qa:settings:read"); !ok {
 		return
 	}
-	days, err := positiveQuery(r, "days", 7, false)
+	days, err := metricsDaysQuery(r, "days", 7)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -304,7 +304,7 @@ func (s *Server) handleIntentDistribution(w http.ResponseWriter, r *http.Request
 	if _, ok := s.requireSettingsPermission(w, r, "qa:settings:read"); !ok {
 		return
 	}
-	days, err := positiveQuery(r, "days", 7, false)
+	days, err := metricsDaysQuery(r, "days", 7)
 	if err != nil {
 		writeError(w, r, err)
 		return
@@ -315,6 +315,18 @@ func (s *Server) handleIntentDistribution(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeData(w, r, http.StatusOK, value)
+}
+
+func metricsDaysQuery(r *http.Request, name string, fallback int) (int, error) {
+	raw := r.URL.Query().Get(name)
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1 || value > 366 {
+		return 0, service.ValidationError(map[string]string{name: "must be an integer between 1 and 366"})
+	}
+	return value, nil
 }
 
 func positiveQuery(r *http.Request, name string, fallback int, allowZero bool) (int, error) {

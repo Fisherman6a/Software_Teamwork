@@ -410,3 +410,60 @@ func (resourceLLMTester) TestLLM(context.Context, RuntimeLLMConfig) (LLMConnecti
 type resourceCancellerStub struct{}
 
 func (resourceCancellerStub) CancelActiveRun(string) {}
+
+type knowledgeStatsStub struct {
+	kbCount  int
+	docCount int
+	err      error
+}
+
+func (s knowledgeStatsStub) GetStats(context.Context, string) (int, int, error) {
+	return s.kbCount, s.docCount, s.err
+}
+
+func TestGetMetricsOverviewEnrichesWithKnowledgeStats(t *testing.T) {
+	repo := &resourceRepositoryStub{}
+	svc, err := NewResourceService(repo, &knowledgeRetrieverStub{}, resourceLLMTester{}, RuntimeLLMConfig{}, resourceCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	overview, err := svc.GetMetricsOverview(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.KnowledgeBaseCount != 0 || overview.DocumentCount != 0 {
+		t.Fatalf("without knowledge stats provider, counts should be zero, got kb=%d doc=%d", overview.KnowledgeBaseCount, overview.DocumentCount)
+	}
+}
+
+func TestGetMetricsOverviewWithKnowledgeStats(t *testing.T) {
+	repo := &resourceRepositoryStub{}
+	svc, err := NewResourceService(repo, &knowledgeRetrieverStub{}, resourceLLMTester{}, RuntimeLLMConfig{}, resourceCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.knowledgeStats = knowledgeStatsStub{kbCount: 5, docCount: 42}
+	overview, err := svc.GetMetricsOverview(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.KnowledgeBaseCount != 5 || overview.DocumentCount != 42 {
+		t.Fatalf("expected kb=5 doc=42, got kb=%d doc=%d", overview.KnowledgeBaseCount, overview.DocumentCount)
+	}
+}
+
+func TestGetMetricsOverviewStatsFailureReturnsZero(t *testing.T) {
+	repo := &resourceRepositoryStub{}
+	svc, err := NewResourceService(repo, &knowledgeRetrieverStub{}, resourceLLMTester{}, RuntimeLLMConfig{}, resourceCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.knowledgeStats = knowledgeStatsStub{err: errors.New("knowledge unavailable")}
+	overview, err := svc.GetMetricsOverview(context.Background(), 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.KnowledgeBaseCount != 0 || overview.DocumentCount != 0 {
+		t.Fatalf("knowledge failure should return zero counts, got kb=%d doc=%d", overview.KnowledgeBaseCount, overview.DocumentCount)
+	}
+}

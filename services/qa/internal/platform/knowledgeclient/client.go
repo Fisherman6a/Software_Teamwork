@@ -164,6 +164,47 @@ func (c *Client) CheckCitationSources(ctx context.Context, userID string, docume
 	return availability, nil
 }
 
+// GetStats fetches knowledge base and document counts from the knowledge
+// service. This is a best-effort call: errors are returned to the caller
+// so the ResourceService can fall back to zero counts.
+func (c *Client) GetStats(ctx context.Context, userID string) (int, int, error) {
+	endpoint := c.baseURL + "/internal/v1/knowledge-bases"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("create knowledge stats request: %w", err)
+	}
+	c.setTrustedHeaders(ctx, req, userID)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, 0, fmt.Errorf("knowledge stats request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, 0, fmt.Errorf("knowledge stats returned HTTP %d", resp.StatusCode)
+	}
+	var page struct {
+		Data []struct {
+			ID            string `json:"id"`
+			DocumentCount int    `json:"documentCount"`
+		} `json:"data"`
+		Page struct {
+			Total int `json:"total"`
+		} `json:"page"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return 0, 0, fmt.Errorf("decode knowledge stats: %w", err)
+	}
+	kbCount := page.Page.Total
+	if kbCount == 0 {
+		kbCount = len(page.Data)
+	}
+	docCount := 0
+	for _, kb := range page.Data {
+		docCount += kb.DocumentCount
+	}
+	return kbCount, docCount, nil
+}
+
 func (c *Client) setTrustedHeaders(ctx context.Context, req *http.Request, userID string) {
 	req.Header.Set("X-Service-Token", c.serviceToken)
 	req.Header.Set("X-Caller-Service", "qa")
