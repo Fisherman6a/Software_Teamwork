@@ -147,14 +147,16 @@ issue 指派给对应 owner 小组，并在测试任务中链接。
 ```markdown
 - 状态：`Ready`
 - Risk：`Normal`
-- 预期工时（小时数）：`0`
+- 预期工时（小时数）：`1`
 - 实际工时（小时数）：`0`
 - GitHub Project：`Software Teamwork`
 - Project sync：`pending`
 ```
 
 工时字段只填写小时数，允许整数或浮点数，例如 `0`、`0.5`、`1.25`。不要填写 `h`、`d`
-或中文单位；暂不能估算时先填 `0`，后续再更新为具体小时数。
+或中文单位。`预期工时（小时数）` 在发布 `Ready`、`In Progress`、`Blocked`、`Review`
+或 `Done` 任务前必须给出大于 `0` 的估算；只有 `Draft` 可以临时写 `0`、`待估` 或留空。
+`实际工时（小时数）` 初始写 `0`，完成后通过评论或维护者回填。
 
 需要协调人确认时：
 
@@ -312,6 +314,7 @@ gh issue view <number> --repo Sakayori-Iroha-168/Software_Teamwork --json body,l
 自动化会：
 
 - 校验评论者只能认领自己。
+- 校验 `预期工时（小时数）` 已是大于 `0` 的小时数，因为认领会把任务推进到非 `Draft`。
 - 把评论者设为 Assignee。
 - 将正文 `状态` 从 `Draft` 或 `Ready` 改为 `In Progress`。
 - 将 Project `Status` 同步为 `In Progress`，并刷新 `ExpectedHours`、`ActualHours`。
@@ -325,7 +328,8 @@ gh issue view <number> --repo Sakayori-Iroha-168/Software_Teamwork --json body,l
 ```
 
 自动化会把正文 `实际工时（小时数）` 改为评论值，并同步 Project `ActualHours`。评论值必须是非负小时数，
-允许浮点数，例如 `实际工时：0.5`；只有仓库维护者、协作者或当前 Assignee 可以通过评论设置实际工时。
+允许浮点数，例如 `实际工时：0.5`；只有仓库维护者、协作者或当前 Assignee 可以通过评论设置实际工时。非
+`Draft` 任务还要求正文 `预期工时（小时数）` 已填写大于 `0` 的小时数。
 
 ## 8. 发布前校对清单
 
@@ -338,7 +342,7 @@ gh issue view <number> --repo Sakayori-Iroha-168/Software_Teamwork --json body,l
 - [ ] `T-*` 测试任务已使用 Test Task Issue 模板，或正文已包含“测试执行与缺陷处理规则”。
 - [ ] `T-*` 测试任务已要求按模板生成测试报告，并归档到 `docs/testing/reports/YYYY-MM-DD/`。
 - [ ] 正文字段完整，能被 Task Issue Sync 解析。
-- [ ] `预期工时（小时数）` 已填写非负数字；暂不能估算时写 `0`。
+- [ ] `预期工时（小时数）` 已填写大于 `0` 的小时数字；只有 `Draft` 任务可临时写 `0`、`待估` 或留空。
 - [ ] `实际工时（小时数）` 初始可写 `0`，完成后通过评论 `实际工时：2` 或 `实际工时：0.5` 回填。
 - [ ] `GitHub Project：Software Teamwork` 和 `Project sync：pending` 已填写。
 - [ ] `依赖任务`、`阻塞任务`、`并行任务` 使用 GitHub issue 引用；暂未创建的上游任务已列入回填项。

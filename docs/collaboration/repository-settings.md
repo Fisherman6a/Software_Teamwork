@@ -106,6 +106,8 @@ Project `Software Teamwork` 需要包含以下工时字段：
 
 工时字段只填写小时数，允许整数或浮点数，例如 `0`、`0.5`、`1.25`。workflow 会兼容远端仍是
 Text 的旧字段并写入数字字符串，但后续统计功能依赖 GitHub Project 字段为 Number。
+新建或编辑非 `Draft` 任务时，`预期工时（小时数）` 必须是大于 `0` 的具体估算；只有
+`Draft` 可以临时留空、写 `待估` 或写 `0`。`实际工时（小时数）` 可在任务完成前保持 `0`。
 
 GitHub user-level Projects v2 通常需要额外 token。维护者应创建一个有 Project
 读写权限的 fine-grained token 或 classic token，并在仓库 Secrets 中配置：
@@ -138,6 +140,8 @@ Issue label、Assignee 和正文更新仍使用默认 `GITHUB_TOKEN`，`PROJECTS
 - 认领成功后自动把评论者设为 Assignee。
 - 若正文包含任务模板字段，会把 `状态` 从 `Draft` 或 `Ready` 改为
   `In Progress`，并把 Project `Status` 同步为 `In Progress`。
+- 认领会把任务推进到非 `Draft` 状态，因此正文 `预期工时（小时数）` 必须已填写
+  大于 `0` 的小时数；`0`、`待估`、`未填写` 或留空会被拒绝。
 - 认领同步会刷新 Project `ExpectedHours` 和 `ActualHours`，来源分别是正文
   `预期工时（小时数）` 和 `实际工时（小时数）`。
 - 若 Project 同步成功，正文中的 `Project sync` 会写为 `synced`；同步失败会写为
@@ -148,6 +152,7 @@ Issue label、Assignee 和正文更新仍使用默认 `GITHUB_TOKEN`，`PROJECTS
 
 - 仓库维护者、协作者或当前 Assignee 可以评论 `实际工时：2` 或 `实际工时：0.5` 设置实际工时。
 - 自动化会更新正文 `实际工时（小时数）` 字段，并同步 Project `ActualHours`。
+- 非 `Draft` 任务设置实际工时时，正文 `预期工时（小时数）` 也必须是大于 `0` 的小时数。
 - 如果 Project 同步失败，正文仍会保留评论中的实际工时，`Project sync` 会写为
   `blocked`，workflow run 会失败以提醒维护者补权限或字段配置。
 

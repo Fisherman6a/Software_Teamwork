@@ -85,8 +85,9 @@ custom fields.
 - Every `T-*` issue must require a completed test report based on
   `docs/testing/templates/test-report-template.md`, archived under
   `docs/testing/reports/YYYY-MM-DD/`, and linked from the testing issue or PR.
-- Missing `预期工时（小时数）` defaults to numeric `0`; missing
-  `实际工时（小时数）` defaults to numeric `0`.
+- Missing or zero `预期工时（小时数）` is allowed only while the managed issue
+  status is `Draft`; non-Draft task issues must provide a positive estimate.
+- Missing `实际工时（小时数）` defaults to numeric `0`.
 - Hour fields must be non-negative hour numbers without units. Floating-point
   values are allowed, e.g. `0`, `0.5`, `1.25`.
 - GitHub Project hour fields should be Number fields for statistics. Workflow
@@ -94,16 +95,22 @@ custom fields.
   Text fields.
 - GitHub Project field names are exact: `ExpectedHours` and `ActualHours`.
 - Claim comments must keep existing claim validation, set `Status` to
-  `In Progress`, and refresh both hour fields in the Project.
+  `In Progress`, and refresh both hour fields in the Project. Because claim
+  changes the effective status to non-`Draft`, it must reject missing, `0`,
+  `待估`, or `未填写` expected hours before assigning or syncing Project fields.
 - Actual-hours comments must update the issue body `实际工时（小时数）` field
-  and sync Project `ActualHours`; they must not require the task to be claimable.
+  and sync Project `ActualHours`; they must not require the task to be claimable,
+  but they must still enforce positive expected hours for non-`Draft` tasks.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Required handling |
 | --- | --- |
 | Issue title is not a managed task title | Skip without mutating the issue or Project. |
-| `预期工时（小时数）` is missing | Sync `ExpectedHours` as `0`. |
+| `预期工时（小时数）` is missing, zero, `待估`, or `未填写` on a non-`Draft` issue | Set `Project sync` to `blocked` and fail the workflow run. |
+| Claim would move an issue to `In Progress` while `预期工时（小时数）` is missing, zero, `待估`, or `未填写` | Reject with an issue comment and do not assign or mutate Project fields. |
+| Actual-hours comment targets a non-`Draft` issue while `预期工时（小时数）` is missing, zero, `待估`, or `未填写` | Reject with an issue comment and do not mutate fields. |
+| `预期工时（小时数）` is missing on a `Draft` issue | Sync `ExpectedHours` as `0`. |
 | `实际工时（小时数）` is missing | Sync `ActualHours` as `0`. |
 | Comment is `实际工时：` with an empty or non-numeric value | Reject with an issue comment and do not mutate fields. |
 | Commenter is not trusted or assigned | Reject actual-hours update with an issue comment. |
