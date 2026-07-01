@@ -829,14 +829,12 @@ func retryableDeleteCleanupJob(job service.ProcessingJob, staleRunningBefore *ti
 	if job.JobType != service.JobTypeDeleteCleanup {
 		return false
 	}
-	if job.MaxAttempts > 0 && job.Attempts >= job.MaxAttempts {
-		return false
-	}
+	hasAttemptsRemaining := job.MaxAttempts <= 0 || job.Attempts < job.MaxAttempts
 	switch job.Status {
 	case service.JobStatusQueued:
-		return true
+		return hasAttemptsRemaining
 	case service.JobStatusFailed:
-		return retryableDeleteCleanupFailureCode(job.ErrorCode)
+		return hasAttemptsRemaining && retryableDeleteCleanupFailureCode(job.ErrorCode)
 	case service.JobStatusRunning:
 		return staleRunningBefore != nil && job.UpdatedAt.Before(*staleRunningBefore)
 	default:

@@ -296,6 +296,76 @@ func TestPostgresRepositoryDocumentLifecycleUpdateAndDelete(t *testing.T) {
 		t.Fatalf("retryable auth cleanup task missing from %+v", retryableTasks)
 	}
 
+	staleRunningDoc, _, err := repo.CreateDocumentWithJob(ctx, service.CreateDocumentWithJobRecord{
+		DocumentID:      "doc_delete_cleanup_stale_running",
+		KnowledgeBaseID: kb.ID,
+		FileRef:         "file_stale_running",
+		Name:            "stale-running.pdf",
+		ContentType:     "application/pdf",
+		SizeBytes:       12,
+		Status:          service.DocumentStatusUploaded,
+		CurrentJobID:    "job_ingest_stale_running",
+		CreatedBy:       ownerScope.UserID,
+		JobID:           "job_ingest_stale_running",
+		JobType:         service.JobTypeDocumentIngestion,
+		JobStatus:       service.JobStatusQueued,
+		JobStage:        "uploaded",
+		JobMessage:      "document uploaded and queued for ingestion",
+		MaxAttempts:     3,
+		CreatedAt:       now.Add(7 * time.Minute),
+		UpdatedAt:       now.Add(7 * time.Minute),
+	}, ownerScope)
+	if err != nil {
+		t.Fatalf("CreateDocumentWithJob(stale running cleanup) error = %v", err)
+	}
+	if err := repo.SoftDeleteDocument(ctx, service.DeleteDocumentRecord{
+		DocumentID:  staleRunningDoc.ID,
+		JobID:       "job_delete_cleanup_stale_running",
+		JobType:     service.JobTypeDeleteCleanup,
+		JobStatus:   service.JobStatusQueued,
+		JobStage:    "delete_cleanup",
+		JobMessage:  "document queued for delete cleanup",
+		MaxAttempts: 1,
+		DeletedAt:   now.Add(8 * time.Minute),
+		CreatedAt:   now.Add(8 * time.Minute),
+		UpdatedAt:   now.Add(8 * time.Minute),
+	}, ownerScope); err != nil {
+		t.Fatalf("SoftDeleteDocument(stale running cleanup) error = %v", err)
+	}
+	staleStage := "delete_cleanup"
+	staleAttempts := int32(1)
+	staleStartedAt := now.Add(-time.Hour)
+	if _, err := repo.UpdateJobState(ctx, "job_delete_cleanup_stale_running", service.JobStateUpdate{
+		Status:          service.JobStatusRunning,
+		CurrentStage:    &staleStage,
+		ProgressPercent: 20,
+		Attempts:        &staleAttempts,
+		StartedAt:       &staleStartedAt,
+		UpdatedAt:       staleStartedAt,
+	}); err != nil {
+		t.Fatalf("UpdateJobState(stale running cleanup) error = %v", err)
+	}
+	retryableTasks, err = repo.ListRetryableDeleteCleanupTasks(ctx, service.DeleteCleanupTaskListInput{
+		RequestID:          "req_reconcile",
+		Limit:              20,
+		StaleRunningBefore: &deleteAt,
+	})
+	if err != nil {
+		t.Fatalf("ListRetryableDeleteCleanupTasks(stale running) error = %v", err)
+	}
+	foundStaleRunning := false
+	for _, task := range retryableTasks {
+		if task.JobID == "job_delete_cleanup_stale_running" {
+			foundStaleRunning = true
+			if task.DocumentID != staleRunningDoc.ID || task.UserID != ownerScope.UserID {
+				t.Fatalf("stale running retryable task = %+v", task)
+			}
+		}
+	}
+	if !foundStaleRunning {
+		t.Fatalf("stale running cleanup task missing from %+v", retryableTasks)
+	}
+
 	list, err := repo.ListDocumentsByKnowledgeBase(ctx, kb.ID, nil, ownerScope, service.PageInput{Page: 1, PageSize: 20})
 	if err != nil {
 		t.Fatalf("ListDocumentsByKnowledgeBase() after delete error = %v", err)

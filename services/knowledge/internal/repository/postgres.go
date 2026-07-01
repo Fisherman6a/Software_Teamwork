@@ -502,16 +502,19 @@ func (r *PostgresRepository) ListRetryableDeleteCleanupTasks(ctx context.Context
 		return []service.DocumentDeleteCleanupTask{}, nil
 	}
 	rows, err := r.pool.Query(ctx, `
-SELECT j.id, d.id, j.knowledge_base_id, d.created_by
-FROM processing_jobs j
-JOIN knowledge_documents d ON d.id = j.document_id
+	SELECT j.id, d.id, j.knowledge_base_id, d.created_by
+	FROM processing_jobs j
+	JOIN knowledge_documents d ON d.id = j.document_id
 	WHERE j.job_type = $1
 	  AND d.deleted_at IS NOT NULL
-	  AND (j.max_attempts <= 0 OR j.attempts < j.max_attempts)
 	  AND (
-	    j.status = $2
+	    (
+	      j.status = $2
+	      AND (j.max_attempts <= 0 OR j.attempts < j.max_attempts)
+	    )
 	    OR (
 	      j.status = $3
+	      AND (j.max_attempts <= 0 OR j.attempts < j.max_attempts)
 	      AND (j.error_code IS NULL OR j.error_code = '' OR j.error_code IN ($4, $5, $6))
 	    )
 	    OR (

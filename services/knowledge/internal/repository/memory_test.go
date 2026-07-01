@@ -299,6 +299,18 @@ func TestMemoryRepositoryListRetryableDeleteCleanupTasksFiltersTerminalAndFreshJ
 	}); err != nil {
 		t.Fatalf("UpdateJobState(fresh running) error = %v", err)
 	}
+	seedDeletedCleanupJob(t, "doc_running_exhausted", "job_running_exhausted", now.Add(-90*time.Minute))
+	exhaustedRunningAttempts := int32(3)
+	if _, err := repo.UpdateJobState(context.Background(), "job_running_exhausted", service.JobStateUpdate{
+		Status:          service.JobStatusRunning,
+		CurrentStage:    &staleStage,
+		ProgressPercent: 20,
+		Attempts:        &exhaustedRunningAttempts,
+		StartedAt:       ptrTime(now.Add(-90 * time.Minute)),
+		UpdatedAt:       now.Add(-90 * time.Minute),
+	}); err != nil {
+		t.Fatalf("UpdateJobState(exhausted stale running) error = %v", err)
+	}
 	seedDeletedCleanupJob(t, "doc_exhausted", "job_exhausted", now.Add(-time.Minute))
 	exhaustedAttempts := int32(3)
 	errorCode := string(service.CodeDependency)
@@ -327,7 +339,7 @@ func TestMemoryRepositoryListRetryableDeleteCleanupTasksFiltersTerminalAndFreshJ
 	for _, task := range tasks {
 		got[task.JobID] = task
 	}
-	for _, jobID := range []string{"job_queued", "job_failed_dependency", "job_failed_unauthorized", "job_running_stale"} {
+	for _, jobID := range []string{"job_queued", "job_failed_dependency", "job_failed_unauthorized", "job_running_stale", "job_running_exhausted"} {
 		task, exists := got[jobID]
 		if !exists {
 			t.Fatalf("missing retryable job %s in tasks %+v", jobID, tasks)

@@ -820,6 +820,57 @@ func TestDeleteCleanupHandlerAcksDependencyFailureAfterMaxAttempts(t *testing.T)
 	}
 }
 
+func TestDeleteCleanupHandlerTerminalizesExhaustedStaleRunningJob(t *testing.T) {
+	repo := repository.NewMemoryRepository()
+	seedKnowledgeBase(t, repo)
+	handoff := seedRunningDeleteCleanupJob(t, repo, "file_123", fixedNow())
+	files := &cleanupFileClient{}
+	vectors := &recordingVectorIndex{}
+	exhaustedAttempts := service.DefaultIngestionMaxAttempts
+	stage := "delete_cleanup"
+	startedAt := fixedNow().Add(-time.Hour)
+	if _, err := repo.UpdateJobState(context.Background(), handoff.jobID, service.JobStateUpdate{
+		Status:          service.JobStatusRunning,
+		CurrentStage:    &stage,
+		ProgressPercent: 20,
+		Attempts:        &exhaustedAttempts,
+		StartedAt:       &startedAt,
+		UpdatedAt:       startedAt,
+	}); err != nil {
+		t.Fatalf("UpdateJobState() error = %v", err)
+	}
+	svc := service.NewWithDependencies(repo, files, nil, func() time.Time {
+		return fixedNow()
+	}, sequenceIDs(),
+		service.WithVectorIndex(embedding.NewLocalHasher("local_hashing", "local_hashing", 16), vectors),
+		service.WithIngestionRunningLease(5*time.Minute),
+	)
+	handler := worker.NewDeleteCleanupHandler(svc)
+
+	if err := handler.HandleDeleteCleanupPayload(context.Background(), mustJSON(t, worker.DeleteCleanupPayload{
+		RequestID:       "req_cleanup",
+		JobID:           handoff.jobID,
+		DocumentID:      handoff.documentID,
+		KnowledgeBaseID: handoff.knowledgeBaseID,
+		UserID:          "usr_123",
+	})); err != nil {
+		t.Fatalf("HandleDeleteCleanupPayload() error = %v, want ack once stale running job is exhausted", err)
+	}
+	if len(files.deleted) != 0 || len(vectors.deletedDocuments) != 0 {
+		t.Fatalf("exhausted stale running job should not perform cleanup: file=%+v vector=%+v", files.deleted, vectors.deletedDocuments)
+	}
+	job, err := repo.GetProcessingJob(context.Background(), handoff.jobID)
+	if err != nil {
+		t.Fatalf("GetProcessingJob() error = %v", err)
+	}
+	if job.Status != service.JobStatusFailed || job.Attempts != service.DefaultIngestionMaxAttempts {
+		t.Fatalf("job = %+v", job)
+	}
+	if job.ErrorMessage == nil || *job.ErrorMessage != "delete cleanup job reached max attempts" {
+		t.Fatalf("job error message = %v", job.ErrorMessage)
+	}
+}
+
 func TestDecodeIngestionPayloadRejectsUnknownFields(t *testing.T) {
 	_, err := worker.DecodeIngestionPayload([]byte(`{"requestId":"req","jobId":"job","documentId":"doc","knowledgeBaseId":"kb","userId":"usr","fileRef":"secret"}`))
 	requireAppError(t, err, service.CodeValidation)
