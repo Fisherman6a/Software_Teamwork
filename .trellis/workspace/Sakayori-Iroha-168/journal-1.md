@@ -104,3 +104,36 @@ Recorded 0701 auth/gateway and file service test audit reports, then archived th
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Document system link condition coverage
+
+**Date**: 2026-07-01
+**Task**: Document system link condition coverage
+**Branch**: `Special/docs/sync-trellis-spec-docs`
+
+### Summary
+
+Created the architecture link-flow condition coverage document, linked it from docs README, and aligned status with latest develop docs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `27543d3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
