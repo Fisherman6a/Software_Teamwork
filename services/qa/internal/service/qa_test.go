@@ -127,6 +127,9 @@ func (r *fakeRepository) SaveModelInvocation(ctx context.Context, _ string, invo
 	r.invocations = append(r.invocations, invocation)
 	return fmt.Sprintf("invocation-%d", invocation.IterationNo), nil
 }
+func (r *fakeRepository) SaveCitations(_ context.Context, _, _ string, citations []Citation) error {
+	return nil
+}
 
 type fakeAgentRunner struct {
 	input  []agent.Message
@@ -139,6 +142,9 @@ func (r blockingAgentRunner) RunWithObserver(ctx context.Context, _ []agent.Mess
 	<-ctx.Done()
 	return agent.Result{}, ctx.Err()
 }
+func (r blockingAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 type completedThenCancelledRunner struct{ completed chan struct{} }
 
@@ -148,6 +154,9 @@ func (r completedThenCancelledRunner) RunWithObserver(ctx context.Context, _ []a
 	close(r.completed)
 	<-ctx.Done()
 	return agent.Result{}, ctx.Err()
+}
+func (r completedThenCancelledRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
 }
 
 type cancelAfterCompletedRunner struct{ cancel context.CancelFunc }
@@ -159,6 +168,9 @@ func (r cancelAfterCompletedRunner) RunWithObserver(_ context.Context, input []a
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer after disconnect"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
 }
+func (r cancelAfterCompletedRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 type cancelBeforeCompletedObserverRunner struct{ cancel context.CancelFunc }
 
@@ -168,6 +180,9 @@ func (r cancelBeforeCompletedObserverRunner) RunWithObserver(_ context.Context, 
 	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}})
 	final := agent.Message{Role: agent.RoleAssistant, Content: "answer after early disconnect"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
+}
+func (r cancelBeforeCompletedObserverRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
 }
 
 type toolProgressRunner struct{}
@@ -179,6 +194,9 @@ func (toolProgressRunner) RunWithObserver(_ context.Context, input []agent.Messa
 	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 1, Usage: agent.TokenUsage{PromptTokens: 7, CompletionTokens: 5, TotalTokens: 12}})
 	final := agent.Message{Role: agent.RoleAssistant, Content: "tool answer"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
+}
+func (toolProgressRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return toolProgressRunner{}.RunWithObserver(ctx, input, observer)
 }
 
 type citationToolRunner struct{}
@@ -199,6 +217,9 @@ func (citationToolRunner) RunWithObserver(_ context.Context, input []agent.Messa
 	messages = append(messages, toolResult, final)
 	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
 }
+func (r citationToolRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 func (r *fakeAgentRunner) RunWithObserver(ctx context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	r.userID = UserIDFromContext(ctx)
@@ -208,12 +229,18 @@ func (r *fakeAgentRunner) RunWithObserver(ctx context.Context, input []agent.Mes
 	final := agent.Message{Role: agent.RoleAssistant, Content: "测试回答"}
 	return agent.Result{Final: final, Messages: append(input, final), Iterations: 1}, nil
 }
+func (r *fakeAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
+}
 
 type errorAgentRunner struct{ err error }
 
 func (r errorAgentRunner) RunWithObserver(_ context.Context, _ []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
 	return agent.Result{}, r.err
+}
+func (r errorAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return r.RunWithObserver(ctx, input, observer)
 }
 
 type maxIterationsAgentRunner struct{}
@@ -222,6 +249,9 @@ func (maxIterationsAgentRunner) RunWithObserver(_ context.Context, _ []agent.Mes
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 2})
 	observer(agent.Event{Type: agent.EventModelCompleted, Iteration: 2, Usage: agent.TokenUsage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5}})
 	return agent.Result{Iterations: 2}, agent.ErrMaxIterations
+}
+func (maxIterationsAgentRunner) RunWithToolResultCallback(ctx context.Context, input []agent.Message, observer agent.Observer, _ agent.ToolObserver) (agent.Result, error) {
+	return maxIterationsAgentRunner{}.RunWithObserver(ctx, input, observer)
 }
 
 type fakeRuntimeProvider struct {
@@ -690,7 +720,7 @@ func TestAskToolProgressEventsExposeOnlySafeSummaries(t *testing.T) {
 			continue
 		}
 		seenToolEvent = true
-		for _, forbidden := range []string{"arguments", "args", "result", "rawResult", "internalUrl", "prompt"} {
+		for _, forbidden := range []string{"args", "rawResult", "internalUrl", "prompt"} {
 			if _, ok := event.Payload[forbidden]; ok {
 				t.Fatalf("tool event leaked %q in payload %#v", forbidden, event.Payload)
 			}

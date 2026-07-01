@@ -3,23 +3,36 @@ package service
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 )
 
 type settingsRepositoryStub struct {
-	activeLLM StoredLLMConfig
+	activeLLM             StoredLLMConfig
+	activeQAConfigVersion QAConfigVersion
+	activeQAConfigErr     error
+	createdAgent          AgentConfig
+	createCalled          bool
 }
 
 func (r *settingsRepositoryStub) GetActiveQAConfig(context.Context) (RetrievalSettings, []string, error) {
-	return RetrievalSettings{TopK: 5, ScoreThreshold: 0.1, RerankTopN: 3}, []string{}, nil
+	return RetrievalSettings{TopK: 5, ScoreThreshold: .7, RerankThreshold: .5, RerankTopN: 3}.WithScoreThresholdConfigured(), []string{"kb-old"}, nil
 }
 
 func (r *settingsRepositoryStub) GetActiveQAConfigVersion(context.Context) (QAConfigVersion, error) {
+	if r.activeQAConfigErr != nil {
+		return QAConfigVersion{}, r.activeQAConfigErr
+	}
+	if r.activeQAConfigVersion.ID != "" {
+		return r.activeQAConfigVersion, nil
+	}
 	return QAConfigVersion{ID: "qa-config"}, nil
 }
 
-func (r *settingsRepositoryStub) CreateQAConfigVersion(context.Context, string, RetrievalSettings, []string) error {
+func (r *settingsRepositoryStub) CreateQAConfigVersion(_ context.Context, _ string, _ RetrievalSettings, _ []string, agent AgentConfig) error {
+	r.createCalled = true
+	r.createdAgent = agent
 	return nil
 }
 
@@ -27,7 +40,10 @@ func (r *settingsRepositoryStub) GetActiveLLMConfig(context.Context) (StoredLLMC
 	if r.activeLLM.Provider != "" {
 		return r.activeLLM, nil
 	}
-	return StoredLLMConfig{}, NewError(CodeNotFound, "active LLM configuration not found", nil)
+	return StoredLLMConfig{
+		Provider: "direct", APIEndpoint: "https://llm.example.test/v1", APIKeyLast4: "1234",
+		TokenHeader: "Authorization", Model: "model", TimeoutSeconds: 30, Temperature: .7, MaxTokens: 1024,
+	}, nil
 }
 
 func (r *settingsRepositoryStub) GetActiveLLMConfigVersion(context.Context) (LLMConfigVersion, error) {
@@ -39,7 +55,7 @@ func (r *settingsRepositoryStub) CreateLLMConfigVersion(context.Context, string,
 }
 
 func (r *settingsRepositoryStub) GetRuntimeSetting(context.Context, string) (string, error) {
-	return "", NewError(CodeNotFound, "runtime setting not found", nil)
+	return "system prompt", nil
 }
 
 func (r *settingsRepositoryStub) UpsertRuntimeSetting(context.Context, string, string) error {
@@ -99,6 +115,55 @@ type settingsMCPTesterStub struct{}
 
 func (settingsMCPTesterStub) TestMCP(context.Context, RuntimeMCPConfig) (MCPConnectionTestResult, error) {
 	return MCPConnectionTestResult{Success: true}, nil
+}
+
+func TestUpdateSettingsPreservesActiveAgentConfig(t *testing.T) {
+	repository := &settingsRepositoryStub{activeQAConfigVersion: QAConfigVersion{
+		ID: "qa-config-id",
+		Agent: AgentConfig{
+			MaxIterations:         8,
+			ToolTimeoutSeconds:    11,
+			ModelTimeoutSeconds:   70,
+			OverallTimeoutSeconds: 150,
+			EnabledToolNames:      []string{"search_knowledge", "get_citation_source"},
+		},
+	}}
+	settings, err := NewConfigService(repository, settingsCipherStub{}, BootstrapSettings{}, &settingsLLMTesterStub{}, settingsMCPTesterStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = settings.UpdateSettings(context.Background(), "user-1", "request-1", UpdateQASettingsInput{
+		Retrieval: &RetrievalSettings{TopK: 6, ScoreThreshold: .6, RerankThreshold: .4, RerankTopN: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !repository.createCalled {
+		t.Fatal("CreateQAConfigVersion was not called")
+	}
+	if !reflect.DeepEqual(repository.createdAgent, repository.activeQAConfigVersion.Agent) {
+		t.Fatalf("agent=%+v, want %+v", repository.createdAgent, repository.activeQAConfigVersion.Agent)
+	}
+}
+
+func TestUpdateSettingsBootstrapsAgentConfigWhenActiveConfigMissing(t *testing.T) {
+	repository := &settingsRepositoryStub{activeQAConfigErr: NewError(CodeNotFound, "QA configuration not found", errors.New("no rows"))}
+	settings, err := NewConfigService(repository, settingsCipherStub{}, BootstrapSettings{}, &settingsLLMTesterStub{}, settingsMCPTesterStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ids := []string{"kb-new"}
+	_, err = settings.UpdateSettings(context.Background(), "user-1", "request-1", UpdateQASettingsInput{DefaultKnowledgeBaseIDs: &ids})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(repository.createdAgent, DefaultAgentConfig()) {
+		t.Fatalf("agent=%+v, want default %+v", repository.createdAgent, DefaultAgentConfig())
+	}
 }
 
 func TestValidateRuntimeMCPAllowsStreamableHTTP(t *testing.T) {
