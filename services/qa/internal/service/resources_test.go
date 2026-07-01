@@ -12,6 +12,8 @@ import (
 
 type resourceRepositoryStub struct {
 	activeQAConfig   QAConfigVersion
+	createdQAInput   CreateQAConfigVersionInput
+	createQACalled   bool
 	savedInput       RetrievalTestInput
 	savedRunErr      error
 	saveCalled       bool
@@ -46,8 +48,10 @@ func (r *resourceRepositoryStub) ListToolCalls(context.Context, string, string) 
 func (r *resourceRepositoryStub) GetActiveQAConfigVersion(context.Context) (QAConfigVersion, error) {
 	return r.activeQAConfig, nil
 }
-func (r *resourceRepositoryStub) CreateQAConfigVersionResource(context.Context, string, CreateQAConfigVersionInput) (QAConfigVersion, error) {
-	return QAConfigVersion{}, nil
+func (r *resourceRepositoryStub) CreateQAConfigVersionResource(_ context.Context, _ string, input CreateQAConfigVersionInput) (QAConfigVersion, error) {
+	r.createQACalled = true
+	r.createdQAInput = input
+	return QAConfigVersion{ID: "qa-config-id"}, nil
 }
 func (r *resourceRepositoryStub) GetActiveLLMConfigVersion(context.Context) (LLMConfigVersion, error) {
 	return LLMConfigVersion{}, nil
@@ -302,6 +306,28 @@ func TestCreateRetrievalTestRunPreservesKnowledgeForbidden(t *testing.T) {
 	}
 	if run.Status != "failed" || run.ErrorMessage != "knowledge retrieval failed" {
 		t.Fatalf("run=%+v", run)
+	}
+}
+
+func TestCreateQAConfigVersionPreservesExplicitEmptyAgentToolWhitelist(t *testing.T) {
+	repository := &resourceRepositoryStub{}
+	resources, err := NewResourceService(repository, &knowledgeRetrieverStub{}, llmTesterStub{}, RuntimeLLMConfig{}, runCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resources.CreateQAConfigVersion(context.Background(), "user-1", CreateQAConfigVersionInput{
+		Agent:            AgentConfig{EnabledToolNames: []string{}},
+		EnabledToolNames: []string{"search_knowledge", "search_knowledge"},
+	})
+	if err != nil {
+		t.Fatalf("error=%v, want explicit empty nested whitelist to skip legacy duplicate validation", err)
+	}
+	if !repository.createQACalled {
+		t.Fatal("CreateQAConfigVersionResource was not called")
+	}
+	if repository.createdQAInput.Agent.EnabledToolNames == nil || len(repository.createdQAInput.Agent.EnabledToolNames) != 0 {
+		t.Fatalf("agent.enabledToolNames=%#v, want explicit empty whitelist", repository.createdQAInput.Agent.EnabledToolNames)
 	}
 }
 

@@ -571,7 +571,7 @@ func (s *ResourceService) CreateQAConfigVersion(ctx context.Context, userID stri
 		}
 	}
 	enabledToolNames := input.Agent.EnabledToolNames
-	if len(enabledToolNames) == 0 {
+	if enabledToolNames == nil {
 		enabledToolNames = input.EnabledToolNames
 	}
 	if len(enabledToolNames) > 0 {

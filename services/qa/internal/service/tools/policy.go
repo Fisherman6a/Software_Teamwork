@@ -163,7 +163,7 @@ func generateCitationArgumentsSummary(args map[string]any) map[string]any {
 // GenerateResultSummary creates a sanitized summary of tool results.
 // It must not expose full content, internal URLs, object keys, or secrets.
 func GenerateResultSummary(toolName string, resultContent string) map[string]any {
-	if summary, ok := toolFailureSummary(resultContent); ok {
+	if summary, ok := toolFailureSummary(toolName, resultContent); ok {
 		summary["tool"] = toolName
 		return summary
 	}
@@ -181,7 +181,7 @@ func GenerateResultSummary(toolName string, resultContent string) map[string]any
 	}
 }
 
-func toolFailureSummary(content string) (map[string]any, bool) {
+func toolFailureSummary(toolName string, content string) (map[string]any, bool) {
 	var decoded struct {
 		Error struct {
 			Code    string `json:"code"`
@@ -199,11 +199,18 @@ func toolFailureSummary(content string) (map[string]any, bool) {
 	if message == "" {
 		message = "tool execution failed"
 	}
+	if !isBuiltinTool(toolName) {
+		message = "tool execution failed"
+	}
 	return map[string]any{
 		"error":     code,
 		"message":   truncateSummary(message, 512),
 		"sanitized": true,
 	}, true
+}
+
+func isBuiltinTool(toolName string) bool {
+	return toolName == ToolSearchKnowledge || toolName == ToolGetCitationSource
 }
 
 func truncateSummary(value string, limit int) string {

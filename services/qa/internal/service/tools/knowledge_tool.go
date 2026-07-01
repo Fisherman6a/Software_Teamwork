@@ -115,6 +115,27 @@ func (c *KnowledgeToolClient) ListTools(ctx context.Context) ([]agent.ToolDefini
 				},
 			},
 		},
+		{
+			Type: "function",
+			Function: agent.FunctionTool{
+				Name:        ToolGetCitationSource,
+				Description: "Look up source details for a citation or knowledge chunk when source lookup is available.",
+				Parameters: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"citation_id": map[string]any{
+							"type":        "string",
+							"description": "Citation identifier returned by the answer citation list.",
+						},
+						"chunk_id": map[string]any{
+							"type":        "string",
+							"description": "Knowledge chunk identifier returned by search_knowledge.",
+						},
+					},
+					"additionalProperties": false,
+				},
+			},
+		},
 	}, nil
 }
 

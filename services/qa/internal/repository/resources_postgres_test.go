@@ -2,8 +2,11 @@ package repository
 
 import (
 	"math"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/service"
 )
 
 func TestStreamEventSeqInt32RejectsInvalidValues(t *testing.T) {
