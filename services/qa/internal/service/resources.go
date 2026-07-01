@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -260,6 +261,7 @@ type QAConfigVersion struct {
 	EnabledToolNames        []string              `json:"enabledToolNames,omitempty"`
 	IsActive                bool                  `json:"isActive"`
 	CreatedAt               time.Time             `json:"createdAt"`
+	ReplacedActiveVersionID string                `json:"-"`
 }
 
 type CreateQAConfigVersionInput struct {
@@ -281,16 +283,17 @@ type CreateQAConfigVersionInput struct {
 }
 
 type LLMConfigVersion struct {
-	ID             string    `json:"id"`
-	VersionNo      int       `json:"versionNo"`
-	Provider       string    `json:"provider"`
-	ProfileID      string    `json:"profileId"`
-	ModelName      string    `json:"modelName"`
-	TimeoutSeconds int       `json:"timeoutSeconds"`
-	Temperature    float64   `json:"temperature"`
-	MaxTokens      int       `json:"maxTokens"`
-	IsActive       bool      `json:"isActive"`
-	CreatedAt      time.Time `json:"createdAt"`
+	ID                      string    `json:"id"`
+	VersionNo               int       `json:"versionNo"`
+	Provider                string    `json:"provider"`
+	ProfileID               string    `json:"profileId"`
+	ModelName               string    `json:"modelName"`
+	TimeoutSeconds          int       `json:"timeoutSeconds"`
+	Temperature             float64   `json:"temperature"`
+	MaxTokens               int       `json:"maxTokens"`
+	IsActive                bool      `json:"isActive"`
+	CreatedAt               time.Time `json:"createdAt"`
+	ReplacedActiveVersionID string    `json:"-"`
 }
 
 type CreateLLMConfigVersionInput struct {
@@ -402,8 +405,10 @@ type ResourceRepository interface {
 	ListToolCalls(context.Context, string, string) ([]AgentToolCall, error)
 	GetActiveQAConfigVersion(context.Context) (QAConfigVersion, error)
 	CreateQAConfigVersionResource(context.Context, string, CreateQAConfigVersionInput) (QAConfigVersion, error)
+	RestoreQAConfigActiveVersion(context.Context, string, string) error
 	GetActiveLLMConfigVersion(context.Context) (LLMConfigVersion, error)
 	CreateLLMConfigVersionResource(context.Context, string, CreateLLMConfigVersionInput) (LLMConfigVersion, error)
+	RestoreLLMConfigActiveVersion(context.Context, string, string) error
 	SaveLLMConnectionTest(context.Context, string, LLMProfileTestResult) (LLMProfileTestResult, error)
 	SaveRetrievalTestRun(context.Context, string, RetrievalTestInput, []RetrievalTestResult, time.Duration, error) (RetrievalTestRun, error)
 	GetRetrievalTestRun(context.Context, string, string) (RetrievalTestRun, error)
@@ -426,6 +431,8 @@ type KnowledgeStatsProvider interface {
 }
 
 type ActiveRunCanceller interface{ CancelActiveRun(string) }
+
+const configReloadRollbackTimeout = 5 * time.Second
 
 type ResourceService struct {
 	repository     ResourceRepository
@@ -635,6 +642,11 @@ func (s *ResourceService) CreateQAConfigVersion(ctx context.Context, userID stri
 	}
 	if shouldActivateConfig(input.Activate) {
 		if err := s.reloadRuntime(ctx); err != nil {
+			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), configReloadRollbackTimeout)
+			defer cancel()
+			if rollbackErr := s.repository.RestoreQAConfigActiveVersion(rollbackCtx, version.ID, version.ReplacedActiveVersionID); rollbackErr != nil {
+				err = fmt.Errorf("%w; rollback active QA config: %v", err, rollbackErr)
+			}
 			return QAConfigVersion{}, NewError(CodeDependency, "runtime reload failed", err)
 		}
 	}
@@ -653,6 +665,11 @@ func (s *ResourceService) CreateLLMConfigVersion(ctx context.Context, userID str
 	}
 	if shouldActivateConfig(input.Activate) {
 		if err := s.reloadRuntime(ctx); err != nil {
+			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), configReloadRollbackTimeout)
+			defer cancel()
+			if rollbackErr := s.repository.RestoreLLMConfigActiveVersion(rollbackCtx, version.ID, version.ReplacedActiveVersionID); rollbackErr != nil {
+				err = fmt.Errorf("%w; rollback active LLM config: %v", err, rollbackErr)
+			}
 			return LLMConfigVersion{}, NewError(CodeDependency, "runtime reload failed", err)
 		}
 	}

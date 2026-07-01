@@ -282,7 +282,14 @@ func (r *Postgres) CreateQAConfigVersionResource(ctx context.Context, userID str
 	if _, err = tx.Exec(ctx, `LOCK TABLE qa_config_versions IN EXCLUSIVE MODE`); err != nil {
 		return service.QAConfigVersion{}, err
 	}
+	replacedActiveID := ""
 	if activate {
+		err = tx.QueryRow(ctx, `SELECT id::text FROM qa_config_versions WHERE is_active=true ORDER BY version_no DESC LIMIT 1`).Scan(&replacedActiveID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			replacedActiveID = ""
+		} else if err != nil {
+			return service.QAConfigVersion{}, fmt.Errorf("get replaced QA config: %w", err)
+		}
 		if _, err = tx.Exec(ctx, `UPDATE qa_config_versions SET is_active=false WHERE is_active=true`); err != nil {
 			return service.QAConfigVersion{}, err
 		}
@@ -301,7 +308,43 @@ func (r *Postgres) CreateQAConfigVersionResource(ctx context.Context, userID str
 	if err = tx.Commit(ctx); err != nil {
 		return service.QAConfigVersion{}, err
 	}
-	return r.getQAConfigVersion(ctx, id, false)
+	version, err := r.getQAConfigVersion(ctx, id, false)
+	version.ReplacedActiveVersionID = replacedActiveID
+	return version, err
+}
+
+func (r *Postgres) RestoreQAConfigActiveVersion(ctx context.Context, failedVersionID, restoreVersionID string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin restore QA config: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `LOCK TABLE qa_config_versions IN EXCLUSIVE MODE`); err != nil {
+		return err
+	}
+	var currentActiveID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM qa_config_versions WHERE is_active=true ORDER BY version_no DESC LIMIT 1`).Scan(&currentActiveID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		currentActiveID = ""
+	} else if err != nil {
+		return fmt.Errorf("get active QA config for restore: %w", err)
+	}
+	if currentActiveID != failedVersionID {
+		return tx.Commit(ctx)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE qa_config_versions SET is_active=false WHERE id=$1`, failedVersionID); err != nil {
+		return fmt.Errorf("deactivate failed QA config: %w", err)
+	}
+	if restoreVersionID != "" {
+		commandTag, err := tx.Exec(ctx, `UPDATE qa_config_versions SET is_active=true WHERE id=$1`, restoreVersionID)
+		if err != nil {
+			return fmt.Errorf("restore previous QA config: %w", err)
+		}
+		if commandTag.RowsAffected() == 0 {
+			return tx.Commit(ctx)
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func retrievalConfigFromCreateInput(input service.CreateQAConfigVersionInput) service.RetrievalSettings {
@@ -396,7 +439,14 @@ func (r *Postgres) CreateLLMConfigVersionResource(ctx context.Context, userID st
 	if _, err = tx.Exec(ctx, `LOCK TABLE llm_config_versions IN EXCLUSIVE MODE`); err != nil {
 		return service.LLMConfigVersion{}, err
 	}
+	replacedActiveID := ""
 	if activate {
+		err = tx.QueryRow(ctx, `SELECT id::text FROM llm_config_versions WHERE is_active=true ORDER BY version_no DESC LIMIT 1`).Scan(&replacedActiveID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			replacedActiveID = ""
+		} else if err != nil {
+			return service.LLMConfigVersion{}, fmt.Errorf("get replaced LLM config: %w", err)
+		}
 		if _, err = tx.Exec(ctx, `UPDATE llm_config_versions SET is_active=false WHERE is_active=true`); err != nil {
 			return service.LLMConfigVersion{}, err
 		}
@@ -409,7 +459,43 @@ func (r *Postgres) CreateLLMConfigVersionResource(ctx context.Context, userID st
 	if err = tx.Commit(ctx); err != nil {
 		return service.LLMConfigVersion{}, err
 	}
-	return r.getLLMConfigVersion(ctx, id, false)
+	version, err := r.getLLMConfigVersion(ctx, id, false)
+	version.ReplacedActiveVersionID = replacedActiveID
+	return version, err
+}
+
+func (r *Postgres) RestoreLLMConfigActiveVersion(ctx context.Context, failedVersionID, restoreVersionID string) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin restore LLM config: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err = tx.Exec(ctx, `LOCK TABLE llm_config_versions IN EXCLUSIVE MODE`); err != nil {
+		return err
+	}
+	var currentActiveID string
+	err = tx.QueryRow(ctx, `SELECT id::text FROM llm_config_versions WHERE is_active=true ORDER BY version_no DESC LIMIT 1`).Scan(&currentActiveID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		currentActiveID = ""
+	} else if err != nil {
+		return fmt.Errorf("get active LLM config for restore: %w", err)
+	}
+	if currentActiveID != failedVersionID {
+		return tx.Commit(ctx)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE llm_config_versions SET is_active=false WHERE id=$1`, failedVersionID); err != nil {
+		return fmt.Errorf("deactivate failed LLM config: %w", err)
+	}
+	if restoreVersionID != "" {
+		commandTag, err := tx.Exec(ctx, `UPDATE llm_config_versions SET is_active=true WHERE id=$1`, restoreVersionID)
+		if err != nil {
+			return fmt.Errorf("restore previous LLM config: %w", err)
+		}
+		if commandTag.RowsAffected() == 0 {
+			return tx.Commit(ctx)
+		}
+	}
+	return tx.Commit(ctx)
 }
 func (r *Postgres) SaveLLMConnectionTest(ctx context.Context, userID string, result service.LLMProfileTestResult) (service.LLMProfileTestResult, error) {
 	_, err := r.pool.Exec(ctx, `INSERT INTO llm_connection_tests(id,external_user_id,success,latency_ms,model_name,error_code,error_message,tested_at) VALUES($1,$2,$3,$4,$5,NULLIF($6,''),NULLIF($7,''),$8)`, result.ID, userID, result.Success, result.LatencyMS, result.ModelName, result.ErrorCode, result.ErrorMessage, result.TestedAt)
