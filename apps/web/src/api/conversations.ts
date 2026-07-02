@@ -1,7 +1,7 @@
 /**
  * QA Sessions CRUD — Gateway OpenAPI qa-sessions paths.
  *
- * All functions use gatewayRequest / gatewayPageRequest from ./client.
+ * Functions use gatewayRequest / gatewayPageRequest / requestVoid from ./client.
  * Types imported from @/lib/types (re-exported from generated/gateway).
  */
 
