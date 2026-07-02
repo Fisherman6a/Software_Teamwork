@@ -268,3 +268,51 @@ Added production/staging Compose baseline, env template, deployment runbook, CI/
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: Gateway readyz semantics
+
+**Date**: 2026-07-02
+**Task**: Gateway readyz semantics
+**Branch**: `Special/docs/gateway-readyz-semantics`
+
+### Summary
+
+Clarified Gateway /readyz as lightweight readiness, separated owner-service business smoke to #125/#352, and synchronized Gateway docs/OpenAPI/runbooks/spec.
+
+### Main Changes
+
+- Recorded decision C for issue #353: Gateway `/readyz` remains a lightweight readiness gate for Redis session cache, Auth `/readyz`, and required owner service base URL configuration.
+- Documented that Gateway `/readyz` does not fan out to owner-service `/readyz` endpoints and does not prove Knowledge, QA, Document, AI Gateway provider, upload, retrieval, QA answer, or report-generation workflows.
+- Updated Gateway docs, OpenAPI contracts, deployment runbooks, and backend spec language to use `503 dependency_error` for Gateway readiness dependency failures.
+- Populated archived Trellis implementation/check context manifests with the actual specs and architecture documents used.
+- Addressed PR review findings by aligning malformed non-empty owner URL wording with current implementation, fixing deploy troubleshooting status, and adding service-local/internal OpenAPI `503` error responses.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7ee5551e` | docs(gateway): clarify readyz semantics |
+| `114f9755` | chore(task): archive 07-02-issue-353-gateway-readyz-semantics |
+| `010788eb` | chore: record journal |
+| `6cd99d8b` | docs(gateway): align readyz spec with implementation |
+| `d0e3a075` | docs(gateway): fix readyz troubleshooting status |
+| `b4a560a1` | docs(gateway): add readyz error contracts |
+
+### Testing
+
+- [OK] `git diff --check`
+- [OK] `git diff --check origin/develop...HEAD`
+- [OK] `python3 scripts/verify_gateway_active_api.py`
+- [OK] YAML parse for `docs/services/gateway/api/public.openapi.yaml`, `docs/services/gateway/api/internal.openapi.yaml`, and `services/gateway/api/openapi.yaml`
+- [OK] Local `$ref` resolution check for the same Gateway OpenAPI files
+- [OK] `cd services/gateway && go test ./...`
+- [OK] `cd services/gateway && go build ./cmd/server`
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

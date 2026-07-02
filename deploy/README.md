@@ -247,8 +247,17 @@ Invoke-RestMethod http://localhost:8087/readyz
 ```
 
 `gateway /readyz` checks Redis and auth, and verifies owner service URLs are
-configured. Auth, document, and ai-gateway readiness identify PostgreSQL
-problems. Compose health checks identify container-level dependency failures.
+configured. It does not call Knowledge, QA, Document, or AI Gateway readiness
+endpoints and does not prove business workflows such as upload, retrieval, QA
+answers, report generation, model profile bootstrap, or real provider calls.
+Auth, document, and ai-gateway readiness identify PostgreSQL problems. Compose
+health checks identify container-level dependency failures.
+
+Use the targeted smoke checks in
+[`docs/runbooks/local-integration.md`](../docs/runbooks/local-integration.md)
+for complete cross-service availability. #352 owns the repeatable
+Auth/Gateway/Redis smoke, and #125 owns the broader Gateway -> owner service
+and MCP/cross-service smoke coverage.
 
 ## Seed Data
 
@@ -394,7 +403,7 @@ embedding/rerank validation.
 
 | Symptom | Likely cause | Check |
 | --- | --- | --- |
-| `gateway /readyz` returns `502 dependency_error` | Redis or auth is not ready | `docker compose ps`, `docker compose logs redis auth gateway` |
+| `gateway /readyz` returns `503 dependency_error` | Redis, auth, or required owner service base URL configuration is not ready | `docker compose ps`, `docker compose logs redis auth gateway` |
 | `auth /readyz` returns `postgres unavailable` | Auth migration or PostgreSQL failed | `docker compose logs postgres migrate-auth auth` |
 | Knowledge upload returns `502 dependency_error` | File Service, Parser Service, or Redis queue unavailable | `docker compose logs file parser knowledge redis` |
 | Knowledge query returns `502 dependency_error` | Qdrant collection missing, AI Gateway embedding/rerank unavailable, or fake provider credential still configured | `docker compose logs knowledge qdrant ai-gateway` |
