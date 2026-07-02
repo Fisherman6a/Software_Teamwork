@@ -279,11 +279,14 @@ export function ChatPage() {
 
   // ── Report artifact download handler ──
   const handleArtifactDownload = useCallback(
-    async (reportFileId: string, filename: string) => {
+    async (downloadPath: string, filename: string) => {
       try {
-        const blob = await gatewayFileRequest(
-          `/report-files/${encodeURIComponent(reportFileId)}/content`,
-        )
+        // downloadPath is validated full Gateway path; strip /api/v1 prefix
+        // since gatewayFileRequest already prepends the gateway base URL
+        const relativePath = downloadPath.startsWith('/api/v1')
+          ? downloadPath.slice('/api/v1'.length)
+          : downloadPath
+        const blob = await gatewayFileRequest(relativePath)
         const url = URL.createObjectURL(blob)
         downloadFromUrl(url, filename)
         setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -336,6 +339,9 @@ export function ChatPage() {
       if (!current || current.length === 0) {
         if (serverMessages.items.length > 0) {
           updateSessionMessages(activeId, serverMessages.items)
+          // TODO: recover report artifacts from GET /api/v1/response-runs/
+          //       {responseRunId}/tool-calls resultSummary.reportArtifact
+          //       once responseRunId is persisted on QAMessage.
         }
       }
     }
