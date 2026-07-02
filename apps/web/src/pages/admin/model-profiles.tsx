@@ -13,12 +13,18 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
+  buildCreateModelProfileRequest,
+  buildUpdateModelProfileRequest,
+  formatModelProfileError,
+  type ModelProfileFormValues,
   useCreateModelProfile,
   useDeleteModelProfile,
   useModelProfiles,
   useUpdateModelProfile,
+  validateCreateModelProfileForm,
+  validateUpdateModelProfileForm,
 } from '@/features/admin-config'
-import type { CreateModelProfileRequest, ModelProfile } from '@/lib/types'
+import type { ModelProfile } from '@/lib/types'
 
 // ── Constants ──
 
@@ -46,22 +52,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   local_compatible: '本地兼容',
 }
 
-// ── Types ──
-
-interface FormData {
-  name: string
-  purpose: string
-  provider: string
-  baseUrl: string
-  model: string
-  apiKey: string
-  timeoutMs: number
-  maxTokens: number
-  dimension: number
-  topN: number
-  supportsStreaming: boolean
-}
-
 type NotificationState = {
   type: 'success' | 'error'
   text: string
@@ -69,7 +59,7 @@ type NotificationState = {
 
 // ── Defaults ──
 
-const EMPTY_FORM: FormData = {
+const EMPTY_FORM: ModelProfileFormValues = {
   name: '',
   purpose: 'chat',
   provider: 'openai_compatible',
@@ -81,50 +71,6 @@ const EMPTY_FORM: FormData = {
   dimension: 0,
   topN: 0,
   supportsStreaming: false,
-}
-
-// ── Helpers ──
-
-function formToCreateRequest(form: FormData): CreateModelProfileRequest {
-  return {
-    name: form.name,
-    purpose: form.purpose,
-    provider: form.provider,
-    baseUrl: form.baseUrl,
-    model: form.model,
-    apiKey: form.apiKey,
-    timeoutMs: form.timeoutMs,
-    defaultParameters: { max_tokens: form.maxTokens },
-    ...(form.purpose === 'embedding' && form.dimension > 0 ? { dimensions: form.dimension } : {}),
-    ...(form.purpose === 'rerank' && form.topN > 0 ? { topN: form.topN } : {}),
-    enabled: true,
-    isDefault: false,
-    supportsStreaming: form.supportsStreaming,
-  } as CreateModelProfileRequest
-}
-
-function formToUpdateRequest(form: FormData) {
-  const params: Record<string, unknown> = {
-    name: form.name,
-    provider: form.provider,
-    baseUrl: form.baseUrl,
-    model: form.model,
-    timeoutMs: form.timeoutMs,
-  }
-  if (form.apiKey) {
-    params.apiKey = form.apiKey
-  }
-  params.defaultParameters = { max_tokens: form.maxTokens }
-  if (form.purpose === 'embedding' && form.dimension > 0) {
-    params.dimensions = form.dimension
-  }
-  if (form.purpose === 'rerank' && form.topN > 0) {
-    params.topN = form.topN
-  }
-  if (form.purpose === 'chat') {
-    params.supportsStreaming = form.supportsStreaming
-  }
-  return params
 }
 
 // ── Skeleton ──
@@ -168,7 +114,7 @@ export function ModelProfilesPage() {
   const [editingProfile, setEditingProfile] = useState<ModelProfile | null>(null)
   const [deletingProfile, setDeletingProfile] = useState<ModelProfile | null>(null)
 
-  const [form, setForm] = useState<FormData>(EMPTY_FORM)
+  const [form, setForm] = useState<ModelProfileFormValues>(EMPTY_FORM)
   const [notification, setNotification] = useState<NotificationState | null>(null)
 
   // ── Queries & mutations ──
@@ -192,9 +138,12 @@ export function ModelProfilesPage() {
 
   // ── Handlers ──
 
-  const updateField = useCallback(<K extends keyof FormData>(field: K, value: FormData[K]) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
-  }, [])
+  const updateField = useCallback(
+    <K extends keyof ModelProfileFormValues>(field: K, value: ModelProfileFormValues[K]) => {
+      setForm((prev) => ({ ...prev, [field]: value }))
+    },
+    [],
+  )
 
   const openCreate = useCallback(() => {
     setForm(EMPTY_FORM)
@@ -225,36 +174,42 @@ export function ModelProfilesPage() {
   }, [])
 
   const handleCreate = useCallback(() => {
-    if (!form.name || !form.purpose || !form.baseUrl || !form.model) {
-      setNotification({ type: 'error', text: '请填写名称、类型、地址和模型名称' })
+    const validation = validateCreateModelProfileForm(form)
+    if (!validation.isValid) {
+      setNotification({ type: 'error', text: validation.message })
       return
     }
-    createMutation.mutate(formToCreateRequest(form), {
+    createMutation.mutate(buildCreateModelProfileRequest(form), {
       onSuccess: () => {
         setNotification({ type: 'success', text: '模型配置创建成功' })
         setCreateOpen(false)
       },
-      onError: (err: Error) => {
-        setNotification({ type: 'error', text: `创建失败: ${err.message}` })
+      onError: (err) => {
+        setNotification({ type: 'error', text: formatModelProfileError(err, '创建失败') })
       },
     })
   }, [form, createMutation])
 
   const handleEdit = useCallback(() => {
     if (!editingProfile) return
+    const validation = validateUpdateModelProfileForm(form)
+    if (!validation.isValid) {
+      setNotification({ type: 'error', text: validation.message })
+      return
+    }
     updateMutation.mutate(
       {
         id: editingProfile.id,
-        ...formToUpdateRequest(form),
-      } as Parameters<typeof updateMutation.mutate>[0],
+        ...buildUpdateModelProfileRequest(form),
+      },
       {
         onSuccess: () => {
           setNotification({ type: 'success', text: '模型配置更新成功' })
           setEditOpen(false)
           setEditingProfile(null)
         },
-        onError: (err: Error) => {
-          setNotification({ type: 'error', text: `更新失败: ${err.message}` })
+        onError: (err) => {
+          setNotification({ type: 'error', text: formatModelProfileError(err, '更新失败') })
         },
       },
     )
@@ -268,8 +223,8 @@ export function ModelProfilesPage() {
         setDeleteOpen(false)
         setDeletingProfile(null)
       },
-      onError: (err: Error) => {
-        setNotification({ type: 'error', text: `删除失败: ${err.message}` })
+      onError: (err) => {
+        setNotification({ type: 'error', text: formatModelProfileError(err, '删除失败') })
       },
     })
   }, [deletingProfile, deleteMutation])
@@ -454,7 +409,9 @@ export function ModelProfilesPage() {
               <select
                 id="mp-create-purpose"
                 value={form.purpose}
-                onChange={(e) => updateField('purpose', e.target.value)}
+                onChange={(e) =>
+                  updateField('purpose', e.target.value as ModelProfileFormValues['purpose'])
+                }
                 className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm"
               >
                 {PURPOSE_OPTIONS.map((opt) => (
@@ -476,7 +433,9 @@ export function ModelProfilesPage() {
               <select
                 id="mp-create-provider"
                 value={form.provider}
-                onChange={(e) => updateField('provider', e.target.value)}
+                onChange={(e) =>
+                  updateField('provider', e.target.value as ModelProfileFormValues['provider'])
+                }
                 className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm"
               >
                 {PROVIDER_OPTIONS.map((opt) => (
@@ -547,7 +506,7 @@ export function ModelProfilesPage() {
                   htmlFor="mp-create-dimension"
                   className="mb-1 block text-sm font-medium text-foreground"
                 >
-                  向量维度
+                  向量维度 <span className="text-destructive">*</span>
                 </label>
                 <Input
                   id="mp-create-dimension"
@@ -569,7 +528,7 @@ export function ModelProfilesPage() {
                   htmlFor="mp-create-topn"
                   className="mb-1 block text-sm font-medium text-foreground"
                 >
-                  默认 TopN
+                  默认 TopN <span className="text-destructive">*</span>
                 </label>
                 <Input
                   id="mp-create-topn"
@@ -705,7 +664,9 @@ export function ModelProfilesPage() {
               <select
                 id="mp-edit-provider"
                 value={form.provider}
-                onChange={(e) => updateField('provider', e.target.value)}
+                onChange={(e) =>
+                  updateField('provider', e.target.value as ModelProfileFormValues['provider'])
+                }
                 className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm"
               >
                 {PROVIDER_OPTIONS.map((opt) => (
@@ -776,7 +737,7 @@ export function ModelProfilesPage() {
                   htmlFor="mp-edit-dimension"
                   className="mb-1 block text-sm font-medium text-foreground"
                 >
-                  向量维度
+                  向量维度 <span className="text-destructive">*</span>
                 </label>
                 <Input
                   id="mp-edit-dimension"
@@ -798,7 +759,7 @@ export function ModelProfilesPage() {
                   htmlFor="mp-edit-topn"
                   className="mb-1 block text-sm font-medium text-foreground"
                 >
-                  默认 TopN
+                  默认 TopN <span className="text-destructive">*</span>
                 </label>
                 <Input
                   id="mp-edit-topn"
