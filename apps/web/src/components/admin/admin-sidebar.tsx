@@ -123,7 +123,7 @@ const menuItems: AdminNavigationItem[] = [
     key: 'stats',
     label: 'QA 统计',
     path: '/admin/stats',
-    requirement: { any: ['qa:use'] },
+    requirement: { any: ['qa:use', 'system:admin'] },
   },
   {
     key: 'settings',
