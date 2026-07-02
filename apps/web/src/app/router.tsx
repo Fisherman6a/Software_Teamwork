@@ -95,7 +95,7 @@ async function redirectToAppHome() {
 async function redirectToAdminHome() {
   const store = await restoreAuthForRoute()
 
-  if (canAccess(store.user, systemAdminAccess)) {
+  if (canAccess(store.user, { any: ['qa:use', 'system:admin'] })) {
     throw redirect({ to: '/admin/stats' })
   }
 
