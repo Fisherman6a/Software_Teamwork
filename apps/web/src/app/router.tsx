@@ -249,7 +249,7 @@ const adminIndexRoute = createRoute({
 const adminStylesRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'styles',
-  beforeLoad: requireAuth(systemAdminAccess),
+  beforeLoad: requireAuth(),
   component: StyleManagement,
 })
 
