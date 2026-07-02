@@ -10,7 +10,7 @@
 | 协助人员 | 无 |
 | 测试范围 | 登录页、AppShell 主导航、QA 检索测试表单、报告模板结构弹窗、现有前端 mock-backed E2E smoke |
 | 被测分支 | `Test/test/frontend-a11y-keyboard-smoke` |
-| 被测 commit | `2b701849` + working tree changes |
+| 被测 commit | PR #460 当前 head；最终 head SHA 以 GitHub Actions / PR Checks 为准。代码变更的本地 clean worktree 复核基线见第 5 节 `158f7c54d0af490c6d32bd6813583bd0c14ee465` 记录 |
 | Base branch | `upstream/develop @ 05fbeffc` |
 | 测试环境 | Windows / PowerShell / Bun `1.3.14` / Playwright Chromium，本地未启动真实 Gateway |
 | 结论 | 测试通过；干净临时 worktree 的 `bun run --cwd apps/web check` 已通过。原 Windows 工作树因既有 CRLF 行尾文件导致 `format:check` 失败，变更范围 Prettier check、build、unit、mock-backed E2E 均通过 |
@@ -77,7 +77,8 @@
 | `2026-07-02 11:42 +0800` | A11Y-001..004 | `bun run --cwd apps/web test:unit -- src/pages/login/page.test.tsx src/layouts/app-layout.a11y.test.tsx src/pages/admin/qa-retrieval-test.a11y.test.tsx src/pages/reports/templates/page.test.tsx` | pass | 4 files passed, 8 tests passed |
 | `2026-07-02 11:55 +0800` | setup | `bun install --frozen-lockfile` | pass | 559 installs checked, no changes |
 | `2026-07-02 11:55 +0800` | frontend-check | `bun run --cwd apps/web check` | fail | `typecheck`、`typecheck:test`、`lint` passed；`format:check` failed on 38 pre-existing working-tree CRLF files such as `src/main.tsx` |
-| `2026-07-02 11:58 +0800` | frontend-check-clean | clean temp worktree: `bun install --frozen-lockfile` + `bun run --cwd apps/web check` | pass | Fresh checkout of this PR branch; all matched files use Prettier code style |
+| `2026-07-02 11:58 +0800` | frontend-check-clean | clean temp worktree: `bun install --frozen-lockfile` + `bun run --cwd apps/web check` | pass | Fresh checkout of this PR branch at `158f7c54d0af490c6d32bd6813583bd0c14ee465`; all matched files use Prettier code style |
+| `2026-07-02 12:05 +0800` | ci-frontend | GitHub Actions `Frontend / test` on PR #460 | pass | Workflow run `28564506413`, job `84688921213`; commit `158f7c54d0af490c6d32bd6813583bd0c14ee465` |
 | `2026-07-02 11:46 +0800` | frontend-check-scope | `prettier --check <changed frontend files>` | pass | All changed files use Prettier code style |
 | `2026-07-02 11:55 +0800` | build | `bun run --cwd apps/web build` | pass | Vite build passed；仅有 chunk size warning |
 | `2026-07-02 11:55 +0800` | unit | `bun run --cwd apps/web test:unit` | pass | 22 files passed, 75 tests passed |
