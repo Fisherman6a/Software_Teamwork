@@ -354,7 +354,7 @@ const adminQARetrievalTestRoute = createRoute({
 const adminSettingsRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'settings',
-  beforeLoad: requireAuth(systemAdminAccess),
+  beforeLoad: requireAuth({ any: ['system:admin', 'admin:model-profile:write'] }),
   component: SystemSettings,
 })
 
