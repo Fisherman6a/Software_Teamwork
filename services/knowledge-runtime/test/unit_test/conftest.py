@@ -58,11 +58,14 @@ def _nltk_downloader():
     if _NLTK_DOWNLOADER is not None:
         return _NLTK_DOWNLOADER
 
-    index_url = os.environ.get("NLTK_DOWNLOAD_INDEX_URL", _NLTK_DATA_MIRROR_INDEX_URL)
-    package_prefix = os.environ.get("NLTK_DOWNLOAD_PACKAGE_PREFIX", _NLTK_DATA_MIRROR_PACKAGE_PREFIX)
+    index_url = os.environ.get("NLTK_DOWNLOAD_INDEX_URL", _NLTK_DATA_INDEX_URL)
+    package_prefix = os.environ.get("NLTK_DOWNLOAD_PACKAGE_PREFIX")
     downloader = Downloader(server_index_url=index_url)
 
-    if index_url.startswith(_GITHUB_PROXY_PREFIX) or package_prefix != _NLTK_DATA_PACKAGE_PREFIX:
+    if package_prefix is None and index_url.startswith(_GITHUB_PROXY_PREFIX):
+        package_prefix = _NLTK_DATA_MIRROR_PACKAGE_PREFIX
+
+    if package_prefix:
         # NLTK's index embeds raw.githubusercontent.com package URLs. Rewrite
         # those after loading the index so package zip downloads use the same mirror.
         downloader._update_index()

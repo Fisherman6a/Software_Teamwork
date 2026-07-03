@@ -26,11 +26,25 @@ REDACTED = "********"
 _SENSITIVE_KEY_PARTS = (
     "api_key",
     "apikey",
+    "api-key",
+    "x_api_key",
+    "x-api-key",
     "access_key",
+    "access-key",
     "secret_key",
+    "secret-key",
     "client_secret",
+    "client-secret",
     "private_key",
+    "private-key",
+    "access_token",
+    "access-token",
+    "refresh_token",
+    "refresh-token",
     "connection_string",
+    "connection-string",
+    "app_secret",
+    "app-secret",
     "secret",
     "password",
     "passwd",
@@ -38,16 +52,32 @@ _SENSITIVE_KEY_PARTS = (
     "token",
     "credential",
     "authorization",
+    "proxy_authorization",
+    "proxy-authorization",
     "cookie",
+    "signature",
 )
 
 _SENSITIVE_QUERY_KEYS = (
     "api_key",
     "apikey",
+    "api-key",
+    "x_api_key",
+    "x-api-key",
     "access_key",
+    "access-key",
     "secret_key",
+    "secret-key",
     "client_secret",
+    "client-secret",
     "private_key",
+    "private-key",
+    "access_token",
+    "access-token",
+    "refresh_token",
+    "refresh-token",
+    "app_secret",
+    "app-secret",
     "secret",
     "password",
     "passwd",
@@ -73,12 +103,14 @@ _BEARER_RE = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
 
 def is_sensitive_key(key: object) -> bool:
     key_lower = str(key).lower()
-    return any(part in key_lower for part in _SENSITIVE_KEY_PARTS)
+    normalized = key_lower.replace("-", "_")
+    return any(part in key_lower or part.replace("-", "_") in normalized for part in _SENSITIVE_KEY_PARTS)
 
 
 def _is_sensitive_query_key(key: object) -> bool:
     key_lower = str(key).lower()
-    return any(part in key_lower for part in _SENSITIVE_QUERY_KEYS)
+    normalized = key_lower.replace("-", "_")
+    return any(part in key_lower or part.replace("-", "_") in normalized for part in _SENSITIVE_QUERY_KEYS)
 
 
 def _netloc_without_userinfo(value: str) -> str:

@@ -21,10 +21,37 @@ def test_sanitize_for_logging_masks_nested_sensitive_keys():
     assert sanitized["enabled"] is True
 
 
-def test_sanitize_for_logging_redacts_url_credentials_and_sensitive_query_values():
-    value = "mysql://user:pass@example.internal:3306/ragflow?token=abc&timeout=3#secret-fragment"
+def test_sanitize_for_logging_masks_common_sensitive_header_keys():
+    value = {
+        "headers": {
+            "api-key": "legacy-secret",
+            "x-api-key": "header-secret",
+            "access-token": "access-secret",
+            "refresh-token": "refresh-secret",
+            "proxy-authorization": "proxy-secret",
+            "set-cookie": "session=secret",
+            "content-type": "application/json",
+        },
+    }
 
-    assert sanitize_for_logging(value) == f"mysql://example.internal:3306/ragflow?token={REDACTED}&timeout=3"
+    sanitized = sanitize_for_logging(value)
+
+    assert sanitized["headers"]["api-key"] == REDACTED
+    assert sanitized["headers"]["x-api-key"] == REDACTED
+    assert sanitized["headers"]["access-token"] == REDACTED
+    assert sanitized["headers"]["refresh-token"] == REDACTED
+    assert sanitized["headers"]["proxy-authorization"] == REDACTED
+    assert sanitized["headers"]["set-cookie"] == REDACTED
+    assert sanitized["headers"]["content-type"] == "application/json"
+
+
+def test_sanitize_for_logging_redacts_url_credentials_and_sensitive_query_values():
+    value = "mysql://user:pass@example.internal:3306/ragflow?api-key=abc&token=def&timeout=3#secret-fragment"
+
+    assert (
+        sanitize_for_logging(value)
+        == f"mysql://example.internal:3306/ragflow?api-key={REDACTED}&token={REDACTED}&timeout=3"
+    )
 
 
 def test_redact_text_masks_inline_assignments_and_bearer_tokens():

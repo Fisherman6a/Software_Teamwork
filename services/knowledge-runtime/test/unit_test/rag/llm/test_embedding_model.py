@@ -71,8 +71,9 @@ class _OpenAIResp:
 def _openai_create(total_tokens=None, dim=3):
     """Build a side_effect that returns one vector per input text."""
 
-    def _create(input, model, **kwargs):
-        return _OpenAIResp([[float(i)] * dim for i in range(len(input))], total_tokens=total_tokens)
+    def _create(input=None, model=None, inputs=None, **kwargs):
+        texts = input if input is not None else inputs
+        return _OpenAIResp([[float(i)] * dim for i in range(len(texts))], total_tokens=total_tokens)
 
     return _create
 
