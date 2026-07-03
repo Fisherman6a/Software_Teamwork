@@ -1161,3 +1161,44 @@ Fixed report outline editing, replacement outline resets, retry status refresh, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 33: QA SSE behavior verification
+
+**Date**: 2026-07-03
+**Task**: QA SSE behavior verification
+**Branch**: `Test/test/qa-sse-behavior-verification`
+
+### Summary
+
+Recorded real-environment QA SSE behavior evidence for issue #498, transferred streaming/cancellation defects to follow-up issues, and opened PR #606.
+
+### Main Changes
+
+- Added the dated QA SSE verification report and committed sanitized evidence under `docs/testing/reports/2026-07-03/`.
+- Captured real SSE headers, raw stream, parsed event counts, replay output, run metadata, tool-call summaries, validation-error responses, abort behavior, environment readiness, and redaction scan output.
+- Created follow-up issues #604 and #605 for the two major behavior defects found during testing.
+- Opened PR #606 against `develop` and archived the Trellis task after the work commit.
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4667cfb5` | (see git log) |
+
+### Testing
+
+- [OK] Real local QA SSE verification captured HTTP 200 SSE headers, ordered events, replay output, validation errors, and disconnect behavior.
+- [OK] Redaction scan ran over committed evidence and selected local logs; committed evidence had no token/API key/DB URL/object-key hits, with only uncommitted Knowledge local-log internal URL diagnostics recorded.
+- [OK] `git diff --cached --check`
+- [OK] `cd services/qa && go test ./...`
+- [OK] `cd services/qa && go build ./cmd/server`
+- [OK] `cd services/qa && go build ./cmd/agent`
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
