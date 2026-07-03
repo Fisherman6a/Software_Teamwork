@@ -3230,6 +3230,21 @@ export interface components {
                 "application/json": components["schemas"]["ErrorResponse"];
             };
         };
+        /**
+         * @description Gateway or owner-service rate limit. Retry-After may be present when a
+         *     downstream owner service provides a known wait time; gateway-local
+         *     process saturation normally omits it.
+         */
+        RateLimited: {
+            headers: {
+                /** @description Seconds to wait before retrying when the wait time is known. */
+                "Retry-After"?: number;
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse"];
+            };
+        };
     };
     parameters: {
         KnowledgeBaseId: string;
@@ -3352,6 +3367,7 @@ export interface operations {
             };
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
+            429: components["responses"]["RateLimited"];
         };
     };
     deleteCurrentSession: {
