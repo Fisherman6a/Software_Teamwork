@@ -437,6 +437,14 @@ describe('ChatMessages ThinkPanel', () => {
 })
 
 describe('ChatMessages citations', () => {
+  it('renders GitHub-flavored Markdown tables', () => {
+    renderChat('| 项目 | 标准 |\n| --- | --- |\n| 油温 | 不超过 85°C |', [])
+
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '项目' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: '不超过 85°C' })).toBeInTheDocument()
+  })
+
   it('renders answer citation markers as inline buttons', () => {
     renderChat('巡检需要记录油温 [1]', [citation()])
 

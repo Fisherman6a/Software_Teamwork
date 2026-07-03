@@ -40,6 +40,40 @@ describe('ChatInput', () => {
     expect(onSend).not.toHaveBeenCalled()
   })
 
+  it('sends with Enter and keeps Shift+Enter for new lines', () => {
+    const onSend = vi.fn()
+    const onChange = vi.fn()
+
+    renderWithProviders(
+      <ChatInput onSend={onSend} disabled={false} value="停电操作规定" onChange={onChange} />,
+    )
+
+    const textbox = screen.getByRole('textbox', { name: '输入问题' })
+    fireEvent.keyDown(textbox, { key: 'Enter', shiftKey: true })
+
+    expect(onSend).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(textbox, { key: 'Enter' })
+
+    expect(onSend).toHaveBeenCalledWith('停电操作规定')
+    expect(onChange).toHaveBeenCalledWith('')
+  })
+
+  it('does not send while an IME composition is active', () => {
+    const onSend = vi.fn()
+
+    renderWithProviders(
+      <ChatInput onSend={onSend} disabled={false} value="变压器" onChange={vi.fn()} />,
+    )
+
+    fireEvent.keyDown(screen.getByRole('textbox', { name: '输入问题' }), {
+      isComposing: true,
+      key: 'Enter',
+    })
+
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
   it('shows an enabled stop button while streaming', () => {
     const onSend = vi.fn()
     const onStop = vi.fn()

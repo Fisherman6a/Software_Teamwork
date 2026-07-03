@@ -1368,17 +1368,9 @@ export function ChatPage() {
   // Suggested prompt click
   // ══════════════════════════════════════════════════════════════════════════
 
-  const handleSuggested = useCallback(
-    (prompt: string) => {
-      setInputText(prompt)
-      // Defer send so React commits the input text update first
-      setTimeout(() => {
-        sendMessage(prompt)
-        setInputText('')
-      }, 0)
-    },
-    [sendMessage],
-  )
+  const handleSuggested = useCallback((prompt: string) => {
+    setInputText(prompt)
+  }, [])
 
   // ══════════════════════════════════════════════════════════════════════════
   // Active session
@@ -1461,7 +1453,7 @@ export function ChatPage() {
         />
 
         {/* Right: main chat area — single input DOM node with FLIP animation */}
-        <div className="flex min-w-0 flex-1 flex-col relative">
+        <div className="relative flex min-w-0 flex-1 flex-col pb-4 pl-6 pr-4 md:pl-8 md:pr-6">
           {/* Messages — only when active */}
           {chatPhase === 'active' && (
             <div className="page-enter-right flex min-h-0 flex-1 flex-col">
@@ -1480,11 +1472,19 @@ export function ChatPage() {
           <div
             className={
               chatPhase === 'empty'
-                ? 'absolute inset-0 flex flex-col items-center justify-center gap-4 px-6'
+                ? 'absolute inset-0 -mt-20 flex flex-col items-center justify-center gap-5 px-6'
                 : 'shrink-0'
             }
           >
-            <div ref={inputAreaRef} className={chatPhase === 'empty' ? 'w-[76%]' : 'w-full'}>
+            {chatPhase === 'empty' && activeMessages.length === 0 && (
+              <h1 className="text-center text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
+                今天想了解哪些电力知识？
+              </h1>
+            )}
+            <div
+              ref={inputAreaRef}
+              className={chatPhase === 'empty' ? 'w-full max-w-5xl' : 'w-full'}
+            >
               {/* Attachment upload status indicator */}
               <div className="mb-2">
                 <AttachmentUploadStatus
@@ -1517,13 +1517,13 @@ export function ChatPage() {
                 disableAttach={!activeId}
               />
             </div>
-            {chatPhase === 'empty' && (
-              <div className="flex flex-wrap justify-center gap-2">
+            {chatPhase === 'empty' && activeMessages.length === 0 && (
+              <div className="flex w-full max-w-5xl flex-wrap justify-center gap-2">
                 {SUGGESTED_PROMPTS.map((p, i) => (
                   <button
                     key={p}
                     type="button"
-                    className="flex items-center rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-primary transition-all hover:bg-primary/10 hover:border-primary/50 animate-[fade-in-up_0.4s_ease-out_both]"
+                    className="animate-[fade-in-up_0.4s_ease-out_both] inline-flex items-center rounded-full border border-primary/20 bg-primary/5 px-4 py-2.5 text-sm font-medium text-primary shadow-sm transition-colors hover:border-primary/30 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25"
                     style={{ animationDelay: `${i * 150}ms` }}
                     onClick={() => handleSuggested(p)}
                   >

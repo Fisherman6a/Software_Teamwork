@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Brain, Check, ChevronDown, ChevronRight, Download, Loader2, Wrench } from 'lucide-react'
 import { Children, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 import { lookupCitations } from '@/api/citations'
 import { getDocumentContent } from '@/api/knowledge'
@@ -590,7 +591,7 @@ function ThinkPanel({
               <span>💭 深度思考</span>
             </div>
             <div className="rounded-md bg-background/70 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-              <ReactMarkdown components={reasoningMarkdownComponents}>
+              <ReactMarkdown components={reasoningMarkdownComponents} remarkPlugins={[remarkGfm]}>
                 {reasoningContent}
               </ReactMarkdown>
             </div>
@@ -736,6 +737,54 @@ function createMarkdownComponents(citations: QACitation[]) {
         {children}
       </pre>
     ),
+    table: ({ children, ...rest }: MarkdownComponentProps) => (
+      <div className="my-3 overflow-x-auto">
+        <table className="w-full border-collapse border border-border text-sm" {...rest}>
+          {children}
+        </table>
+      </div>
+    ),
+    thead: ({ children, ...rest }: MarkdownComponentProps) => (
+      <thead className="bg-muted/50" {...rest}>
+        {children}
+      </thead>
+    ),
+    tbody: ({ children, ...rest }: MarkdownComponentProps) => <tbody {...rest}>{children}</tbody>,
+    tr: ({ children, ...rest }: MarkdownComponentProps) => (
+      <tr className="border-b border-border last:border-b-0" {...rest}>
+        {children}
+      </tr>
+    ),
+    th: ({ children, ...rest }: MarkdownComponentProps) => (
+      <th className="px-3 py-2 text-left font-semibold text-foreground" {...rest}>
+        {renderCitationChildren(children, citationsByNo)}
+      </th>
+    ),
+    td: ({ children, ...rest }: MarkdownComponentProps) => (
+      <td className="px-3 py-2 text-muted-foreground" {...rest}>
+        {renderCitationChildren(children, citationsByNo)}
+      </td>
+    ),
+    a: ({ children, href, ...rest }: MarkdownComponentProps & { href?: string }) => (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-primary underline hover:text-primary/80"
+        {...rest}
+      >
+        {children}
+      </a>
+    ),
+    blockquote: ({ children, ...rest }: MarkdownComponentProps) => (
+      <blockquote
+        className="my-2 border-l-4 border-primary/30 pl-4 italic text-muted-foreground"
+        {...rest}
+      >
+        {children}
+      </blockquote>
+    ),
+    hr: (_props: MarkdownComponentProps) => <hr className="my-4 border-border" />,
   }
 }
 
@@ -862,7 +911,9 @@ function StreamingContent({
   const markdownElement = useMemo(
     () => (
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      <ReactMarkdown components={components as any}>{displayContent}</ReactMarkdown>
+      <ReactMarkdown components={components as any} remarkPlugins={[remarkGfm]}>
+        {displayContent}
+      </ReactMarkdown>
     ),
     [displayContent, components],
   )
