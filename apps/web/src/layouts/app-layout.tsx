@@ -3,7 +3,6 @@ import { HelpCircle, Loader2, LogOut, RefreshCw, ShieldAlert, UserRound } from '
 import { type PropsWithChildren, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { apiClient } from '@/api/client'
-import { AppVersionBadge } from '@/components/common/app-version-badge'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -15,6 +14,7 @@ import {
 import { adminShellAccess } from '@/lib/access'
 import type { PermissionRequirement } from '@/lib/permissions'
 import { canAccess } from '@/lib/permissions'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 import { usePageTransitionStore } from '@/stores/page-transition-store'
 
@@ -164,34 +164,33 @@ export function AppLayout({ children }: PropsWithChildren) {
           <span className="truncate text-sm font-semibold">{currentLabel}</span>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <nav
-            aria-label="主导航"
-            className="relative flex items-center gap-1 rounded-lg bg-muted/50 p-1 text-sm"
-          >
-            {/* Sliding pill */}
+        <nav
+          aria-label="主导航"
+          className="relative flex items-center gap-1 rounded-lg bg-muted/50 p-1 text-sm"
+        >
+          {/* Sliding pill — only visible when on a main nav item, not /profile */}
+          {visibleNavItems.some((item) => pathname.startsWith(item.to)) && (
             <div
               aria-hidden
               className="absolute top-1 h-[calc(100%-8px)] rounded-md bg-background shadow-sm transition-all duration-300 ease-out"
               style={{ left: sliderStyle.left, width: sliderStyle.width }}
             />
-            {visibleNavItems.map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                ref={(el) => {
-                  navRefs.current[item.to] = el as HTMLAnchorElement | null
-                }}
-                className="relative z-10 rounded-md px-3 py-1.5 transition-colors hover:text-foreground"
-                activeProps={{ className: 'text-foreground font-medium' }}
-                inactiveProps={{ className: 'text-muted-foreground' }}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-          <AppVersionBadge className="hidden lg:inline-flex" />
-        </div>
+          )}
+          {visibleNavItems.map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              ref={(el) => {
+                navRefs.current[item.to] = el as HTMLAnchorElement | null
+              }}
+              className="relative z-10 rounded-md px-3 py-1.5 transition-colors hover:text-foreground"
+              activeProps={{ className: 'text-foreground font-medium' }}
+              inactiveProps={{ className: 'text-muted-foreground' }}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Button
@@ -206,7 +205,10 @@ export function AppLayout({ children }: PropsWithChildren) {
           </Button>
           <Link
             aria-label="打开个人资料"
-            className="hidden max-w-40 items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-muted hover:text-foreground sm:inline-flex"
+            className={cn(
+              'hidden max-w-40 items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-muted hover:text-foreground sm:inline-flex',
+              pathname === '/profile' && 'bg-primary/10 text-primary font-medium',
+            )}
             to="/profile"
           >
             <UserRound className="size-3.5" />
