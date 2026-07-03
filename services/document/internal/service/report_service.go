@@ -364,9 +364,23 @@ func (s *ReportService) CreateOutline(ctx context.Context, reqCtx RequestContext
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	created, err := s.repo.CreateReportOutline(ctx, outline)
+	var created ReportOutline
+	err = s.repo.WithinTx(ctx, func(txRepo ReportRepository) error {
+		if err := requireWritableReportForUpdate(ctx, txRepo, reportID); err != nil {
+			return err
+		}
+		var err error
+		created, err = txRepo.CreateReportOutline(ctx, outline)
+		if err != nil {
+			return mapRepositoryReadError(err, "create report outline failed")
+		}
+		if err := syncOutlineSectionSkeletons(ctx, txRepo, reportID, created, now); err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return ReportOutline{}, mapRepositoryReadError(err, "create report outline failed")
+		return ReportOutline{}, err
 	}
 	recordOperationIfSupported(ctx, s.repo, OperationLog{
 		OperatorID:      reqCtx.UserID,
@@ -424,9 +438,23 @@ func (s *ReportService) UpdateOutline(ctx context.Context, reqCtx RequestContext
 		outline.ManualEdited = true
 	}
 	outline.UpdatedAt = s.now()
-	updated, err := s.repo.UpdateReportOutline(ctx, outline)
+	var updated ReportOutline
+	err = s.repo.WithinTx(ctx, func(txRepo ReportRepository) error {
+		if err := requireWritableReportForUpdate(ctx, txRepo, reportID); err != nil {
+			return err
+		}
+		var err error
+		updated, err = txRepo.UpdateReportOutline(ctx, outline)
+		if err != nil {
+			return mapRepositoryReadError(err, "report outline not found")
+		}
+		if err := syncOutlineSectionSkeletons(ctx, txRepo, reportID, updated, outline.UpdatedAt); err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return ReportOutline{}, mapRepositoryReadError(err, "report outline not found")
+		return ReportOutline{}, err
 	}
 	recordOperationIfSupported(ctx, s.repo, OperationLog{
 		OperatorID:      reqCtx.UserID,
@@ -465,10 +493,25 @@ func (s *ReportService) DeleteOutlineSection(ctx context.Context, reqCtx Request
 	}
 	outline.Sections = RenumberOutline(remaining)
 	outline.ManualEdited = true
-	outline.UpdatedAt = s.now()
-	updated, err := s.repo.UpdateReportOutline(ctx, outline)
+	now := s.now()
+	outline.UpdatedAt = now
+	var updated ReportOutline
+	err = s.repo.WithinTx(ctx, func(txRepo ReportRepository) error {
+		if err := requireWritableReportForUpdate(ctx, txRepo, reportID); err != nil {
+			return err
+		}
+		var err error
+		updated, err = txRepo.UpdateReportOutline(ctx, outline)
+		if err != nil {
+			return mapRepositoryReadError(err, "report outline not found")
+		}
+		if err := syncOutlineSectionSkeletons(ctx, txRepo, reportID, updated, now); err != nil {
+			return err
+		}
+		return nil
+	})
 	if err != nil {
-		return ReportOutline{}, mapRepositoryReadError(err, "report outline not found")
+		return ReportOutline{}, err
 	}
 	recordOperationIfSupported(ctx, s.repo, OperationLog{
 		OperatorID:      reqCtx.UserID,
@@ -484,7 +527,7 @@ func (s *ReportService) DeleteOutlineSection(ctx context.Context, reqCtx Request
 			"deletedSectionId": sectionID,
 			"sectionCount":     len(updated.Sections),
 		},
-		CreatedAt: s.now(),
+		CreatedAt: now,
 	})
 	return updated, nil
 }
@@ -503,6 +546,102 @@ func assignOutlineNodeIDs(nodes []ReportOutlineNode) []ReportOutlineNode {
 	return result
 }
 
+type outlineSectionSkeleton struct {
+	node         ReportOutlineNode
+	parentNodeID string
+	sortOrder    int
+}
+
+func flattenOutlineSectionSkeletons(nodes []ReportOutlineNode) []outlineSectionSkeleton {
+	result := make([]outlineSectionSkeleton, 0)
+	var walk func(items []ReportOutlineNode, parentNodeID string)
+	walk = func(items []ReportOutlineNode, parentNodeID string) {
+		for _, node := range items {
+			result = append(result, outlineSectionSkeleton{
+				node:         node,
+				parentNodeID: parentNodeID,
+				sortOrder:    len(result),
+			})
+			walk(node.Children, node.ID)
+		}
+	}
+	walk(nodes, "")
+	return result
+}
+
+func applyOutlineSectionMetadata(section ReportSection, item outlineSectionSkeleton, parentSectionID string) ReportSection {
+	section.ParentID = parentSectionID
+	section.OutlineNodeID = item.node.ID
+	section.Title = item.node.Title
+	section.Level = item.node.Level
+	section.SortOrder = item.sortOrder
+	section.Numbering = item.node.Numbering
+	return section
+}
+
+func syncOutlineSectionSkeletons(ctx context.Context, repo ReportRepository, reportID string, outline ReportOutline, updatedAt time.Time) error {
+	items := flattenOutlineSectionSkeletons(outline.Sections)
+	if len(items) == 0 {
+		return nil
+	}
+	existing, err := repo.ListReportSections(ctx, reportID)
+	if err != nil {
+		return dependencyError("list report sections", err)
+	}
+
+	sectionsByNodeID := make(map[string]ReportSection, len(existing))
+	for _, section := range existing {
+		if section.ReportID == reportID && section.OutlineID == outline.ID && strings.TrimSpace(section.OutlineNodeID) != "" {
+			sectionsByNodeID[section.OutlineNodeID] = section
+		}
+	}
+
+	sectionIDByNodeID := make(map[string]string, len(items))
+	for _, item := range items {
+		parentSectionID := ""
+		if item.parentNodeID != "" {
+			parentSectionID = sectionIDByNodeID[item.parentNodeID]
+		}
+
+		if section, ok := sectionsByNodeID[item.node.ID]; ok {
+			section = applyOutlineSectionMetadata(section, item, parentSectionID)
+			section.UpdatedAt = updatedAt
+			updated, err := repo.UpdateReportSection(ctx, section)
+			if err != nil {
+				return mapRepositoryReadError(err, "update report section failed")
+			}
+			sectionIDByNodeID[item.node.ID] = updated.ID
+			continue
+		}
+
+		id := newID()
+		created, err := repo.CreateReportSection(ctx, ReportSection{
+			ID:               id,
+			ReportID:         reportID,
+			OutlineID:        outline.ID,
+			ParentID:         parentSectionID,
+			OutlineNodeID:    item.node.ID,
+			SectionPath:      id,
+			Title:            item.node.Title,
+			Level:            item.node.Level,
+			SortOrder:        item.sortOrder,
+			Numbering:        item.node.Numbering,
+			SectionType:      SectionTypeText,
+			GenerationStatus: JobStatusPending,
+			ContentSource:    ContentSourceAI,
+			ManualEdited:     false,
+			Version:          1,
+			CreatedAt:        updatedAt,
+			UpdatedAt:        updatedAt,
+		})
+		if err != nil {
+			return mapRepositoryReadError(err, "create report section failed")
+		}
+		sectionIDByNodeID[item.node.ID] = created.ID
+	}
+	return nil
+}
+
 // --- Sections ---
 
 func (s *ReportService) ListSections(ctx context.Context, reqCtx RequestContext, reportID string) ([]ReportSection, error) {
@@ -513,7 +652,51 @@ func (s *ReportService) ListSections(ctx context.Context, reqCtx RequestContext,
 	if err != nil {
 		return nil, dependencyError("list report sections", err)
 	}
-	return sections, nil
+	return filterSectionsForCurrentOutline(ctx, s.repo, reportID, sections)
+}
+
+type reportOutlineLister interface {
+	ListReportOutlines(ctx context.Context, reportID string) ([]ReportOutline, error)
+}
+
+func filterSectionsForCurrentOutline(ctx context.Context, repo reportOutlineLister, reportID string, sections []ReportSection) ([]ReportSection, error) {
+	outlines, err := repo.ListReportOutlines(ctx, reportID)
+	if err != nil {
+		return nil, dependencyError("list report outlines", err)
+	}
+	currentOutline, ok := currentReportOutline(outlines)
+	if !ok {
+		return sections, nil
+	}
+	return sectionsForOutline(sections, currentOutline), nil
+}
+
+func requireSectionVisibleInCurrentOutline(ctx context.Context, repo reportOutlineLister, reportID string, section ReportSection) error {
+	outlineID := strings.TrimSpace(section.OutlineID)
+	if outlineID == "" {
+		return nil
+	}
+	outlines, err := repo.ListReportOutlines(ctx, reportID)
+	if err != nil {
+		return dependencyError("list report outlines", err)
+	}
+	currentOutline, ok := currentReportOutline(outlines)
+	if !ok {
+		return nil
+	}
+	if outlineID != strings.TrimSpace(currentOutline.ID) {
+		return NewError(CodeNotFound, "report section not found", nil)
+	}
+	nodeID := strings.TrimSpace(section.OutlineNodeID)
+	if nodeID == "" {
+		return NewError(CodeNotFound, "report section not found", nil)
+	}
+	for _, item := range flattenOutlineSectionSkeletons(currentOutline.Sections) {
+		if strings.TrimSpace(item.node.ID) == nodeID {
+			return nil
+		}
+	}
+	return NewError(CodeNotFound, "report section not found", nil)
 }
 
 func (s *ReportService) CreateSection(ctx context.Context, reqCtx RequestContext, reportID string, input CreateSectionInput) (ReportSection, error) {
@@ -577,6 +760,9 @@ func (s *ReportService) GetSection(ctx context.Context, reqCtx RequestContext, r
 	if section.ReportID != reportID {
 		return ReportSection{}, NewError(CodeNotFound, "report section not found", nil)
 	}
+	if err := requireSectionVisibleInCurrentOutline(ctx, s.repo, reportID, section); err != nil {
+		return ReportSection{}, err
+	}
 	return section, nil
 }
 
@@ -620,6 +806,9 @@ func (s *ReportService) UpdateSection(ctx context.Context, reqCtx RequestContext
 		}
 		if currentSection.ReportID != reportID {
 			return NewError(CodeNotFound, "report section not found", nil)
+		}
+		if err := requireSectionVisibleInCurrentOutline(ctx, txRepo, reportID, currentSection); err != nil {
+			return err
 		}
 		if currentSection.GenerationStatus == JobStatusRunning {
 			return NewError(CodeConflict, "section content generation is in progress", nil)
@@ -731,6 +920,9 @@ func (s *ReportService) SaveSections(ctx context.Context, reqCtx RequestContext,
 			}
 			if section.ReportID != reportID {
 				return NewError(CodeNotFound, "report section not found", nil)
+			}
+			if err := requireSectionVisibleInCurrentOutline(ctx, txRepo, reportID, section); err != nil {
+				return err
 			}
 			if section.GenerationStatus == JobStatusRunning {
 				return NewError(CodeConflict, "section content generation is in progress", nil)

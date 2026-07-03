@@ -561,6 +561,10 @@ func TestReportGenerationServiceContentGenerationUsesCurrentOutlineSections(t *t
 		ReportID:  "report-1",
 		Version:   2,
 		IsCurrent: true,
+		Sections: []ReportOutlineNode{
+			{ID: "node-current-1", Title: "Edited overview", Level: 1, Numbering: "1"},
+			{ID: "node-current-2", Title: "Edited risk", Level: 1, Numbering: "2"},
+		},
 	}
 	repo.sections["section-old"] = ReportSection{
 		ID:               "section-old",
@@ -575,7 +579,8 @@ func TestReportGenerationServiceContentGenerationUsesCurrentOutlineSections(t *t
 		ID:               "section-current-1",
 		ReportID:         "report-1",
 		OutlineID:        "outline-current",
-		Title:            "Current overview",
+		OutlineNodeID:    "node-current-1",
+		Title:            "Original overview",
 		SortOrder:        1,
 		Version:          1,
 		GenerationStatus: JobStatusPending,
@@ -584,8 +589,19 @@ func TestReportGenerationServiceContentGenerationUsesCurrentOutlineSections(t *t
 		ID:               "section-current-2",
 		ReportID:         "report-1",
 		OutlineID:        "outline-current",
-		Title:            "Current risk",
+		OutlineNodeID:    "node-current-2",
+		Title:            "Original risk",
 		SortOrder:        2,
+		Version:          1,
+		GenerationStatus: JobStatusPending,
+	}
+	repo.sections["section-removed-current-outline"] = ReportSection{
+		ID:               "section-removed-current-outline",
+		ReportID:         "report-1",
+		OutlineID:        "outline-current",
+		OutlineNodeID:    "node-removed",
+		Title:            "Removed stale node",
+		SortOrder:        3,
 		Version:          1,
 		GenerationStatus: JobStatusPending,
 	}
@@ -593,7 +609,7 @@ func TestReportGenerationServiceContentGenerationUsesCurrentOutlineSections(t *t
 		responses: []ChatCompletionResponse{
 			{Content: `{"content":"current overview body","tables":[]}`},
 			{Content: `{"content":"current risk body","tables":[]}`},
-			{Content: `{"content":"legacy body","tables":[]}`},
+			{Content: `{"content":"stale body","tables":[]}`},
 		},
 	}
 	svc := NewReportGenerationService(repo, chat)
@@ -614,8 +630,19 @@ func TestReportGenerationServiceContentGenerationUsesCurrentOutlineSections(t *t
 	if len(chat.requests) != 2 {
 		t.Fatalf("chat request count = %d, want 2 current outline sections", len(chat.requests))
 	}
+	firstPrompt := chat.requests[0].Messages[1].Content
+	if !strings.Contains(firstPrompt, "Edited overview") || strings.Contains(firstPrompt, "Original overview") {
+		t.Fatalf("first section prompt did not use current outline title: %s", firstPrompt)
+	}
+	secondPrompt := chat.requests[1].Messages[1].Content
+	if !strings.Contains(secondPrompt, "Edited risk") || strings.Contains(secondPrompt, "Original risk") {
+		t.Fatalf("second section prompt did not use current outline title: %s", secondPrompt)
+	}
 	if got := repo.sections["section-old"]; got.Content != "" || got.GenerationStatus != JobStatusPending {
 		t.Fatalf("old outline section was generated: %+v", got)
+	}
+	if got := repo.sections["section-removed-current-outline"]; got.Content != "" || got.GenerationStatus != JobStatusPending {
+		t.Fatalf("removed current-outline node was generated: %+v", got)
 	}
 	if got := repo.sections["section-current-1"]; got.Content != "current overview body" || got.Version != 2 {
 		t.Fatalf("current section 1 = %+v", got)
@@ -626,6 +653,77 @@ func TestReportGenerationServiceContentGenerationUsesCurrentOutlineSections(t *t
 	lastProgress := repo.progressUpdates[len(repo.progressUpdates)-1]
 	if lastProgress["completed"] != 2 || lastProgress["total"] != 2 {
 		t.Fatalf("last progress = %+v, want 2/2 current outline sections", lastProgress)
+	}
+}
+
+func TestReportGenerationServiceSectionRegenerationRejectsStaleOutlineSection(t *testing.T) {
+	repo := newFakeReportGenerationRepository()
+	repo.reports["report-1"] = Report{
+		ID:         "report-1",
+		Name:       "Summer peak inspection",
+		ReportType: "summer_peak_inspection",
+		Topic:      "summer power supply",
+		CreatorID:  "user-1",
+		Status:     ReportStatusOutlineGenerated,
+	}
+	repo.jobs["job-1"] = ReportJob{
+		ID:         "job-1",
+		JobType:    JobTypeSectionRegeneration,
+		ReportID:   "report-1",
+		TargetID:   "section-old",
+		TargetType: "section",
+	}
+	repo.outlines["outline-old"] = ReportOutline{
+		ID:        "outline-old",
+		ReportID:  "report-1",
+		Version:   1,
+		IsCurrent: false,
+		Sections:  []ReportOutlineNode{{ID: "node-old", Title: "Old"}},
+	}
+	repo.outlines["outline-current"] = ReportOutline{
+		ID:        "outline-current",
+		ReportID:  "report-1",
+		Version:   2,
+		IsCurrent: true,
+		Sections:  []ReportOutlineNode{{ID: "node-current", Title: "Current"}},
+	}
+	repo.sections["section-old"] = ReportSection{
+		ID:               "section-old",
+		ReportID:         "report-1",
+		OutlineID:        "outline-old",
+		OutlineNodeID:    "node-old",
+		Title:            "Old section",
+		Version:          1,
+		GenerationStatus: JobStatusPending,
+	}
+	repo.sections["section-current"] = ReportSection{
+		ID:               "section-current",
+		ReportID:         "report-1",
+		OutlineID:        "outline-current",
+		OutlineNodeID:    "node-current",
+		Title:            "Current section",
+		Version:          1,
+		GenerationStatus: JobStatusPending,
+	}
+	chat := &fakeGenerationChatClient{
+		responses: []ChatCompletionResponse{{Content: `{"content":"stale body","tables":[]}`}},
+	}
+	svc := NewReportGenerationService(repo, chat)
+
+	_, err := svc.ExecuteReportGeneration(context.Background(), ReportGenerationExecutionPayload{
+		RequestID: "req-section",
+		JobType:   JobTypeSectionRegeneration,
+		JobID:     "job-1",
+		UserID:    "user-1",
+	})
+	if code := errorCode(t, err); code != CodeValidation {
+		t.Fatalf("error code = %q, want %q", code, CodeValidation)
+	}
+	if len(chat.requests) != 0 {
+		t.Fatalf("chat request count = %d, want 0 for stale section regeneration", len(chat.requests))
+	}
+	if got := repo.sections["section-old"]; got.Content != "" || got.GenerationStatus != JobStatusPending || got.LastJobID != "" {
+		t.Fatalf("stale section changed: %+v", got)
 	}
 }
 

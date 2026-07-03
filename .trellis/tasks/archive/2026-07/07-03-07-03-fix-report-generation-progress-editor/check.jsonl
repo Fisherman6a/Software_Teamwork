@@ -1,0 +1,1 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Document service report generation and export changes require service-local go test ./... and go build ./cmd/server verification."}
