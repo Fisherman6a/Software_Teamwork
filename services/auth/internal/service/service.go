@@ -12,14 +12,19 @@ import (
 )
 
 const (
-	defaultSessionTTL = 24 * time.Hour
-	defaultPageSize   = 20
-	maxPageSize       = 100
-	minPasswordLength = 8
-	maxPasswordLength = 1024
+	defaultSessionTTL                = 24 * time.Hour
+	defaultPageSize                  = 20
+	maxPageSize                      = 100
+	minPasswordLength                = 8
+	maxPasswordLength                = 1024
+	defaultCredentialWorkMaxInFlight = 4
+	defaultLoginFailureLimit         = 5
+	defaultLoginFailureWindow        = 15 * time.Minute
+	defaultLoginLockDuration         = 15 * time.Minute
 
 	reasonInvalidCredentials = "invalid_credentials"
 	reasonAccountUnavailable = "account_unavailable"
+	reasonRateLimited        = "rate_limited"
 	reasonDefaultRole        = "default_role"
 	reasonUserLogout         = "user_logout"
 	reasonUserDisabled       = "user_disabled"
@@ -51,6 +56,10 @@ type Service struct {
 	tokenHashKeyVersion string
 	sessionTTL          time.Duration
 	defaultRoleCode     string
+	credentialWork      chan struct{}
+	loginFailureLimit   int
+	loginFailureWindow  time.Duration
+	loginLockDuration   time.Duration
 	logger              *slog.Logger
 }
 
@@ -66,6 +75,10 @@ func New(repo Repository, opts ...Option) *Service {
 		tokenHashKeyVersion: TokenHashKeyVersionV1,
 		sessionTTL:          defaultSessionTTL,
 		defaultRoleCode:     DefaultRoleCode,
+		credentialWork:      make(chan struct{}, defaultCredentialWorkMaxInFlight),
+		loginFailureLimit:   defaultLoginFailureLimit,
+		loginFailureWindow:  defaultLoginFailureWindow,
+		loginLockDuration:   defaultLoginLockDuration,
 		logger:              slog.Default(),
 	}
 	for _, opt := range opts {
@@ -128,6 +141,30 @@ func WithDefaultRoleCode(roleCode string) Option {
 	}
 }
 
+func WithCredentialWorkMaxInFlight(max int) Option {
+	return func(s *Service) {
+		if max <= 0 {
+			s.credentialWork = nil
+			return
+		}
+		s.credentialWork = make(chan struct{}, max)
+	}
+}
+
+func WithLoginFailurePolicy(limit int, window time.Duration, lockDuration time.Duration) Option {
+	return func(s *Service) {
+		if limit >= 0 {
+			s.loginFailureLimit = limit
+		}
+		if window > 0 {
+			s.loginFailureWindow = window
+		}
+		if lockDuration >= 0 {
+			s.loginLockDuration = lockDuration
+		}
+	}
+}
+
 func WithLogger(logger *slog.Logger) Option {
 	return func(s *Service) {
 		if logger != nil {
@@ -148,9 +185,9 @@ func (s *Service) CreateUser(ctx context.Context, reqCtx RequestContext, input C
 	if err != nil {
 		return SessionResponse{}, err
 	}
-	passwordHash, err := hashPassword(password)
+	passwordHash, err := s.hashPasswordGuarded(ctx, password)
 	if err != nil {
-		return SessionResponse{}, DependencyError("credential hashing failed", err)
+		return SessionResponse{}, credentialWorkError("credential hashing failed", err)
 	}
 
 	now := s.now()
@@ -211,6 +248,7 @@ func (s *Service) CreateSession(ctx context.Context, reqCtx RequestContext, inpu
 		return SessionResponse{}, err
 	}
 
+	now := s.now()
 	user, err := s.repo.FindUserByUsername(ctx, username)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
@@ -222,11 +260,17 @@ func (s *Service) CreateSession(ctx context.Context, reqCtx RequestContext, inpu
 		return SessionResponse{}, mapRepositoryError(err, "user not found")
 	}
 
-	if !userCanCreateSession(user.User, s.now()) {
+	if user.Status != UserStatusActive {
 		if eventErr := s.recordSessionFailure(ctx, reqCtx, &user.User, username, reasonAccountUnavailable); eventErr != nil {
 			return SessionResponse{}, eventErr
 		}
 		return SessionResponse{}, invalidCredentialsError()
+	}
+	if retryAfter := loginLockRetryAfter(user.User, now); retryAfter > 0 {
+		if eventErr := s.recordSessionFailure(ctx, reqCtx, &user.User, username, reasonRateLimited); eventErr != nil {
+			return SessionResponse{}, eventErr
+		}
+		return SessionResponse{}, RateLimitedError("rate limited", retryAfter)
 	}
 
 	credential, err := s.repo.FindCredentialByUserID(ctx, user.ID)
@@ -242,15 +286,25 @@ func (s *Service) CreateSession(ctx context.Context, reqCtx RequestContext, inpu
 	if credential.PasswordHashAlg != PasswordHashAlg || credential.PasswordHashParamsVersion != PasswordHashParamsVersion {
 		return SessionResponse{}, DependencyError("credential parameters are unsupported", nil)
 	}
-	ok, err := verifyPassword(password, credential.PasswordHash)
+	ok, err := s.verifyPasswordGuarded(ctx, password, credential.PasswordHash)
 	if err != nil {
-		return SessionResponse{}, DependencyError("credential verification failed", err)
+		return SessionResponse{}, credentialWorkError("credential verification failed", err)
 	}
 	if !ok {
+		failure, err := s.recordLoginFailureState(ctx, user.ID, now)
+		if err != nil {
+			return SessionResponse{}, err
+		}
 		if eventErr := s.recordSessionFailure(ctx, reqCtx, &user.User, username, reasonInvalidCredentials); eventErr != nil {
 			return SessionResponse{}, eventErr
 		}
+		if retryAfter := retryAfterUntil(failure.LockedUntil, now); retryAfter > 0 {
+			return SessionResponse{}, RateLimitedError("rate limited", retryAfter)
+		}
 		return SessionResponse{}, invalidCredentialsError()
+	}
+	if err := s.repo.ResetLoginFailures(ctx, ResetLoginFailuresParams{UserID: user.ID, ResetAt: now}); err != nil {
+		return SessionResponse{}, mapRepositoryError(err, "credential not found")
 	}
 
 	userSummary := summaryFromRecord(user)
@@ -398,9 +452,9 @@ func (s *Service) CreateAdminUser(ctx context.Context, reqCtx RequestContext, in
 	if err := validateOptionalProfile("phone", input.Phone, 32); err != nil {
 		return AdminUserRecord{}, err
 	}
-	passwordHash, err := hashPassword(password)
+	passwordHash, err := s.hashPasswordGuarded(ctx, password)
 	if err != nil {
-		return AdminUserRecord{}, DependencyError("credential hashing failed", err)
+		return AdminUserRecord{}, credentialWorkError("credential hashing failed", err)
 	}
 	now := s.now()
 	user, err := s.repo.CreateUserWithCredential(ctx, CreateUserParams{
@@ -599,9 +653,9 @@ func (s *Service) ResetManagedUserPassword(ctx context.Context, reqCtx RequestCo
 	if err != nil {
 		return AdminUserRecord{}, err
 	}
-	passwordHash, err := hashPassword(password)
+	passwordHash, err := s.hashPasswordGuarded(ctx, password)
 	if err != nil {
-		return AdminUserRecord{}, DependencyError("credential hashing failed", err)
+		return AdminUserRecord{}, credentialWorkError("credential hashing failed", err)
 	}
 	if _, err := s.repo.UpdatePassword(ctx, UpdatePasswordParams{
 		UserID:                    userID,
@@ -713,16 +767,16 @@ func (s *Service) ChangeRequiredPassword(ctx context.Context, reqCtx RequestCont
 	if credential.PasswordHashAlg != PasswordHashAlg || credential.PasswordHashParamsVersion != PasswordHashParamsVersion {
 		return UserRecord{}, DependencyError("credential parameters are unsupported", nil)
 	}
-	ok, err := verifyPassword(input.CurrentPassword, credential.PasswordHash)
+	ok, err := s.verifyPasswordGuarded(ctx, input.CurrentPassword, credential.PasswordHash)
 	if err != nil {
-		return UserRecord{}, DependencyError("credential verification failed", err)
+		return UserRecord{}, credentialWorkError("credential verification failed", err)
 	}
 	if !ok {
 		return UserRecord{}, NewError(CodeUnauthorized, "invalid current password", nil)
 	}
-	passwordHash, err := hashPassword(newPassword)
+	passwordHash, err := s.hashPasswordGuarded(ctx, newPassword)
 	if err != nil {
-		return UserRecord{}, DependencyError("credential hashing failed", err)
+		return UserRecord{}, credentialWorkError("credential hashing failed", err)
 	}
 	if _, err := s.repo.UpdatePassword(ctx, UpdatePasswordParams{
 		UserID:                    user.ID,
@@ -879,6 +933,56 @@ func (s *Service) recordSessionFailure(ctx context.Context, reqCtx RequestContex
 		Status:           SecurityEventStatusFailed,
 		ReasonCode:       stringPtr(reason),
 	})
+}
+
+func (s *Service) acquireCredentialWork(ctx context.Context) (func(), error) {
+	if s.credentialWork == nil {
+		return func() {}, nil
+	}
+	select {
+	case s.credentialWork <- struct{}{}:
+		return func() { <-s.credentialWork }, nil
+	default:
+		return nil, RateLimitedError("rate limited", 0)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (s *Service) hashPasswordGuarded(ctx context.Context, password string) (string, error) {
+	release, err := s.acquireCredentialWork(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+	return hashPassword(password)
+}
+
+func (s *Service) verifyPasswordGuarded(ctx context.Context, password string, encodedHash string) (bool, error) {
+	release, err := s.acquireCredentialWork(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer release()
+	return verifyPassword(password, encodedHash)
+}
+
+func (s *Service) recordLoginFailureState(ctx context.Context, userID string, now time.Time) (LoginFailureResult, error) {
+	if s.loginFailureLimit <= 0 || s.loginLockDuration <= 0 {
+		return LoginFailureResult{}, nil
+	}
+	lockUntil := now.Add(s.loginLockDuration)
+	result, err := s.repo.RecordLoginFailure(ctx, LoginFailureParams{
+		UserID:       userID,
+		FailedAt:     now,
+		WindowStart:  now.Add(-s.loginFailureWindow),
+		FailureLimit: s.loginFailureLimit,
+		LockUntil:    &lockUntil,
+	})
+	if err != nil {
+		return LoginFailureResult{}, mapRepositoryError(err, "credential not found")
+	}
+	return result, nil
 }
 
 func (s *Service) recordSecurityEvent(ctx context.Context, reqCtx RequestContext, params SecurityEventParams) error {
@@ -1222,6 +1326,17 @@ func userCanCreateSession(user User, now time.Time) bool {
 	return user.LockedUntil == nil || !user.LockedUntil.After(now)
 }
 
+func loginLockRetryAfter(user User, now time.Time) time.Duration {
+	return retryAfterUntil(user.LockedUntil, now)
+}
+
+func retryAfterUntil(until *time.Time, now time.Time) time.Duration {
+	if until == nil || !until.After(now) {
+		return 0
+	}
+	return until.Sub(now)
+}
+
 func summaryFromRecord(user UserRecord) UserSummary {
 	return UserSummary{
 		ID:                 user.ID,
@@ -1238,6 +1353,14 @@ func summaryFromRecord(user UserRecord) UserSummary {
 
 func invalidCredentialsError() error {
 	return NewError(CodeUnauthorized, "invalid username or password", nil)
+}
+
+func credentialWorkError(message string, err error) error {
+	var appErr *AppError
+	if errors.As(err, &appErr) {
+		return appErr
+	}
+	return DependencyError(message, err)
 }
 
 func mapRepositoryError(err error, notFoundMessage string) error {

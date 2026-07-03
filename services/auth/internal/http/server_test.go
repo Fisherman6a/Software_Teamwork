@@ -179,6 +179,33 @@ func TestCreateSessionInvalidServiceTokenReturnsUnauthorized(t *testing.T) {
 	}
 }
 
+func TestCreateSessionRateLimitedIncludesRetryAfter(t *testing.T) {
+	auth := fakeAuthService{
+		now:              time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC),
+		createSessionErr: service.RateLimitedError("rate limited", 90*time.Second),
+	}
+	server := authhttp.NewServer(authhttp.Config{Auth: auth, ServiceToken: "test-service-token"})
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/sessions", bytes.NewBufferString(`{"username":"alice","password":"secret"}`))
+	req.Header.Set("X-Request-Id", "req_session")
+	req.Header.Set("X-Service-Token", "test-service-token")
+	req.Header.Set("X-Caller-Service", "gateway")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Retry-After"); got != "90" {
+		t.Fatalf("Retry-After = %q", got)
+	}
+	var body errorBody
+	decodeJSON(t, res.Body.Bytes(), &body)
+	if body.Error.Code != "rate_limited" || body.Error.RequestID != "req_session" {
+		t.Fatalf("error = %+v", body.Error)
+	}
+}
+
 func TestAdminUsersRequiresGatewayAdminServiceToken(t *testing.T) {
 	auth := fakeAuthService{now: time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC)}
 	server := authhttp.NewServer(authhttp.Config{
@@ -347,7 +374,8 @@ type sessionIdentityBody struct {
 }
 
 type fakeAuthService struct {
-	now time.Time
+	now              time.Time
+	createSessionErr error
 }
 
 func (s fakeAuthService) CreateUser(_ context.Context, reqCtx service.RequestContext, _ service.CreateUserInput) (service.SessionResponse, error) {
@@ -360,6 +388,9 @@ func (s fakeAuthService) CreateUser(_ context.Context, reqCtx service.RequestCon
 func (s fakeAuthService) CreateSession(_ context.Context, reqCtx service.RequestContext, _ service.CreateSessionInput) (service.SessionResponse, error) {
 	if reqCtx.CallerService == "" {
 		return service.SessionResponse{}, service.UnauthorizedError()
+	}
+	if s.createSessionErr != nil {
+		return service.SessionResponse{}, s.createSessionErr
 	}
 	return s.sessionResponse(), nil
 }

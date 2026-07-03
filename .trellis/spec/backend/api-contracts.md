@@ -207,6 +207,112 @@ knowledge service -> retrieval infrastructure
 gateway -> normalized KnowledgeQueryResponse or ErrorResponse
 ```
 
+## Scenario: Rate-Limited Responses And Retry-After
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing backend rate limits, concurrency guards, failed
+  login lockout, quota enforcement, or any `429 rate_limited` behavior.
+- Applies to Gateway public responses, service-to-service clients,
+  service-local OpenAPI files, service README configuration tables, and Auth
+  failed-login state when Auth owns the identity decision.
+
+### 2. Signatures
+
+- Public error code: `rate_limited`.
+- HTTP status: `429`.
+- Optional response header:
+
+```text
+Retry-After: <integer seconds>
+```
+
+- Current first-slice environment keys:
+  - `GATEWAY_MAX_IN_FLIGHT`
+  - `GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT`
+  - `AUTH_CREDENTIAL_WORK_MAX_IN_FLIGHT`
+  - `AUTH_LOGIN_FAILURE_LIMIT`
+  - `AUTH_LOGIN_FAILURE_WINDOW`
+  - `AUTH_LOGIN_LOCK_DURATION`
+
+### 3. Contracts
+
+- All `429` responses still use the standard error envelope:
+
+```json
+{
+  "error": {
+    "code": "rate_limited",
+    "message": "rate limited",
+    "requestId": "req_123"
+  }
+}
+```
+
+- `Retry-After` is present only when the service knows a concrete remaining
+  wait time, such as Auth failed-login lockout derived from `locked_until`.
+- Process-local saturation, such as in-flight request guards or credential
+  work guards, must not invent a wait time and normally omits `Retry-After`.
+- Gateway must preserve a valid numeric `Retry-After` from Auth or an owner
+  service when normalizing a downstream `429`; it must not forward raw
+  downstream error bodies or non-numeric header values.
+- OpenAPI must document `Retry-After` on relevant `429` responses when the
+  caller can observe the header.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Gateway public in-flight limit saturated | `429 rate_limited`, standard envelope, request id, no `Retry-After` |
+| Gateway Auth-refresh fan-out limit saturated | `429 rate_limited`, standard envelope, no Auth call for rejected request |
+| Auth credential-work guard saturated | `429 rate_limited`, standard envelope, no `Retry-After` |
+| Auth failed-login lockout active or triggered | `429 rate_limited` with numeric `Retry-After` based on `locked_until - now` |
+| Auth/owner service returns `429` with numeric `Retry-After` to Gateway | Gateway returns `429 rate_limited` and preserves that header |
+| Downstream returns raw or sensitive error payload | Gateway normalizes message/code and does not leak raw body fields |
+
+### 5. Good/Base/Bad Cases
+
+- Good: Auth sets `Retry-After` from known lockout state; Gateway preserves it
+  while keeping the public error envelope sanitized.
+- Base: a local semaphore rejects saturated work with `429 rate_limited` and no
+  `Retry-After` because no stable wait time is knowable.
+- Bad: returning `503`, `500`, or raw downstream bodies for quota/rate
+  conditions; fabricating a retry time for per-process saturation; documenting
+  `Retry-After` without a test that proves it is emitted or propagated.
+
+### 6. Tests Required
+
+- Gateway handler tests assert saturated in-flight requests return `429`, the
+  standard envelope, and `X-Request-Id`.
+- Gateway protected-route tests assert Auth refresh fan-out is bounded and
+  rejected requests do not enter the Auth client.
+- Gateway proxy/auth-client tests assert numeric downstream `Retry-After` is
+  preserved on `429`.
+- Auth HTTP tests assert a `service.CodeRateLimited` error with known wait time
+  produces a `Retry-After` header in seconds.
+- Auth service tests assert process-local credential saturation returns
+  `CodeRateLimited` without known retry time, and lockout returns
+  `CodeRateLimited` with a positive retry duration.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```go
+// Invents a wait time for process-local saturation.
+w.Header().Set("Retry-After", "1")
+writeRateLimited(w, r)
+```
+
+#### Correct
+
+```go
+if lockedUntil != nil && lockedUntil.After(now) {
+    return service.RateLimitedError("rate limited", lockedUntil.Sub(now))
+}
+return service.RateLimitedError("rate limited", 0)
+```
+
 ## Related Documents
 
 - `docs/services/gateway/README.md`

@@ -212,7 +212,7 @@ paths:
         '403':
           $ref: '#/components/responses/Error'
         '429':
-          $ref: '#/components/responses/Error'
+          $ref: '#/components/responses/RateLimited'
   /internal/v1/sessions/{sessionId}:
     parameters:
     - $ref: '#/components/parameters/RequestIdHeader'
@@ -302,6 +302,20 @@ components:
   responses:
     Error:
       description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: |
+        Auth rate limit or temporary lockout. Retry-After is present when Auth
+        knows the remaining wait time, such as failed-login lockout.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying when the wait time is known.
+          schema:
+            type: integer
+            minimum: 1
       content:
         application/json:
           schema:

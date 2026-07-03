@@ -330,6 +330,24 @@ type SecurityEventParams struct {
 	CreatedAt        time.Time
 }
 
+type LoginFailureParams struct {
+	UserID       string
+	FailedAt     time.Time
+	WindowStart  time.Time
+	FailureLimit int
+	LockUntil    *time.Time
+}
+
+type LoginFailureResult struct {
+	FailedAttemptCount int32
+	LockedUntil        *time.Time
+}
+
+type ResetLoginFailuresParams struct {
+	UserID  string
+	ResetAt time.Time
+}
+
 type Repository interface {
 	FindUserByID(ctx context.Context, id string) (UserRecord, error)
 	FindUserByUsername(ctx context.Context, username string) (UserRecord, error)
@@ -342,6 +360,8 @@ type Repository interface {
 	UpdateUserStatus(ctx context.Context, params UpdateUserStatusParams) (UserRecord, error)
 	ReplaceUserRole(ctx context.Context, params ReplaceUserRoleParams) (UserRecord, error)
 	UpdatePassword(ctx context.Context, params UpdatePasswordParams) (Credential, error)
+	RecordLoginFailure(ctx context.Context, params LoginFailureParams) (LoginFailureResult, error)
+	ResetLoginFailures(ctx context.Context, params ResetLoginFailuresParams) error
 	CreateSession(ctx context.Context, params CreateSessionParams) (SessionIdentity, error)
 	RevokeSession(ctx context.Context, params RevokeSessionParams) (Session, error)
 	RevokeUserSessions(ctx context.Context, params RevokeUserSessionsParams) ([]Session, error)

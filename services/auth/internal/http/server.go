@@ -43,6 +43,7 @@ type Config struct {
 	ServiceVersion    string
 	Environment       string
 	ReadinessTimeout  time.Duration
+	RequestTimeout    time.Duration
 	ReadinessChecker  ReadinessChecker
 	Auth              AuthService
 	ServiceToken      string
@@ -57,6 +58,7 @@ type Server struct {
 	serviceVersion    string
 	environment       string
 	readinessTimeout  time.Duration
+	requestTimeout    time.Duration
 	readinessChecker  ReadinessChecker
 	logger            *slog.Logger
 	mux               *http.ServeMux
@@ -83,6 +85,7 @@ func NewServer(cfg Config) *Server {
 		serviceVersion:    cfg.ServiceVersion,
 		environment:       cfg.Environment,
 		readinessTimeout:  cfg.ReadinessTimeout,
+		requestTimeout:    cfg.RequestTimeout,
 		readinessChecker:  cfg.ReadinessChecker,
 		logger:            cfg.Logger,
 		mux:               http.NewServeMux(),
@@ -116,6 +119,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := contextWithRequestID(r.Context(), requestID)
+	if s.requestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.requestTimeout)
+		defer cancel()
+	}
 	r = r.WithContext(ctx)
 	w.Header().Set("X-Request-Id", requestID)
 

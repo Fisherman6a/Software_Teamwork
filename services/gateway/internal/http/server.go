@@ -15,25 +15,27 @@ import (
 )
 
 type Config struct {
-	Logger                *slog.Logger
-	ServiceVersion        string
-	Environment           string
-	RequestTimeout        time.Duration
-	MaxBodyBytes          int64
-	CORSAllowedOrigins    []string
-	CORSAllowedMethods    []string
-	CORSAllowedHeaders    []string
-	CORSAllowCredentials  bool
-	DownstreamTimeout     time.Duration
-	InternalServiceToken  string
-	AuthAdminServiceToken string
-	OwnerBaseURLs         map[string]string
-	AuthClient            AuthClient
-	SessionStore          service.SessionStore
-	TokenHasher           service.TokenHasher
-	HTTPClient            *http.Client
-	ReadyCheck            func(context.Context) error
-	MetricsReg            *metrics.Registry
+	Logger                 *slog.Logger
+	ServiceVersion         string
+	Environment            string
+	RequestTimeout         time.Duration
+	MaxBodyBytes           int64
+	MaxInFlight            int
+	AuthRefreshMaxInFlight int
+	CORSAllowedOrigins     []string
+	CORSAllowedMethods     []string
+	CORSAllowedHeaders     []string
+	CORSAllowCredentials   bool
+	DownstreamTimeout      time.Duration
+	InternalServiceToken   string
+	AuthAdminServiceToken  string
+	OwnerBaseURLs          map[string]string
+	AuthClient             AuthClient
+	SessionStore           service.SessionStore
+	TokenHasher            service.TokenHasher
+	HTTPClient             *http.Client
+	ReadyCheck             func(context.Context) error
+	MetricsReg             *metrics.Registry
 }
 
 type Server struct {
@@ -43,6 +45,7 @@ type Server struct {
 	internalServiceToken  string
 	authAdminServiceToken string
 	authClient            AuthClient
+	authRefreshLimiter    *middleware.InFlightLimiter
 	sessionStore          service.SessionStore
 	tokenHasher           service.TokenHasher
 	ownerBaseURLs         map[string]*url.URL
@@ -70,6 +73,7 @@ func NewServer(cfg Config) *Server {
 		internalServiceToken:  strings.TrimSpace(cfg.InternalServiceToken),
 		authAdminServiceToken: strings.TrimSpace(cfg.AuthAdminServiceToken),
 		authClient:            cfg.AuthClient,
+		authRefreshLimiter:    middleware.NewInFlightLimiter(cfg.AuthRefreshMaxInFlight),
 		sessionStore:          cfg.SessionStore,
 		tokenHasher:           cfg.TokenHasher,
 		ownerBaseURLs:         parseOwnerBaseURLs(cfg.OwnerBaseURLs),
@@ -91,6 +95,7 @@ func NewServer(cfg Config) *Server {
 			AllowedHeaders:   cfg.CORSAllowedHeaders,
 			AllowCredentials: cfg.CORSAllowCredentials,
 		}),
+		middleware.InFlight(cfg.MaxInFlight),
 		middleware.BodyLimitForRequest(cfg.MaxBodyBytes, bodyLimitForRequest),
 	)
 	return s

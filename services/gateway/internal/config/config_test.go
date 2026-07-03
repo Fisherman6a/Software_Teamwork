@@ -10,6 +10,8 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_SERVICE_VERSION", "")
 	t.Setenv("GATEWAY_ENV", "")
 	t.Setenv("GATEWAY_MAX_BODY_BYTES", "")
+	t.Setenv("GATEWAY_MAX_IN_FLIGHT", "")
+	t.Setenv("GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT", "")
 	t.Setenv("GATEWAY_REQUEST_TIMEOUT", "")
 	t.Setenv("GATEWAY_SHUTDOWN_TIMEOUT", "")
 	t.Setenv("GATEWAY_CORS_ALLOWED_ORIGINS", "")
@@ -40,6 +42,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.MaxBodyBytes != DefaultMaxBodyBytes {
 		t.Fatalf("MaxBodyBytes = %d", cfg.MaxBodyBytes)
 	}
+	if cfg.MaxInFlight != DefaultMaxInFlight || cfg.AuthRefreshMaxInFlight != DefaultAuthRefreshMaxInFlight {
+		t.Fatalf("in-flight config = %+v", cfg)
+	}
 	if cfg.RequestTimeout != DefaultRequestTimeout {
 		t.Fatalf("RequestTimeout = %s", cfg.RequestTimeout)
 	}
@@ -56,6 +61,8 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	t.Setenv("GATEWAY_SERVICE_VERSION", "1.2.3")
 	t.Setenv("GATEWAY_ENV", "test")
 	t.Setenv("GATEWAY_MAX_BODY_BYTES", "2048")
+	t.Setenv("GATEWAY_MAX_IN_FLIGHT", "8")
+	t.Setenv("GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT", "4")
 	t.Setenv("GATEWAY_REQUEST_TIMEOUT", "5s")
 	t.Setenv("GATEWAY_SHUTDOWN_TIMEOUT", "2s")
 	t.Setenv("GATEWAY_CORS_ALLOWED_ORIGINS", "http://localhost:5173, https://example.com")
@@ -85,6 +92,9 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	}
 	if cfg.MaxBodyBytes != 2048 || cfg.RequestTimeout != 5*time.Second || cfg.ShutdownTimeout != 2*time.Second {
 		t.Fatalf("numeric config = %+v", cfg)
+	}
+	if cfg.MaxInFlight != 8 || cfg.AuthRefreshMaxInFlight != 4 {
+		t.Fatalf("in-flight config = %+v", cfg)
 	}
 	if cfg.DownstreamTimeout != 3*time.Second || cfg.RedisDB != 2 {
 		t.Fatalf("downstream config = %+v", cfg)
@@ -141,6 +151,8 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		val  string
 	}{
 		{name: "max body", key: "GATEWAY_MAX_BODY_BYTES", val: "0"},
+		{name: "max in flight", key: "GATEWAY_MAX_IN_FLIGHT", val: "-1"},
+		{name: "auth refresh max in flight", key: "GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT", val: "nope"},
 		{name: "request timeout", key: "GATEWAY_REQUEST_TIMEOUT", val: "-1s"},
 		{name: "shutdown timeout", key: "GATEWAY_SHUTDOWN_TIMEOUT", val: "bad"},
 		{name: "downstream timeout", key: "GATEWAY_DOWNSTREAM_TIMEOUT", val: "0s"},

@@ -411,6 +411,68 @@ RETURNING
     created_at,
     updated_at;
 
+-- name: RecordCredentialLoginFailure :one
+UPDATE auth_credentials
+SET failed_attempt_count = CASE
+        WHEN last_failed_at IS NULL OR last_failed_at < @window_started_at THEN 1
+        ELSE failed_attempt_count + 1
+    END,
+    last_failed_at = @failed_at,
+    updated_at = @failed_at
+WHERE user_id = @user_id
+    AND credential_type = @credential_type
+RETURNING
+    id,
+    user_id,
+    credential_type,
+    password_hash,
+    password_hash_alg,
+    password_hash_params_version,
+    password_hash_params_json,
+    must_change_password,
+    password_changed_at,
+    password_expires_at,
+    failed_attempt_count,
+    last_failed_at,
+    created_at,
+    updated_at;
+
+-- name: SetUserLockedUntil :one
+UPDATE auth_users
+SET locked_until = @locked_until,
+    updated_at = @updated_at
+WHERE id = @user_id
+    AND deleted_at IS NULL
+RETURNING
+    id,
+    username,
+    display_name,
+    email,
+    phone,
+    status,
+    locked_until,
+    last_login_at,
+    created_at,
+    updated_at,
+    deleted_at;
+
+-- name: ResetCredentialLoginFailures :exec
+UPDATE auth_credentials
+SET failed_attempt_count = 0,
+    last_failed_at = NULL,
+    updated_at = @updated_at
+WHERE user_id = @user_id
+    AND credential_type = @credential_type;
+
+-- name: ClearExpiredUserLock :exec
+UPDATE auth_users
+SET locked_until = NULL,
+    updated_at = @updated_at
+WHERE id = @user_id
+    AND deleted_at IS NULL
+    AND locked_until IS NOT NULL
+    AND locked_until <= @updated_at;
+
 -- name: UpdateUserLastLoginAt :exec
 UPDATE auth_users
 SET last_login_at = $2,

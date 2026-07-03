@@ -51,6 +51,8 @@ func main() {
 			service.WithTokenHashKeyVersion(cfg.TokenKeyVersion),
 			service.WithSessionTTL(cfg.SessionTTL),
 			service.WithDefaultRoleCode(cfg.DefaultRoleCode),
+			service.WithCredentialWorkMaxInFlight(cfg.CredentialWorkMaxInFlight),
+			service.WithLoginFailurePolicy(cfg.LoginFailureLimit, cfg.LoginFailureWindow, cfg.LoginLockDuration),
 			service.WithLogger(logger),
 		)
 	}
@@ -59,6 +61,7 @@ func main() {
 		ServiceVersion:    cfg.ServiceVersion,
 		Environment:       cfg.Environment,
 		ReadinessTimeout:  cfg.ReadinessTimeout,
+		RequestTimeout:    cfg.RequestTimeout,
 		ReadinessChecker:  readinessChecker,
 		Auth:              authService,
 		ServiceToken:      cfg.ServiceToken,
@@ -67,8 +70,9 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:    cfg.HTTPAddr,
-		Handler: handler,
+		Addr:              cfg.HTTPAddr,
+		Handler:           handler,
+		ReadHeaderTimeout: cfg.ReadHeaderTimeout,
 	}
 
 	go func() {

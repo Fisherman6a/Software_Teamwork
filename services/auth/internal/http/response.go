@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
+	"strconv"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/auth/internal/service"
 )
@@ -48,6 +50,9 @@ func writeAppError(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	status := statusForCode(appErr.Code)
 	w.Header().Set("Content-Type", "application/json")
+	if appErr.Code == service.CodeRateLimited && appErr.RetryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(appErr.RetryAfter.Seconds()))))
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(errorEnvelope{Error: errorBody{
 		Code:      appErr.Code,

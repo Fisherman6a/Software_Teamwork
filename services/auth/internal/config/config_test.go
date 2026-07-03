@@ -18,6 +18,12 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("AUTH_DEFAULT_ROLE_CODE", "")
 	t.Setenv("AUTH_SHUTDOWN_TIMEOUT", "")
 	t.Setenv("AUTH_READINESS_TIMEOUT", "")
+	t.Setenv("AUTH_REQUEST_TIMEOUT", "")
+	t.Setenv("AUTH_READ_HEADER_TIMEOUT", "")
+	t.Setenv("AUTH_CREDENTIAL_WORK_MAX_IN_FLIGHT", "")
+	t.Setenv("AUTH_LOGIN_FAILURE_LIMIT", "")
+	t.Setenv("AUTH_LOGIN_FAILURE_WINDOW", "")
+	t.Setenv("AUTH_LOGIN_LOCK_DURATION", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -37,6 +43,17 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.ReadinessTimeout != DefaultReadinessTimeout {
 		t.Fatalf("ReadinessTimeout = %s", cfg.ReadinessTimeout)
+	}
+	if cfg.RequestTimeout != DefaultRequestTimeout || cfg.ReadHeaderTimeout != DefaultReadHeaderTimeout {
+		t.Fatalf("http timeouts = %+v", cfg)
+	}
+	if cfg.CredentialWorkMaxInFlight != DefaultCredentialWorkMaxInFlight {
+		t.Fatalf("CredentialWorkMaxInFlight = %d", cfg.CredentialWorkMaxInFlight)
+	}
+	if cfg.LoginFailureLimit != DefaultLoginFailureLimit ||
+		cfg.LoginFailureWindow != DefaultLoginFailureWindow ||
+		cfg.LoginLockDuration != DefaultLoginLockDuration {
+		t.Fatalf("login failure config = %+v", cfg)
 	}
 	if cfg.SessionTTL != DefaultSessionTTL {
 		t.Fatalf("SessionTTL = %s", cfg.SessionTTL)
@@ -59,6 +76,12 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("AUTH_DEFAULT_ROLE_CODE", "member")
 	t.Setenv("AUTH_SHUTDOWN_TIMEOUT", "5s")
 	t.Setenv("AUTH_READINESS_TIMEOUT", "3")
+	t.Setenv("AUTH_REQUEST_TIMEOUT", "7s")
+	t.Setenv("AUTH_READ_HEADER_TIMEOUT", "4")
+	t.Setenv("AUTH_CREDENTIAL_WORK_MAX_IN_FLIGHT", "2")
+	t.Setenv("AUTH_LOGIN_FAILURE_LIMIT", "3")
+	t.Setenv("AUTH_LOGIN_FAILURE_WINDOW", "10m")
+	t.Setenv("AUTH_LOGIN_LOCK_DURATION", "20m")
 
 	cfg, err := Load()
 	if err != nil {
@@ -75,6 +98,15 @@ func TestLoadOverrides(t *testing.T) {
 	}
 	if cfg.ReadinessTimeout != 3*time.Second {
 		t.Fatalf("ReadinessTimeout = %s", cfg.ReadinessTimeout)
+	}
+	if cfg.RequestTimeout != 7*time.Second || cfg.ReadHeaderTimeout != 4*time.Second {
+		t.Fatalf("http timeouts = %+v", cfg)
+	}
+	if cfg.CredentialWorkMaxInFlight != 2 ||
+		cfg.LoginFailureLimit != 3 ||
+		cfg.LoginFailureWindow != 10*time.Minute ||
+		cfg.LoginLockDuration != 20*time.Minute {
+		t.Fatalf("concurrency/login config = %+v", cfg)
 	}
 	if cfg.ServiceToken != "test-service-token" || cfg.GatewayAdminToken != "gateway-admin-token" || cfg.TokenHashSecret != "test-token-hash-secret" || cfg.TokenKeyVersion != "v9" || cfg.DefaultRoleCode != "member" {
 		t.Fatalf("auth config = %+v", cfg)
@@ -99,11 +131,28 @@ func TestLoadUsesSharedTokenEnvironment(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsInvalidDuration(t *testing.T) {
-	t.Setenv("AUTH_SHUTDOWN_TIMEOUT", "nope")
+func TestLoadRejectsInvalidValues(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		val  string
+	}{
+		{name: "shutdown timeout", key: "AUTH_SHUTDOWN_TIMEOUT", val: "nope"},
+		{name: "request timeout", key: "AUTH_REQUEST_TIMEOUT", val: "0s"},
+		{name: "read header timeout", key: "AUTH_READ_HEADER_TIMEOUT", val: "-1s"},
+		{name: "credential work max", key: "AUTH_CREDENTIAL_WORK_MAX_IN_FLIGHT", val: "-1"},
+		{name: "login failure limit", key: "AUTH_LOGIN_FAILURE_LIMIT", val: "-1"},
+		{name: "login failure window", key: "AUTH_LOGIN_FAILURE_WINDOW", val: "0s"},
+		{name: "login lock duration", key: "AUTH_LOGIN_LOCK_DURATION", val: "bad"},
+	}
 
-	if _, err := Load(); err == nil {
-		t.Fatalf("Load() error = nil")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(tt.key, tt.val)
+			if _, err := Load(); err == nil {
+				t.Fatalf("Load() error = nil")
+			}
+		})
 	}
 }
 

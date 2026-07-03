@@ -623,6 +623,41 @@ func TestAuthClientErrorIsSanitized(t *testing.T) {
 	}
 }
 
+func TestCreateSessionRateLimitedPropagatesRetryAfter(t *testing.T) {
+	auth := &fakeAuthClient{
+		createSessionErr: &authclient.RemoteError{
+			Status:     http.StatusTooManyRequests,
+			RetryAfter: "90",
+			Detail: authclient.ErrorDetail{
+				Code:    "rate_limited",
+				Message: "rate limited",
+			},
+		},
+	}
+	server := newGatewayTestServer(t, gatewayDeps{
+		auth:   auth,
+		store:  newMemorySessionStore(),
+		hasher: testHasher(t),
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions", strings.NewReader(`{"username":"alice","password":"secret"}`))
+	req.Header.Set("X-Request-Id", "req_auth_rate_limited")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Retry-After"); got != "90" {
+		t.Fatalf("Retry-After = %q", got)
+	}
+	var body errorBody
+	decodeJSON(t, res.Body, &body)
+	if body.Error.Code != "rate_limited" || body.Error.RequestID != "req_auth_rate_limited" {
+		t.Fatalf("error = %+v", body.Error)
+	}
+}
+
 func TestProtectedRouteRejectsRevokedAuthoritativeSession(t *testing.T) {
 	hasher := testHasher(t)
 	store := newMemorySessionStore()
@@ -806,6 +841,120 @@ func TestProtectedRouteTreatsAuthAuthorityUnauthorizedAsDependencyError(t *testi
 	}
 	if _, err := store.Get(context.Background(), hash); err != nil {
 		t.Fatalf("cache lookup error = %v, want cached entry retained", err)
+	}
+}
+
+func TestProtectedRouteAuthRefreshLimiterReturnsRateLimitedWhenSaturated(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_1",
+		Username:    "alice",
+		Roles:       []string{"admin"},
+		Permissions: []string{"knowledge:read"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	auth := newBlockingAuthRefreshClient()
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[],"requestId":"req_refresh_first"}`))
+	}))
+	defer downstream.Close()
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		auth:                   auth,
+		store:                  store,
+		hasher:                 hasher,
+		ownerBaseURLs:          map[string]string{"knowledge": downstream.URL},
+		authRefreshMaxInFlight: 1,
+	})
+
+	firstReq := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge-bases", nil)
+	firstReq.Header.Set("Authorization", "Bearer "+accessToken)
+	firstReq.Header.Set("X-Request-Id", "req_refresh_first")
+	firstRes := httptest.NewRecorder()
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		server.ServeHTTP(firstRes, firstReq)
+	}()
+
+	auth.waitEntered(t)
+
+	secondReq := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge-bases", nil)
+	secondReq.Header.Set("Authorization", "Bearer "+accessToken)
+	secondReq.Header.Set("X-Request-Id", "req_refresh_second")
+	secondRes := httptest.NewRecorder()
+	server.ServeHTTP(secondRes, secondReq)
+
+	if secondRes.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, body = %s", secondRes.Code, secondRes.Body.String())
+	}
+	var body errorBody
+	decodeJSON(t, secondRes.Body, &body)
+	if body.Error.Code != "rate_limited" || body.Error.RequestID != "req_refresh_second" {
+		t.Fatalf("error = %+v", body.Error)
+	}
+	if calls := auth.sessionCalls(); calls != 1 {
+		t.Fatalf("GetSession calls = %d, want 1", calls)
+	}
+
+	auth.release()
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not finish")
+	}
+	if firstRes.Code != http.StatusOK {
+		t.Fatalf("first status = %d, body = %s", firstRes.Code, firstRes.Body.String())
+	}
+	if max := auth.maxConcurrentSessions(); max != 1 {
+		t.Fatalf("max concurrent GetSession calls = %d, want 1", max)
+	}
+}
+
+func TestProtectedRouteAuthRefreshLimiterDisabledAllowsRefresh(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_1",
+		Username:    "alice",
+		Roles:       []string{"admin"},
+		Permissions: []string{"knowledge:read"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	auth := &fakeAuthClient{}
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[],"requestId":"req_refresh_disabled"}`))
+	}))
+	defer downstream.Close()
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		auth:                   auth,
+		store:                  store,
+		hasher:                 hasher,
+		ownerBaseURLs:          map[string]string{"knowledge": downstream.URL},
+		authRefreshMaxInFlight: 0,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/knowledge-bases", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Request-Id", "req_refresh_disabled")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
 
@@ -1238,6 +1387,7 @@ func TestProxyMapsDownstreamErrorCodes(t *testing.T) {
 		downstreamCode int
 		wantCode       int
 		wantErrorCode  string
+		wantRetryAfter string
 		bodyMustAbsent string // non-empty: assert gateway body does NOT contain this string
 	}{
 		{
@@ -1271,6 +1421,7 @@ func TestProxyMapsDownstreamErrorCodes(t *testing.T) {
 			downstreamCode: http.StatusTooManyRequests,
 			wantCode:       http.StatusTooManyRequests,
 			wantErrorCode:  "rate_limited",
+			wantRetryAfter: "60",
 		},
 		{
 			// covers the 401 branch in downstreamErrorCode when a business service (not auth)
@@ -1302,6 +1453,9 @@ func TestProxyMapsDownstreamErrorCodes(t *testing.T) {
 				downstreamBody = "service unavailable from upstream"
 			}
 			downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.wantRetryAfter != "" {
+					w.Header().Set("Retry-After", tc.wantRetryAfter)
+				}
 				w.WriteHeader(tc.downstreamCode)
 				_, _ = io.WriteString(w, downstreamBody)
 			}))
@@ -1331,17 +1485,22 @@ func TestProxyMapsDownstreamErrorCodes(t *testing.T) {
 			if body.Error.Code != tc.wantErrorCode {
 				t.Fatalf("error.code = %q, want %q", body.Error.Code, tc.wantErrorCode)
 			}
+			if got := res.Header().Get("Retry-After"); got != tc.wantRetryAfter {
+				t.Fatalf("Retry-After = %q, want %q", got, tc.wantRetryAfter)
+			}
 		})
 	}
 }
 
 type gatewayDeps struct {
-	auth                  gatewayhttp.AuthClient
-	store                 service.SessionStore
-	hasher                service.TokenHasher
-	ownerBaseURLs         map[string]string
-	serviceToken          string
-	authAdminServiceToken string
+	auth                   gatewayhttp.AuthClient
+	store                  service.SessionStore
+	hasher                 service.TokenHasher
+	ownerBaseURLs          map[string]string
+	serviceToken           string
+	authAdminServiceToken  string
+	maxInFlight            int
+	authRefreshMaxInFlight int
 }
 
 func newGatewayTestServer(t *testing.T, deps gatewayDeps) http.Handler {
@@ -1350,19 +1509,21 @@ func newGatewayTestServer(t *testing.T, deps gatewayDeps) http.Handler {
 		deps.ownerBaseURLs = map[string]string{}
 	}
 	return gatewayhttp.NewServer(gatewayhttp.Config{
-		Logger:                slog.New(slog.NewTextHandler(io.Discard, nil)),
-		ServiceVersion:        "test",
-		Environment:           "test",
-		RequestTimeout:        time.Second,
-		MaxBodyBytes:          1024 * 1024,
-		CORSAllowedOrigins:    []string{"*"},
-		DownstreamTimeout:     time.Second,
-		AuthClient:            deps.auth,
-		SessionStore:          deps.store,
-		TokenHasher:           deps.hasher,
-		OwnerBaseURLs:         deps.ownerBaseURLs,
-		InternalServiceToken:  deps.serviceToken,
-		AuthAdminServiceToken: deps.authAdminServiceToken,
+		Logger:                 slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ServiceVersion:         "test",
+		Environment:            "test",
+		RequestTimeout:         time.Second,
+		MaxBodyBytes:           1024 * 1024,
+		MaxInFlight:            deps.maxInFlight,
+		AuthRefreshMaxInFlight: deps.authRefreshMaxInFlight,
+		CORSAllowedOrigins:     []string{"*"},
+		DownstreamTimeout:      time.Second,
+		AuthClient:             deps.auth,
+		SessionStore:           deps.store,
+		TokenHasher:            deps.hasher,
+		OwnerBaseURLs:          deps.ownerBaseURLs,
+		InternalServiceToken:   deps.serviceToken,
+		AuthAdminServiceToken:  deps.authAdminServiceToken,
 	})
 }
 
@@ -1390,6 +1551,84 @@ type fakeAuthClient struct {
 	updateProfileErr     error
 	changePasswordResult service.UserRecord
 	changePasswordErr    error
+}
+
+type blockingAuthRefreshClient struct {
+	fakeAuthClient
+
+	entered     chan struct{}
+	releaseOnce sync.Once
+	released    chan struct{}
+	enteredOnce sync.Once
+
+	mu             sync.Mutex
+	activeSessions int
+	maxSessions    int
+	sessionCount   int
+}
+
+func newBlockingAuthRefreshClient() *blockingAuthRefreshClient {
+	return &blockingAuthRefreshClient{
+		fakeAuthClient: fakeAuthClient{
+			getUserResult: service.UserRecord{
+				ID:          "usr_1",
+				Username:    "alice",
+				Roles:       []string{"admin"},
+				Permissions: []string{"knowledge:read"},
+				Status:      "active",
+			},
+		},
+		entered:  make(chan struct{}),
+		released: make(chan struct{}),
+	}
+}
+
+func (c *blockingAuthRefreshClient) GetSession(ctx context.Context, requestID string, sessionID string, forwarding authclient.ForwardingContext) (service.SessionIdentity, error) {
+	c.mu.Lock()
+	c.sessionCount++
+	c.activeSessions++
+	if c.activeSessions > c.maxSessions {
+		c.maxSessions = c.activeSessions
+	}
+	c.mu.Unlock()
+	c.enteredOnce.Do(func() { close(c.entered) })
+	defer func() {
+		c.mu.Lock()
+		c.activeSessions--
+		c.mu.Unlock()
+	}()
+
+	select {
+	case <-c.released:
+	case <-ctx.Done():
+		return service.SessionIdentity{}, ctx.Err()
+	}
+	return c.fakeAuthClient.GetSession(ctx, requestID, sessionID, forwarding)
+}
+
+func (c *blockingAuthRefreshClient) waitEntered(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.entered:
+	case <-time.After(time.Second):
+		t.Fatal("auth refresh was not entered")
+	}
+}
+
+func (c *blockingAuthRefreshClient) release() {
+	c.releaseOnce.Do(func() { close(c.released) })
+}
+
+func (c *blockingAuthRefreshClient) sessionCalls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sessionCount
+}
+
+func (c *blockingAuthRefreshClient) maxConcurrentSessions() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.maxSessions
 }
 
 func (c *fakeAuthClient) CreateUser(context.Context, string, []byte, authclient.ForwardingContext) (service.SessionResponse, error) {

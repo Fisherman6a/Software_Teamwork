@@ -151,6 +151,8 @@ paths:
           $ref: '#/components/responses/Error'
         '401':
           $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /api/v1/sessions/current:
     delete:
       tags:
@@ -2941,6 +2943,21 @@ components:
   responses:
     Error:
       description: Error response.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: |
+        Gateway or owner-service rate limit. Retry-After may be present when a
+        downstream owner service provides a known wait time; gateway-local
+        process saturation normally omits it.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying when the wait time is known.
+          schema:
+            type: integer
+            minimum: 1
       content:
         application/json:
           schema:

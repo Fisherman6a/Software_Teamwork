@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -83,6 +84,125 @@ func TestCreateSessionRejectsWrongPasswordAndRecordsFailure(t *testing.T) {
 	}
 	if !repo.hasEvent(SecurityEventSessionCreateFailed, SecurityEventStatusFailed, reasonInvalidCredentials) {
 		t.Fatalf("events = %+v", repo.events)
+	}
+	if got := repo.credentials["usr_alice"].FailedAttemptCount; got != 1 {
+		t.Fatalf("failed attempts = %d", got)
+	}
+}
+
+func TestCreateSessionConcurrentFailuresLockExistingUser(t *testing.T) {
+	repo := newFakeRepository(t)
+	svc := newTestService(repo, "atk_v1_fixed", WithCredentialWorkMaxInFlight(0))
+
+	var wg sync.WaitGroup
+	errs := make(chan error, defaultLoginFailureLimit)
+	for i := 0; i < defaultLoginFailureLimit; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := svc.CreateSession(context.Background(), testRequestContext(), CreateSessionInput{
+				Username: "alice",
+				Password: "wrong-password",
+			})
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	rateLimited := 0
+	unauthorized := 0
+	for err := range errs {
+		appErr := requireAppError(t, err)
+		switch appErr.Code {
+		case CodeRateLimited:
+			rateLimited++
+			if appErr.RetryAfter <= 0 {
+				t.Fatalf("RetryAfter = %s", appErr.RetryAfter)
+			}
+		case CodeUnauthorized:
+			unauthorized++
+		default:
+			t.Fatalf("unexpected code = %s", appErr.Code)
+		}
+	}
+	if rateLimited != 1 || unauthorized != defaultLoginFailureLimit-1 {
+		t.Fatalf("rateLimited=%d unauthorized=%d", rateLimited, unauthorized)
+	}
+	repo.mu.Lock()
+	credential := repo.credentials["usr_alice"]
+	user := repo.usersByID["usr_alice"]
+	repo.mu.Unlock()
+	if credential.FailedAttemptCount != int32(defaultLoginFailureLimit) {
+		t.Fatalf("failed attempts = %d", credential.FailedAttemptCount)
+	}
+	if user.LockedUntil == nil || !user.LockedUntil.Equal(repo.now.Add(defaultLoginLockDuration)) {
+		t.Fatalf("locked_until = %v", user.LockedUntil)
+	}
+	if user.Status != UserStatusActive {
+		t.Fatalf("status = %q", user.Status)
+	}
+}
+
+func TestCreateSessionLockedUserReturnsRetryAfterAndKeepsStatus(t *testing.T) {
+	repo := newFakeRepository(t)
+	lockedUntil := repo.now.Add(10 * time.Minute)
+	user := repo.usersByID["usr_alice"]
+	user.LockedUntil = &lockedUntil
+	repo.usersByID[user.ID] = user
+	repo.usersByUsername[user.Username] = user
+	svc := newTestService(repo, "atk_v1_fixed")
+
+	_, err := svc.CreateSession(context.Background(), testRequestContext(), CreateSessionInput{
+		Username: "alice",
+		Password: "correct-password",
+	})
+	appErr := requireAppError(t, err)
+	if appErr.Code != CodeRateLimited || appErr.RetryAfter != 10*time.Minute {
+		t.Fatalf("error = %+v", appErr)
+	}
+	if got := repo.usersByID["usr_alice"].Status; got != UserStatusActive {
+		t.Fatalf("status = %q", got)
+	}
+}
+
+func TestCreateSessionOldFailureStartsNewWindow(t *testing.T) {
+	repo := newFakeRepository(t)
+	credential := repo.credentials["usr_alice"]
+	credential.FailedAttemptCount = int32(defaultLoginFailureLimit - 1)
+	lastFailedAt := repo.now.Add(-defaultLoginFailureWindow - time.Second)
+	credential.LastFailedAt = &lastFailedAt
+	repo.credentials["usr_alice"] = credential
+	svc := newTestService(repo, "atk_v1_fixed", WithCredentialWorkMaxInFlight(0))
+
+	_, err := svc.CreateSession(context.Background(), testRequestContext(), CreateSessionInput{
+		Username: "alice",
+		Password: "wrong-password",
+	})
+	if appErr := requireAppError(t, err); appErr.Code != CodeUnauthorized {
+		t.Fatalf("code = %s", appErr.Code)
+	}
+	if got := repo.credentials["usr_alice"].FailedAttemptCount; got != 1 {
+		t.Fatalf("failed attempts = %d", got)
+	}
+	if lockedUntil := repo.usersByID["usr_alice"].LockedUntil; lockedUntil != nil {
+		t.Fatalf("locked_until = %v", lockedUntil)
+	}
+}
+
+func TestCredentialWorkLimiterReturnsRateLimitedWhenSaturated(t *testing.T) {
+	repo := newFakeRepository(t)
+	svc := newTestService(repo, "atk_v1_fixed", WithCredentialWorkMaxInFlight(1))
+	svc.credentialWork <- struct{}{}
+	defer func() { <-svc.credentialWork }()
+
+	_, err := svc.CreateSession(context.Background(), testRequestContext(), CreateSessionInput{
+		Username: "alice",
+		Password: "correct-password",
+	})
+	appErr := requireAppError(t, err)
+	if appErr.Code != CodeRateLimited || appErr.RetryAfter != 0 {
+		t.Fatalf("error = %+v", appErr)
 	}
 }
 
@@ -605,10 +725,10 @@ func TestRevokeSessionReturnsSuccessWhenSecurityEventWriteFails(t *testing.T) {
 	}
 }
 
-func newTestService(repo *fakeRepository, token string) *Service {
+func newTestService(repo *fakeRepository, token string, opts ...Option) *Service {
 	now := time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC)
 	counter := map[string]int{}
-	return New(repo,
+	baseOpts := []Option{
 		WithClock(func() time.Time { return now }),
 		WithTokenGenerator(func() (string, error) { return token, nil }),
 		WithTokenHashSecret([]byte("test-token-hash-secret")),
@@ -617,7 +737,9 @@ func newTestService(repo *fakeRepository, token string) *Service {
 			counter[prefix]++
 			return prefix + "_" + strconv.Itoa(counter[prefix])
 		}),
-	)
+	}
+	baseOpts = append(baseOpts, opts...)
+	return New(repo, baseOpts...)
 }
 
 func newFakeRepository(t *testing.T) *fakeRepository {
@@ -737,6 +859,7 @@ func requireAppError(t *testing.T, err error) *AppError {
 }
 
 type fakeRepository struct {
+	mu              sync.Mutex
 	now             time.Time
 	usersByID       map[string]UserRecord
 	usersByUsername map[string]UserRecord
@@ -748,6 +871,8 @@ type fakeRepository struct {
 }
 
 func (r *fakeRepository) FindUserByID(_ context.Context, id string) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	user, ok := r.usersByID[id]
 	if !ok {
 		return UserRecord{}, ErrNotFound
@@ -756,6 +881,8 @@ func (r *fakeRepository) FindUserByID(_ context.Context, id string) (UserRecord,
 }
 
 func (r *fakeRepository) FindUserByUsername(_ context.Context, username string) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	user, ok := r.usersByUsername[username]
 	if !ok {
 		return UserRecord{}, ErrNotFound
@@ -764,6 +891,8 @@ func (r *fakeRepository) FindUserByUsername(_ context.Context, username string) 
 }
 
 func (r *fakeRepository) FindCredentialByUserID(_ context.Context, userID string) (Credential, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	credential, ok := r.credentials[userID]
 	if !ok {
 		return Credential{}, ErrNotFound
@@ -772,30 +901,40 @@ func (r *fakeRepository) FindCredentialByUserID(_ context.Context, userID string
 }
 
 func (r *fakeRepository) FindSessionByID(_ context.Context, id string) (SessionIdentity, error) {
+	r.mu.Lock()
 	session, ok := r.sessions[id]
 	if !ok {
+		r.mu.Unlock()
 		return SessionIdentity{}, ErrNotFound
 	}
-	user, err := r.FindUserByID(context.Background(), session.UserID)
-	if err != nil {
-		return SessionIdentity{}, err
+	user, ok := r.usersByID[session.UserID]
+	if !ok {
+		r.mu.Unlock()
+		return SessionIdentity{}, ErrNotFound
 	}
+	r.mu.Unlock()
 	return SessionIdentity{Session: session, User: summaryFromRecord(user), AccessTokenHash: session.AccessTokenHash}, nil
 }
 
 func (r *fakeRepository) FindActiveSessionByTokenHash(ctx context.Context, tokenHash string) (SessionIdentity, error) {
+	r.mu.Lock()
 	sessionID, ok := r.activeByHash[tokenHash]
 	if !ok {
+		r.mu.Unlock()
 		return SessionIdentity{}, ErrNotFound
 	}
 	session, ok := r.sessions[sessionID]
 	if !ok || session.Status != SessionStatusActive || !session.ExpiresAt.After(r.now) {
+		r.mu.Unlock()
 		return SessionIdentity{}, ErrNotFound
 	}
+	r.mu.Unlock()
 	return r.FindSessionByID(ctx, session.ID)
 }
 
 func (r *fakeRepository) ListManagedUsers(_ context.Context, params ListManagedUsersParams) ([]UserRecord, int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	users := []UserRecord{}
 	for _, user := range r.usersByID {
 		if user.ID == params.ActorUserID {
@@ -826,6 +965,8 @@ func (r *fakeRepository) ListManagedUsers(_ context.Context, params ListManagedU
 }
 
 func (r *fakeRepository) CreateUserWithCredential(_ context.Context, params CreateUserParams) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if _, exists := r.usersByUsername[params.Username]; exists {
 		return UserRecord{}, ErrConflict
 	}
@@ -857,6 +998,8 @@ func (r *fakeRepository) CreateUserWithCredential(_ context.Context, params Crea
 }
 
 func (r *fakeRepository) UpdateUserProfile(_ context.Context, params UpdateUserProfileParams) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	user, ok := r.usersByID[params.UserID]
 	if !ok {
 		return UserRecord{}, ErrNotFound
@@ -871,6 +1014,8 @@ func (r *fakeRepository) UpdateUserProfile(_ context.Context, params UpdateUserP
 }
 
 func (r *fakeRepository) UpdateUserStatus(_ context.Context, params UpdateUserStatusParams) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	user, ok := r.usersByID[params.UserID]
 	if !ok {
 		return UserRecord{}, ErrNotFound
@@ -883,6 +1028,8 @@ func (r *fakeRepository) UpdateUserStatus(_ context.Context, params UpdateUserSt
 }
 
 func (r *fakeRepository) ReplaceUserRole(_ context.Context, params ReplaceUserRoleParams) (UserRecord, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	user, ok := r.usersByID[params.UserID]
 	if !ok {
 		return UserRecord{}, ErrNotFound
@@ -901,6 +1048,8 @@ func (r *fakeRepository) ReplaceUserRole(_ context.Context, params ReplaceUserRo
 }
 
 func (r *fakeRepository) UpdatePassword(_ context.Context, params UpdatePasswordParams) (Credential, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	credential, ok := r.credentials[params.UserID]
 	if !ok {
 		return Credential{}, ErrNotFound
@@ -920,8 +1069,64 @@ func (r *fakeRepository) UpdatePassword(_ context.Context, params UpdatePassword
 	return credential, nil
 }
 
+func (r *fakeRepository) RecordLoginFailure(_ context.Context, params LoginFailureParams) (LoginFailureResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	credential, ok := r.credentials[params.UserID]
+	if !ok {
+		return LoginFailureResult{}, ErrNotFound
+	}
+	if credential.LastFailedAt == nil || credential.LastFailedAt.Before(params.WindowStart) {
+		credential.FailedAttemptCount = 1
+	} else {
+		credential.FailedAttemptCount++
+	}
+	failedAt := params.FailedAt
+	credential.LastFailedAt = &failedAt
+	credential.UpdatedAt = failedAt
+	r.credentials[params.UserID] = credential
+
+	result := LoginFailureResult{FailedAttemptCount: credential.FailedAttemptCount}
+	if params.FailureLimit > 0 && int(credential.FailedAttemptCount) >= params.FailureLimit && params.LockUntil != nil {
+		user, ok := r.usersByID[params.UserID]
+		if !ok {
+			return LoginFailureResult{}, ErrNotFound
+		}
+		lockUntil := *params.LockUntil
+		user.LockedUntil = &lockUntil
+		user.UpdatedAt = failedAt
+		r.usersByID[user.ID] = user
+		r.usersByUsername[user.Username] = user
+		result.LockedUntil = &lockUntil
+	}
+	return result, nil
+}
+
+func (r *fakeRepository) ResetLoginFailures(_ context.Context, params ResetLoginFailuresParams) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	credential, ok := r.credentials[params.UserID]
+	if !ok {
+		return ErrNotFound
+	}
+	credential.FailedAttemptCount = 0
+	credential.LastFailedAt = nil
+	credential.UpdatedAt = params.ResetAt
+	r.credentials[params.UserID] = credential
+	user, ok := r.usersByID[params.UserID]
+	if ok && user.LockedUntil != nil && !user.LockedUntil.After(params.ResetAt) {
+		user.LockedUntil = nil
+		user.UpdatedAt = params.ResetAt
+		r.usersByID[user.ID] = user
+		r.usersByUsername[user.Username] = user
+	}
+	return nil
+}
+
 func (r *fakeRepository) CreateSession(_ context.Context, params CreateSessionParams) (SessionIdentity, error) {
+	r.mu.Lock()
 	if _, ok := r.usersByID[params.UserID]; !ok {
+		r.mu.Unlock()
 		return SessionIdentity{}, ErrNotFound
 	}
 	session := Session{
@@ -942,10 +1147,14 @@ func (r *fakeRepository) CreateSession(_ context.Context, params CreateSessionPa
 	}
 	r.sessions[session.ID] = session
 	r.activeByHash[session.AccessTokenHash] = session.ID
-	return r.FindSessionByID(context.Background(), session.ID)
+	user := r.usersByID[session.UserID]
+	r.mu.Unlock()
+	return SessionIdentity{Session: session, User: summaryFromRecord(user), AccessTokenHash: session.AccessTokenHash}, nil
 }
 
 func (r *fakeRepository) RevokeSession(_ context.Context, params RevokeSessionParams) (Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	session, ok := r.sessions[params.SessionID]
 	if !ok || session.Status != SessionStatusActive {
 		return Session{}, ErrNotFound
@@ -961,6 +1170,8 @@ func (r *fakeRepository) RevokeSession(_ context.Context, params RevokeSessionPa
 }
 
 func (r *fakeRepository) RevokeUserSessions(_ context.Context, params RevokeUserSessionsParams) ([]Session, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	revoked := []Session{}
 	for id, session := range r.sessions {
 		if session.UserID != params.UserID || session.Status != SessionStatusActive {
@@ -979,6 +1190,8 @@ func (r *fakeRepository) RevokeUserSessions(_ context.Context, params RevokeUser
 }
 
 func (r *fakeRepository) RecordSecurityEvent(_ context.Context, params SecurityEventParams) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.events = append(r.events, params)
 	if r.eventErr != nil {
 		return r.eventErr
@@ -987,6 +1200,8 @@ func (r *fakeRepository) RecordSecurityEvent(_ context.Context, params SecurityE
 }
 
 func (r *fakeRepository) hasEvent(eventType string, status string, reason string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	for _, event := range r.events {
 		if event.EventType != eventType || event.Status != status {
 			continue

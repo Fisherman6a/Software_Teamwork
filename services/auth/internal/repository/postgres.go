@@ -35,10 +35,24 @@ type userQueries interface {
 	UpdateUserProfile(ctx context.Context, arg sqlc.UpdateUserProfileParams) (sqlc.AuthUser, error)
 	UpdateUserStatus(ctx context.Context, arg sqlc.UpdateUserStatusParams) (sqlc.AuthUser, error)
 	UpdateCredentialPassword(ctx context.Context, arg sqlc.UpdateCredentialPasswordParams) (sqlc.UpdateCredentialPasswordRow, error)
+	RecordCredentialLoginFailure(ctx context.Context, arg sqlc.RecordCredentialLoginFailureParams) (sqlc.RecordCredentialLoginFailureRow, error)
+	SetUserLockedUntil(ctx context.Context, arg sqlc.SetUserLockedUntilParams) (sqlc.AuthUser, error)
+	ResetCredentialLoginFailures(ctx context.Context, arg sqlc.ResetCredentialLoginFailuresParams) error
+	ClearExpiredUserLock(ctx context.Context, arg sqlc.ClearExpiredUserLockParams) error
 	CreateSession(ctx context.Context, arg sqlc.CreateSessionParams) (sqlc.AuthSession, error)
 	RevokeSession(ctx context.Context, arg sqlc.RevokeSessionParams) (sqlc.AuthSession, error)
 	RevokeActiveSessionsForUser(ctx context.Context, arg sqlc.RevokeActiveSessionsForUserParams) ([]sqlc.AuthSession, error)
 	CreateSecurityEvent(ctx context.Context, arg sqlc.CreateSecurityEventParams) error
+}
+
+type loginFailureQueries interface {
+	RecordCredentialLoginFailure(ctx context.Context, arg sqlc.RecordCredentialLoginFailureParams) (sqlc.RecordCredentialLoginFailureRow, error)
+	SetUserLockedUntil(ctx context.Context, arg sqlc.SetUserLockedUntilParams) (sqlc.AuthUser, error)
+}
+
+type resetLoginFailureQueries interface {
+	ResetCredentialLoginFailures(ctx context.Context, arg sqlc.ResetCredentialLoginFailuresParams) error
+	ClearExpiredUserLock(ctx context.Context, arg sqlc.ClearExpiredUserLockParams) error
 }
 
 type PostgresRepository struct {
@@ -326,6 +340,99 @@ func (r *PostgresRepository) UpdatePassword(ctx context.Context, params service.
 		return service.Credential{}, classifyNoRows("update credential password", err)
 	}
 	return mapCredential(credential), nil
+}
+
+func (r *PostgresRepository) RecordLoginFailure(ctx context.Context, params service.LoginFailureParams) (service.LoginFailureResult, error) {
+	if r.db != nil {
+		tx, err := r.db.Begin(ctx)
+		if err != nil {
+			return service.LoginFailureResult{}, fmt.Errorf("begin record login failure transaction: %w", err)
+		}
+		defer rollback(ctx, tx)
+
+		result, err := recordLoginFailureWithQueries(ctx, sqlc.New(tx), params)
+		if err != nil {
+			return service.LoginFailureResult{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return service.LoginFailureResult{}, fmt.Errorf("commit record login failure transaction: %w", err)
+		}
+		return result, nil
+	}
+	return recordLoginFailureWithQueries(ctx, r.queries, params)
+}
+
+func recordLoginFailureWithQueries(ctx context.Context, q loginFailureQueries, params service.LoginFailureParams) (service.LoginFailureResult, error) {
+	failedAt := params.FailedAt
+	if failedAt.IsZero() {
+		failedAt = time.Now().UTC()
+	}
+	windowStart := params.WindowStart
+	if windowStart.IsZero() {
+		windowStart = failedAt
+	}
+	credential, err := q.RecordCredentialLoginFailure(ctx, sqlc.RecordCredentialLoginFailureParams{
+		WindowStartedAt: timestamptzFromTime(windowStart),
+		FailedAt:        timestamptzFromTime(failedAt),
+		UserID:          params.UserID,
+		CredentialType:  service.CredentialTypePassword,
+	})
+	if err != nil {
+		return service.LoginFailureResult{}, classifyNoRows("record credential login failure", err)
+	}
+	result := service.LoginFailureResult{FailedAttemptCount: credential.FailedAttemptCount}
+	if params.FailureLimit > 0 && int(credential.FailedAttemptCount) >= params.FailureLimit && params.LockUntil != nil {
+		user, err := q.SetUserLockedUntil(ctx, sqlc.SetUserLockedUntilParams{
+			LockedUntil: timestamptzFromTime(*params.LockUntil),
+			UpdatedAt:   timestamptzFromTime(failedAt),
+			UserID:      params.UserID,
+		})
+		if err != nil {
+			return service.LoginFailureResult{}, classifyNoRows("set user login lock", err)
+		}
+		result.LockedUntil = timePtr(user.LockedUntil)
+	}
+	return result, nil
+}
+
+func (r *PostgresRepository) ResetLoginFailures(ctx context.Context, params service.ResetLoginFailuresParams) error {
+	if r.db != nil {
+		tx, err := r.db.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("begin reset login failures transaction: %w", err)
+		}
+		defer rollback(ctx, tx)
+
+		if err := resetLoginFailuresWithQueries(ctx, sqlc.New(tx), params); err != nil {
+			return err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("commit reset login failures transaction: %w", err)
+		}
+		return nil
+	}
+	return resetLoginFailuresWithQueries(ctx, r.queries, params)
+}
+
+func resetLoginFailuresWithQueries(ctx context.Context, q resetLoginFailureQueries, params service.ResetLoginFailuresParams) error {
+	resetAt := params.ResetAt
+	if resetAt.IsZero() {
+		resetAt = time.Now().UTC()
+	}
+	if err := q.ResetCredentialLoginFailures(ctx, sqlc.ResetCredentialLoginFailuresParams{
+		UpdatedAt:      timestamptzFromTime(resetAt),
+		UserID:         params.UserID,
+		CredentialType: service.CredentialTypePassword,
+	}); err != nil {
+		return fmt.Errorf("reset credential login failures: %w", err)
+	}
+	if err := q.ClearExpiredUserLock(ctx, sqlc.ClearExpiredUserLockParams{
+		UpdatedAt: timestamptzFromTime(resetAt),
+		UserID:    params.UserID,
+	}); err != nil {
+		return fmt.Errorf("clear expired user lock: %w", err)
+	}
+	return nil
 }
 
 func (r *PostgresRepository) CreateSession(ctx context.Context, params service.CreateSessionParams) (service.SessionIdentity, error) {

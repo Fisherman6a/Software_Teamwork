@@ -2,6 +2,7 @@ package authclient
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -95,6 +96,29 @@ func TestCreateSessionSendsGatewayForwardingContext(t *testing.T) {
 	}
 	if serviceToken != "svc-token" {
 		t.Fatalf("X-Service-Token = %q", serviceToken)
+	}
+}
+
+func TestCreateSessionCapturesRetryAfterFromRateLimitedAuth(t *testing.T) {
+	auth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "90")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"error":{"code":"rate_limited","message":"rate limited","requestId":"req_1"}}`))
+	}))
+	defer auth.Close()
+
+	client, err := New(auth.URL, "svc-token", "gateway-token", time.Second)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	_, err = client.CreateSession(context.Background(), "req_1", []byte(`{"username":"alice","password":"secret"}`), ForwardingContext{})
+	var remote *RemoteError
+	if !errors.As(err, &remote) {
+		t.Fatalf("error = %T %v", err, err)
+	}
+	if remote.Status != http.StatusTooManyRequests || remote.RetryAfter != "90" || remote.Detail.Code != "rate_limited" {
+		t.Fatalf("remote = %+v", remote)
 	}
 }
 

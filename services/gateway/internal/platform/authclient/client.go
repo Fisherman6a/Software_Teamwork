@@ -37,8 +37,9 @@ type ErrorDetail struct {
 }
 
 type RemoteError struct {
-	Status int
-	Detail ErrorDetail
+	Status     int
+	Detail     ErrorDetail
+	RetryAfter string
 }
 
 func (e *RemoteError) Error() string {
@@ -250,7 +251,7 @@ func decodeRemoteError(res *http.Response) error {
 			Message: "auth service returned an invalid error response",
 		}
 	}
-	return &RemoteError{Status: res.StatusCode, Detail: envelope.Error}
+	return &RemoteError{Status: res.StatusCode, Detail: envelope.Error, RetryAfter: strings.TrimSpace(res.Header.Get("Retry-After"))}
 }
 
 func joinURLPath(base string, path string) string {

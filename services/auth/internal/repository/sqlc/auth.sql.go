@@ -75,6 +75,26 @@ func (q *Queries) AssignRoleByCode(ctx context.Context, arg AssignRoleByCodePara
 	return i, err
 }
 
+const clearExpiredUserLock = `-- name: ClearExpiredUserLock :exec
+UPDATE auth_users
+SET locked_until = NULL,
+    updated_at = $1
+WHERE id = $2
+    AND deleted_at IS NULL
+    AND locked_until IS NOT NULL
+    AND locked_until <= $1
+`
+
+type ClearExpiredUserLockParams struct {
+	UpdatedAt pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	UserID    string             `db:"user_id" json:"user_id"`
+}
+
+func (q *Queries) ClearExpiredUserLock(ctx context.Context, arg ClearExpiredUserLockParams) error {
+	_, err := q.db.Exec(ctx, clearExpiredUserLock, arg.UpdatedAt, arg.UserID)
+	return err
+}
+
 const countManagedUsers = `-- name: CountManagedUsers :one
 SELECT count(*)::bigint
 FROM auth_users u
@@ -914,6 +934,104 @@ func (q *Queries) ListRoleCodesByUserID(ctx context.Context, userID string) ([]s
 	return items, nil
 }
 
+const recordCredentialLoginFailure = `-- name: RecordCredentialLoginFailure :one
+UPDATE auth_credentials
+SET failed_attempt_count = CASE
+        WHEN last_failed_at IS NULL OR last_failed_at < $1 THEN 1
+        ELSE failed_attempt_count + 1
+    END,
+    last_failed_at = $2,
+    updated_at = $2
+WHERE user_id = $3
+    AND credential_type = $4
+RETURNING
+    id,
+    user_id,
+    credential_type,
+    password_hash,
+    password_hash_alg,
+    password_hash_params_version,
+    password_hash_params_json,
+    must_change_password,
+    password_changed_at,
+    password_expires_at,
+    failed_attempt_count,
+    last_failed_at,
+    created_at,
+    updated_at
+`
+
+type RecordCredentialLoginFailureParams struct {
+	WindowStartedAt pgtype.Timestamptz `db:"window_started_at" json:"window_started_at"`
+	FailedAt        pgtype.Timestamptz `db:"failed_at" json:"failed_at"`
+	UserID          string             `db:"user_id" json:"user_id"`
+	CredentialType  string             `db:"credential_type" json:"credential_type"`
+}
+
+type RecordCredentialLoginFailureRow struct {
+	ID                        string             `db:"id" json:"id"`
+	UserID                    string             `db:"user_id" json:"user_id"`
+	CredentialType            string             `db:"credential_type" json:"credential_type"`
+	PasswordHash              string             `db:"password_hash" json:"password_hash"`
+	PasswordHashAlg           string             `db:"password_hash_alg" json:"password_hash_alg"`
+	PasswordHashParamsVersion string             `db:"password_hash_params_version" json:"password_hash_params_version"`
+	PasswordHashParamsJson    []byte             `db:"password_hash_params_json" json:"password_hash_params_json"`
+	MustChangePassword        bool               `db:"must_change_password" json:"must_change_password"`
+	PasswordChangedAt         pgtype.Timestamptz `db:"password_changed_at" json:"password_changed_at"`
+	PasswordExpiresAt         pgtype.Timestamptz `db:"password_expires_at" json:"password_expires_at"`
+	FailedAttemptCount        int32              `db:"failed_attempt_count" json:"failed_attempt_count"`
+	LastFailedAt              pgtype.Timestamptz `db:"last_failed_at" json:"last_failed_at"`
+	CreatedAt                 pgtype.Timestamptz `db:"created_at" json:"created_at"`
+	UpdatedAt                 pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+}
+
+func (q *Queries) RecordCredentialLoginFailure(ctx context.Context, arg RecordCredentialLoginFailureParams) (RecordCredentialLoginFailureRow, error) {
+	row := q.db.QueryRow(ctx, recordCredentialLoginFailure,
+		arg.WindowStartedAt,
+		arg.FailedAt,
+		arg.UserID,
+		arg.CredentialType,
+	)
+	var i RecordCredentialLoginFailureRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.CredentialType,
+		&i.PasswordHash,
+		&i.PasswordHashAlg,
+		&i.PasswordHashParamsVersion,
+		&i.PasswordHashParamsJson,
+		&i.MustChangePassword,
+		&i.PasswordChangedAt,
+		&i.PasswordExpiresAt,
+		&i.FailedAttemptCount,
+		&i.LastFailedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const resetCredentialLoginFailures = `-- name: ResetCredentialLoginFailures :exec
+UPDATE auth_credentials
+SET failed_attempt_count = 0,
+    last_failed_at = NULL,
+    updated_at = $1
+WHERE user_id = $2
+    AND credential_type = $3
+`
+
+type ResetCredentialLoginFailuresParams struct {
+	UpdatedAt      pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	UserID         string             `db:"user_id" json:"user_id"`
+	CredentialType string             `db:"credential_type" json:"credential_type"`
+}
+
+func (q *Queries) ResetCredentialLoginFailures(ctx context.Context, arg ResetCredentialLoginFailuresParams) error {
+	_, err := q.db.Exec(ctx, resetCredentialLoginFailures, arg.UpdatedAt, arg.UserID, arg.CredentialType)
+	return err
+}
+
 const revokeActiveSessionsForUser = `-- name: RevokeActiveSessionsForUser :many
 UPDATE auth_sessions
 SET status = 'revoked',
@@ -1059,6 +1177,51 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (A
 		&i.RevokedRequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const setUserLockedUntil = `-- name: SetUserLockedUntil :one
+UPDATE auth_users
+SET locked_until = $1,
+    updated_at = $2
+WHERE id = $3
+    AND deleted_at IS NULL
+RETURNING
+    id,
+    username,
+    display_name,
+    email,
+    phone,
+    status,
+    locked_until,
+    last_login_at,
+    created_at,
+    updated_at,
+    deleted_at
+`
+
+type SetUserLockedUntilParams struct {
+	LockedUntil pgtype.Timestamptz `db:"locked_until" json:"locked_until"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at" json:"updated_at"`
+	UserID      string             `db:"user_id" json:"user_id"`
+}
+
+func (q *Queries) SetUserLockedUntil(ctx context.Context, arg SetUserLockedUntilParams) (AuthUser, error) {
+	row := q.db.QueryRow(ctx, setUserLockedUntil, arg.LockedUntil, arg.UpdatedAt, arg.UserID)
+	var i AuthUser
+	err := row.Scan(
+		&i.ID,
+		&i.Username,
+		&i.DisplayName,
+		&i.Email,
+		&i.Phone,
+		&i.Status,
+		&i.LockedUntil,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }

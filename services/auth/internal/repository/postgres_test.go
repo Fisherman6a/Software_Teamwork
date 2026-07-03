@@ -158,6 +158,38 @@ func (q *fakeQueries) UpdateCredentialPassword(context.Context, sqlc.UpdateCrede
 	}, nil
 }
 
+func (q *fakeQueries) RecordCredentialLoginFailure(context.Context, sqlc.RecordCredentialLoginFailureParams) (sqlc.RecordCredentialLoginFailureRow, error) {
+	return sqlc.RecordCredentialLoginFailureRow{
+		ID:                        "cred_123",
+		UserID:                    "usr_123",
+		CredentialType:            service.CredentialTypePassword,
+		PasswordHash:              "$argon2id$...",
+		PasswordHashAlg:           "argon2id",
+		PasswordHashParamsVersion: "argon2id-v1",
+		PasswordHashParamsJson:    []byte(`{"memory":65536}`),
+		PasswordChangedAt:         timestamptzFromTime(q.now),
+		FailedAttemptCount:        1,
+		LastFailedAt:              timestamptzFromTime(q.now),
+		CreatedAt:                 timestamptzFromTime(q.now),
+		UpdatedAt:                 timestamptzFromTime(q.now),
+	}, nil
+}
+
+func (q *fakeQueries) SetUserLockedUntil(_ context.Context, arg sqlc.SetUserLockedUntilParams) (sqlc.AuthUser, error) {
+	user := q.user()
+	user.LockedUntil = arg.LockedUntil
+	user.UpdatedAt = arg.UpdatedAt
+	return user, nil
+}
+
+func (q *fakeQueries) ResetCredentialLoginFailures(context.Context, sqlc.ResetCredentialLoginFailuresParams) error {
+	return nil
+}
+
+func (q *fakeQueries) ClearExpiredUserLock(context.Context, sqlc.ClearExpiredUserLockParams) error {
+	return nil
+}
+
 func (q *fakeQueries) GetSessionByID(_ context.Context, id string) (sqlc.AuthSession, error) {
 	if id != "sess_123" {
 		return sqlc.AuthSession{}, pgx.ErrNoRows

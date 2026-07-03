@@ -64,6 +64,8 @@ Use the local integration runbook smoke checks for those workflows.
 | `GATEWAY_SERVICE_VERSION` | `0.1.0` | Version reported by health checks and startup logs. |
 | `GATEWAY_ENV` | `local` | Runtime environment label. |
 | `GATEWAY_MAX_BODY_BYTES` | `10485760` | Maximum request body size enforced at the gateway edge. |
+| `GATEWAY_MAX_IN_FLIGHT` | `128` | Maximum concurrent public requests per gateway process. `0` disables this process-local guard. |
+| `GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT` | `32` | Maximum concurrent protected-route Auth authority refresh calls per gateway process. `0` disables this specialized guard. |
 | `GATEWAY_REQUEST_TIMEOUT` | `30s` | Per-request context timeout. |
 | `GATEWAY_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout. |
 | `GATEWAY_DOWNSTREAM_TIMEOUT` | `10s` | Timeout for auth and owner-service HTTP calls. |
@@ -126,6 +128,10 @@ go build ./cmd/server
   implemented.
 - Binary content and `text/event-stream` responses are streamed from downstream
   without wrapping them in a JSON envelope.
+- When `GATEWAY_MAX_IN_FLIGHT` or `GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT` is
+  saturated, Gateway returns the standard error envelope with
+  `429 rate_limited`. Gateway does not set `Retry-After` for process-local
+  saturation because it does not know a stable remaining wait time.
 
 ## Scope Guardrails
 

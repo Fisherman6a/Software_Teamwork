@@ -1,6 +1,9 @@
 package service
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 type Code string
 
@@ -21,10 +24,11 @@ var (
 )
 
 type AppError struct {
-	Code    Code
-	Message string
-	Fields  map[string]string
-	Err     error
+	Code       Code
+	Message    string
+	Fields     map[string]string
+	RetryAfter time.Duration
+	Err        error
 }
 
 func (e *AppError) Error() string {
@@ -61,6 +65,10 @@ func DependencyError(message string, err error) *AppError {
 
 func ConflictError(message string, err error) *AppError {
 	return &AppError{Code: CodeConflict, Message: message, Err: err}
+}
+
+func RateLimitedError(message string, retryAfter time.Duration) *AppError {
+	return &AppError{Code: CodeRateLimited, Message: message, RetryAfter: retryAfter}
 }
 
 func Classify(err error) (*AppError, bool) {

@@ -209,6 +209,13 @@ func (s *Server) authenticateRequest(w http.ResponseWriter, r *http.Request) (se
 }
 
 func (s *Server) refreshSessionAuthority(w http.ResponseWriter, r *http.Request, entry service.SessionCacheEntry, accessTokenHash string) (service.SessionCacheEntry, bool) {
+	release, ok := s.acquireAuthRefreshSlot()
+	if !ok {
+		s.writeRateLimited(w, r, "rate limited")
+		return service.SessionCacheEntry{}, false
+	}
+	defer release()
+
 	requestID := middleware.RequestIDFromContext(r.Context())
 	forwarding := forwardingContextFromRequest(r)
 	identity, err := s.authClient.GetSession(r.Context(), requestID, entry.SessionID, forwarding)
@@ -232,6 +239,13 @@ func (s *Server) refreshSessionAuthority(w http.ResponseWriter, r *http.Request,
 		return service.SessionCacheEntry{}, false
 	}
 	return refreshed, true
+}
+
+func (s *Server) acquireAuthRefreshSlot() (func(), bool) {
+	if s.authRefreshLimiter == nil {
+		return func() {}, true
+	}
+	return s.authRefreshLimiter.TryAcquire()
 }
 
 func (s *Server) refreshCacheFromUser(w http.ResponseWriter, r *http.Request, entry service.SessionCacheEntry, user service.UserRecord, accessTokenHash string) (service.SessionCacheEntry, bool) {
@@ -383,6 +397,9 @@ func (s *Server) writeAuthClientError(w http.ResponseWriter, r *http.Request, er
 			s.writeDependencyError(w, r, "auth service is unavailable")
 			return
 		}
+		if remote.Status == http.StatusTooManyRequests && validRetryAfter(remote.RetryAfter) {
+			w.Header().Set("Retry-After", remote.RetryAfter)
+		}
 		response.WriteError(w, remote.Status, response.ErrorDetail{
 			Code:      downstreamErrorCode(remote.Status),
 			Message:   sanitizedErrorMessage(remote.Status),
@@ -415,9 +432,30 @@ func sanitizedErrorMessage(status int) string {
 	}
 }
 
+func validRetryAfter(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) writeUnauthorized(w http.ResponseWriter, r *http.Request, message string) {
 	response.WriteError(w, http.StatusUnauthorized, response.ErrorDetail{
 		Code:      response.CodeUnauthorized,
+		Message:   message,
+		RequestID: middleware.RequestIDFromContext(r.Context()),
+	})
+}
+
+func (s *Server) writeRateLimited(w http.ResponseWriter, r *http.Request, message string) {
+	response.WriteError(w, http.StatusTooManyRequests, response.ErrorDetail{
+		Code:      response.CodeRateLimited,
 		Message:   message,
 		RequestID: middleware.RequestIDFromContext(r.Context()),
 	})

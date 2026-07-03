@@ -126,6 +126,9 @@ func (s *Server) writeDownstreamError(w http.ResponseWriter, r *http.Request, ro
 		io.Copy(io.Discard, res.Body)
 	}
 
+	if res.StatusCode == http.StatusTooManyRequests && validRetryAfter(res.Header.Get("Retry-After")) {
+		w.Header().Set("Retry-After", strings.TrimSpace(res.Header.Get("Retry-After")))
+	}
 	response.WriteError(w, res.StatusCode, detail)
 }
 

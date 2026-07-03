@@ -28,6 +28,8 @@ Implemented now:
   revocation, and security-event persistence.
 - Argon2id password hashes and opaque bearer access-token issuance with
   versioned HMAC token hashes.
+- Request timeout, slow-header protection, credential-work concurrency limits,
+  and failed-login temporary lockout.
 - Repository, service, config, and HTTP tests.
 
 Out of scope for this baseline:
@@ -73,10 +75,30 @@ readiness still reflects durable store availability.
 | `AUTH_DEFAULT_ROLE_CODE` | `standard` | Role assigned to newly created users. |
 | `AUTH_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout. |
 | `AUTH_READINESS_TIMEOUT` | `2s` | PostgreSQL readiness check timeout. |
+| `AUTH_REQUEST_TIMEOUT` | `30s` | Per-request context timeout. Accepts Go duration strings or seconds. |
+| `AUTH_READ_HEADER_TIMEOUT` | `5s` | HTTP slow-header protection. Accepts Go duration strings or seconds. |
+| `AUTH_CREDENTIAL_WORK_MAX_IN_FLIGHT` | `4` | Maximum concurrent Argon2 password hash/verify operations per process. `0` disables this process-local guard. |
+| `AUTH_LOGIN_FAILURE_LIMIT` | `5` | Existing-user failed login attempts allowed inside the failure window before temporary lockout. `0` disables failed-login lockout state updates. |
+| `AUTH_LOGIN_FAILURE_WINDOW` | `15m` | Window for counting consecutive failed login attempts. Accepts Go duration strings or seconds. |
+| `AUTH_LOGIN_LOCK_DURATION` | `15m` | Temporary lockout duration once the failure threshold is reached. `0` disables lockout. |
 
 Do not log `AUTH_DATABASE_URL`, `AUTH_INTERNAL_SERVICE_TOKEN`,
 `AUTH_GATEWAY_ADMIN_SERVICE_TOKEN`, or `AUTH_TOKEN_HASH_SECRET` because they may
 contain credentials.
+
+## Concurrency And Lockout Behavior
+
+- Credential operations that exceed `AUTH_CREDENTIAL_WORK_MAX_IN_FLIGHT` fail
+  with `429 rate_limited`; no `Retry-After` header is sent because the process
+  cannot know a stable wait time.
+- Failed login attempts are counted only for existing users. Unknown usernames
+  still record a failed security event and return the same
+  `401 unauthorized` public shape, but they do not create persistent rate-limit
+  state.
+- Five failed attempts within 15 minutes temporarily set `locked_until` for 15
+  minutes. The user's `status` is not changed.
+- `429 rate_limited` responses caused by a known lockout window include a
+  `Retry-After` header in seconds.
 
 ## Migration
 
