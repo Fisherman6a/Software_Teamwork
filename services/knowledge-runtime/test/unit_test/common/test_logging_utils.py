@@ -54,8 +54,18 @@ def test_sanitize_for_logging_redacts_url_credentials_and_sensitive_query_values
     )
 
 
+def test_redact_text_masks_embedded_url_credentials_and_sensitive_query_values():
+    text = "failed to connect mysql://user:pass@example.internal:3306/ragflow?token=def&timeout=3; retrying"
+
+    redacted = redact_text(text)
+
+    assert redacted == f"failed to connect mysql://example.internal:3306/ragflow?token={REDACTED}&timeout=3; retrying"
+    assert "user:pass" not in redacted
+    assert "def" not in redacted
+
+
 def test_redact_text_masks_inline_assignments_and_bearer_tokens():
-    text = "password=hunter2 token:abc Authorization: Bearer eyJhbGciOi secret=raw"
+    text = "password=hunter2 token:abc Authorization: Bearer eyJhbGciOi secret=raw OAuth code=oauth-secret"
 
     redacted = redact_text(text)
 
@@ -63,7 +73,8 @@ def test_redact_text_masks_inline_assignments_and_bearer_tokens():
     assert "abc" not in redacted
     assert "eyJhbGciOi" not in redacted
     assert "raw" not in redacted
-    assert redacted.count(REDACTED) >= 4
+    assert "oauth-secret" not in redacted
+    assert redacted.count(REDACTED) >= 5
 
 
 def test_sanitize_for_logging_describes_bytes_without_content():

@@ -94,11 +94,13 @@ _ASSIGNMENT_RE = re.compile(
     r"\b("
     r"api[_-]?key|access[_-]?key|secret[_-]?key|client[_-]?secret|"
     r"private[_-]?key|access[_-]?token|refresh[_-]?token|"
-    r"password|passwd|pwd|secret|token|credential|authorization"
+    r"password|passwd|pwd|secret|token|credential|authorization|code"
     r")(\s*[:=]\s*)([^,\s;&]+)",
     re.IGNORECASE,
 )
 _BEARER_RE = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
+_EMBEDDED_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s<>'\"]+", re.IGNORECASE)
+_TRAILING_URL_PUNCTUATION = ".,;!?)]}"
 
 
 def is_sensitive_key(key: object) -> bool:
@@ -148,8 +150,17 @@ def redact_url(value: str) -> str:
     return urlunsplit((parsed.scheme, _netloc_without_userinfo(value), parsed.path, query, ""))
 
 
+def _redact_embedded_url(match: re.Match[str]) -> str:
+    url = match.group(0)
+    trailing = ""
+    while url and url[-1] in _TRAILING_URL_PUNCTUATION:
+        trailing = url[-1] + trailing
+        url = url[:-1]
+    return f"{redact_url(url)}{trailing}"
+
+
 def redact_text(value: str) -> str:
-    redacted = redact_url(value)
+    redacted = _EMBEDDED_URL_RE.sub(_redact_embedded_url, value)
     redacted = _BEARER_RE.sub(f"Bearer {REDACTED}", redacted)
     return _ASSIGNMENT_RE.sub(lambda match: f"{match.group(1)}{match.group(2)}{REDACTED}", redacted)
 
