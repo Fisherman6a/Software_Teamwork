@@ -19,6 +19,7 @@ function makeSession(id: string, title: string | undefined, messageCount = 0): Q
 
 function renderSidebar(options?: {
   activeId?: string
+  onClearAll?: () => Promise<void> | void
   sessions?: QASessionListItem[]
   onSelect?: (sessionId: string) => void
 }) {
@@ -39,6 +40,7 @@ function renderSidebar(options?: {
       onCreate={vi.fn()}
       onDelete={vi.fn()}
       onRename={vi.fn()}
+      onClearAll={options?.onClearAll}
     />,
   )
 }
@@ -152,5 +154,20 @@ describe('ChatSidebar title search', () => {
 
     expect(screen.getByText('未找到匹配对话')).toBeInTheDocument()
     expect(screen.queryByText('新对话')).not.toBeInTheDocument()
+  })
+
+  it('confirms before clearing all sessions', async () => {
+    const user = userEvent.setup()
+    const onClearAll = vi.fn()
+    renderSidebar({ onClearAll })
+
+    await user.click(screen.getByRole('button', { name: '清空全部对话' }))
+
+    expect(onClearAll).not.toHaveBeenCalled()
+    expect(screen.getByText('即将删除全部 3 个对话。此操作不可撤销。')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '全部删除' }))
+
+    expect(onClearAll).toHaveBeenCalledTimes(1)
   })
 })

@@ -26,7 +26,7 @@ type ChatSidebarProps = {
   onCreate: () => void
   onDelete: (sessionId: string) => void
   onRename: (sessionId: string, title: string) => void
-  onClearAll?: () => void
+  onClearAll?: () => Promise<void> | void
 }
 
 export default function ChatSidebar({
@@ -47,6 +47,7 @@ export default function ChatSidebar({
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const [clearAllPending, setClearAllPending] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const trimmedSearchQuery = searchQuery.trim()
@@ -136,6 +137,17 @@ export default function ChatSidebar({
 
   const deleteTarget = sessions.find((session) => session.id === deleteTargetId)
 
+  const handleConfirmClearAll = useCallback(async () => {
+    if (!onClearAll) return
+    setClearAllPending(true)
+    try {
+      await onClearAll()
+      setShowClearConfirm(false)
+    } finally {
+      setClearAllPending(false)
+    }
+  }, [onClearAll])
+
   // ── Render ──
 
   return (
@@ -215,6 +227,8 @@ export default function ChatSidebar({
         <div className="border-t border-border/30 px-2 py-1.5">
           {collapsed ? (
             <button
+              aria-label="清空全部对话"
+              type="button"
               onClick={() => setShowClearConfirm(true)}
               className="mx-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
               title="清空全部对话"
@@ -444,14 +458,15 @@ export default function ChatSidebar({
         cancelLabel="取消"
         confirmLabel="全部删除"
         description={`即将删除全部 ${sessions.length} 个对话。此操作不可撤销。`}
-        onConfirm={() => {
-          onClearAll?.()
-          setShowClearConfirm(false)
-        }}
+        disabled={!onClearAll}
+        onConfirm={() => void handleConfirmClearAll()}
         onOpenChange={(open) => {
+          if (clearAllPending) return
           if (!open) setShowClearConfirm(false)
         }}
         open={showClearConfirm}
+        pending={clearAllPending}
+        pendingLabel="删除中..."
         title="清空全部对话？"
         variant="destructive"
       />

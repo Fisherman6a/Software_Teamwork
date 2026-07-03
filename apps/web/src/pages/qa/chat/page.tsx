@@ -805,28 +805,38 @@ export function ChatPage() {
   )
 
   const handleClearAll = useCallback(async () => {
+    const pageSize = 50
+    const ids = new Set<string>()
     let failed = 0
-    // Always fetch page 1: deleting sessions contracts the collection,
-    // so subsequent pages shift into page 1.
-    while (true) {
-      let pageIds: string[] = []
+
+    for (let page = 1; ; page += 1) {
       try {
-        const result = await listSessions({ page: 1, pageSize: 50 })
-        pageIds = result.items.map((s) => s.id)
+        const result = await listSessions({ page, pageSize })
+        for (const session of result.items) {
+          ids.add(session.id)
+        }
+        if (
+          result.items.length === 0 ||
+          result.items.length < pageSize ||
+          ids.size >= result.page.total
+        ) {
+          break
+        }
       } catch {
         failed++
         break
       }
-      if (pageIds.length === 0) break
-      for (const id of pageIds) {
-        try {
-          await deleteSessionMut.mutateAsync(id)
-          removeSession(id)
-        } catch {
-          failed++
-        }
+    }
+
+    for (const id of ids) {
+      try {
+        await deleteSessionMut.mutateAsync(id)
+        removeSession(id)
+      } catch {
+        failed++
       }
     }
+
     if (failed > 0) setError(`${failed} 个对话删除失败，请稍后重试`)
   }, [deleteSessionMut, removeSession, setError])
 
