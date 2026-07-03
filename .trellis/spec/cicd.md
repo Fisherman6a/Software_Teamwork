@@ -854,9 +854,8 @@ Rules:
 - Compose infrastructure images must keep pinned defaults and may expose
   full-image override variables for local or enterprise registries. Do not use
   `latest` as a default or documented normal path.
-- Source selection is official-by-default. The earlier mainland-first contract
-  where `deploy/.env.example` carried active DaoCloud/TUNA/goproxy.cn defaults is
-  retired. Keep official Docker Hub, PyPI, `proxy.golang.org`, and
+- Source selection is official-by-default. The previous mainland-first default
+  mirror contract is retired. Keep official Docker Hub, PyPI, `proxy.golang.org`, and
   `sum.golang.org` as the committed defaults.
 - Mainland China users must still have a first-class explicit mirror mode.
   Prefer `registry rewrite > daemon mirror > proxy`: registry rewrite is

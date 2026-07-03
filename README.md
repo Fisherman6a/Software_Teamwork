@@ -130,8 +130,7 @@ Gateway 基础契约文档：
 - `curl`。
 
 源选择采用新策略：仓库默认配置保持官方源，国内网络通过显式 `--china` 切换镜像。
-这取代了早期把 DaoCloud、TUNA 和 goproxy.cn 写进 `deploy/.env.example` 的默认契约；
-默认文件不再提交 active 第三方镜像值。
+旧的大陆优先默认镜像契约已废弃；默认文件不再提交 active 第三方镜像值。
 
 默认使用官方源：Docker Hub pinned images、PyPI、`proxy.golang.org` 和
 `sum.golang.org`。如果在中国大陆网络中 GitHub、Docker Hub、PyPI、HuggingFace 或

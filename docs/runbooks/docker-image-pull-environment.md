@@ -22,8 +22,7 @@ Go 后端 host-run 期间的模块下载由 `deploy/.env.example` 里的 `GOPROX
 
 ## 源策略契约
 
-当前契约是默认官方源、国内网络显式 `--china`。这取代了早期
-`deploy/.env.example` 内置 DaoCloud、TUNA 和 goproxy.cn active 默认值的大陆优先契约。
+当前契约是默认官方源、国内网络显式 `--china`。旧的大陆优先默认镜像契约已废弃。
 PR review 和 agent 检查应把 active 第三方镜像默认值视为回归；缺少这些 active 默认值
 不是回归。中国大陆用户的一等路径是带 `--china` 的本地启动命令，或本机未提交的
 `deploy/.env` / 企业镜像覆盖。
