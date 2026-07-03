@@ -28,6 +28,8 @@
 """
 
 import json
+import sys
+import types
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -45,6 +47,8 @@ from rag.llm.embedding_model import (
     OpenAIEmbed,
     ZhipuEmbed,
 )
+from rag.llm.chat_model import MistralChat
+from rag.llm.mistral_sdk import import_mistral_v2_client
 from common.exceptions import ModelException
 from common.token_utils import num_tokens_from_string
 
@@ -69,8 +73,9 @@ class _OpenAIResp:
 def _openai_create(total_tokens=None, dim=3):
     """Build a side_effect that returns one vector per input text."""
 
-    def _create(input, model, **kwargs):
-        return _OpenAIResp([[float(i)] * dim for i in range(len(input))], total_tokens=total_tokens)
+    def _create(input=None, model=None, inputs=None, **kwargs):
+        texts = input if input is not None else inputs
+        return _OpenAIResp([[float(i)] * dim for i in range(len(texts))], total_tokens=total_tokens)
 
     return _create
 
@@ -223,15 +228,69 @@ class TestTruncationBoundary:
         embed.model_name = "mistral-embed"
         captured = {}
 
-        def _embeddings(input, model):
-            captured["input"] = input
+        def _embeddings(inputs, model):
+            captured["input"] = inputs
             return _OpenAIResp([[0.0, 0.0]], total_tokens=1)
 
         embed.client = MagicMock()
-        embed.client.embeddings = MagicMock(side_effect=_embeddings)
+        embed.client.embeddings.create = MagicMock(side_effect=_embeddings)
         huge = "word " * 12000
         embed.encode([huge])
         assert num_tokens_from_string(captured["input"][0]) <= DEFAULT_MAX_TOKENS
+
+    def test_mistral_uses_v2_embeddings_create_inputs(self, monkeypatch):
+        fake_client = MagicMock()
+        fake_client.embeddings.create = MagicMock(side_effect=_openai_create(total_tokens=5))
+        fake_package = types.ModuleType("mistralai")
+        fake_package.Mistral = MagicMock(return_value=fake_client)
+        monkeypatch.setitem(sys.modules, "mistralai", fake_package)
+
+        embed = MistralEmbed("key", "mistral-embed")
+        vectors, token_count = embed.encode(["hello"])
+
+        fake_package.Mistral.assert_called_once_with(api_key="key")
+        fake_client.embeddings.create.assert_called_once_with(inputs=["hello"], model="mistral-embed")
+        assert vectors.shape == (1, 3)
+        assert token_count == 5
+
+    def test_mistral_v2_client_import_path_available(self):
+        Mistral = import_mistral_v2_client()
+
+        assert Mistral is not None
+
+    def test_mistral_v2_client_import_accepts_client_module_export(self, monkeypatch):
+        expected = MagicMock()
+        fake_package = types.ModuleType("mistralai")
+        fake_package.__path__ = []
+        fake_client_module = types.ModuleType("mistralai.client")
+        fake_client_module.Mistral = expected
+        monkeypatch.setitem(sys.modules, "mistralai", fake_package)
+        monkeypatch.setitem(sys.modules, "mistralai.client", fake_client_module)
+
+        assert import_mistral_v2_client() is expected
+
+    def test_mistral_v2_client_import_rejects_legacy_mistral_client(self, monkeypatch):
+        fake_package = types.ModuleType("mistralai")
+        fake_package.__path__ = []
+        fake_client_module = types.ModuleType("mistralai.client")
+        fake_client_module.MistralClient = MagicMock()
+        monkeypatch.setitem(sys.modules, "mistralai", fake_package)
+        monkeypatch.setitem(sys.modules, "mistralai.client", fake_client_module)
+
+        with pytest.raises(ImportError, match="legacy mistralai.MistralClient SDKs are not supported"):
+            import_mistral_v2_client()
+
+    def test_mistral_chat_uses_v2_top_level_client(self, monkeypatch):
+        fake_client = MagicMock()
+        fake_package = types.ModuleType("mistralai")
+        fake_package.Mistral = MagicMock(return_value=fake_client)
+        monkeypatch.setitem(sys.modules, "mistralai", fake_package)
+
+        chat = MistralChat("key", "mistral-large")
+
+        fake_package.Mistral.assert_called_once_with(api_key="key")
+        assert chat.client is fake_client
+        assert chat.model_name == "mistral-large"
 
 
 # --------------------------------------------------------------------------- #

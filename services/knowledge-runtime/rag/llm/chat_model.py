@@ -35,6 +35,7 @@ from common.misc_utils import thread_pool_exec
 from common.token_utils import num_tokens_from_string, total_token_count_from_response
 from rag.llm import FACTORY_DEFAULT_BASE_URL, LITELLM_PROVIDER_PREFIX, SupportedLiteLLMProvider
 from rag.llm.key_utils import _normalize_replicate_key
+from rag.llm.mistral_sdk import import_mistral_v2_client
 from rag.llm.tool_decorator import FunctionToolSession, is_tool
 from rag.nlp import is_chinese, is_english
 
@@ -928,9 +929,9 @@ class MistralChat(Base):
     def __init__(self, key, model_name, base_url=None, **kwargs):
         super().__init__(key, model_name, base_url=base_url, **kwargs)
 
-        from mistralai.client import MistralClient
+        Mistral = import_mistral_v2_client()
 
-        self.client = MistralClient(api_key=key)
+        self.client = Mistral(api_key=key)
         self.model_name = model_name
 
     def _clean_conf(self, gen_conf):
@@ -939,10 +940,14 @@ class MistralChat(Base):
                 del gen_conf[k]
         return gen_conf
 
+    @staticmethod
+    def _stream_chunk(resp):
+        return getattr(resp, "data", resp)
+
     def _chat(self, history, gen_conf=None, **kwargs):
         gen_conf = dict(gen_conf or {})
         gen_conf = self._clean_conf(gen_conf)
-        response = self.client.chat(model=self.model_name, messages=history, **gen_conf)
+        response = self.client.chat.complete(model=self.model_name, messages=history, **gen_conf)
         if not response.choices:
             raise ValueError("LLM returned empty response")  # pact: guard empty choices list
         ans = response.choices[0].message.content
@@ -961,8 +966,9 @@ class MistralChat(Base):
         ans = ""
         total_tokens = 0
         try:
-            response = self.client.chat_stream(model=self.model_name, messages=history, **gen_conf, **kwargs)
-            for resp in response:
+            response = self.client.chat.stream(model=self.model_name, messages=history, **gen_conf, **kwargs)
+            for event in response:
+                resp = self._stream_chunk(event)
                 if not resp.choices or not resp.choices[0].delta.content:
                     continue
                 ans = resp.choices[0].delta.content

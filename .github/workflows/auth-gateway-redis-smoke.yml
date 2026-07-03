@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       use_registry_rewrite:
-        description: Use deploy/.env.example infrastructure image registry rewrite
+        description: Use DaoCloud infrastructure image registry rewrite for this run
         required: false
         default: false
         type: boolean
@@ -33,7 +33,15 @@ jobs:
         shell: bash
         run: |
           cp deploy/.env.example /tmp/auth-gateway-redis-smoke.env
-          if [ "${{ inputs.use_registry_rewrite }}" != "true" ]; then
+          if [ "${{ inputs.use_registry_rewrite }}" = "true" ]; then
+            cat >> /tmp/auth-gateway-redis-smoke.env <<'EOF'
+          POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine
+          REDIS_IMAGE=docker.m.daocloud.io/library/redis:7-alpine
+          QDRANT_IMAGE=docker.m.daocloud.io/qdrant/qdrant:v1.18.2
+          MINIO_IMAGE=docker.m.daocloud.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+          MINIO_MC_IMAGE=docker.m.daocloud.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
+          EOF
+          else
             sed -i '/^[A-Z0-9_]*_IMAGE=/d' /tmp/auth-gateway-redis-smoke.env
           fi
 
