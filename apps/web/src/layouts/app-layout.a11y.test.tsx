@@ -4,7 +4,7 @@ import type { AnchorHTMLAttributes, ReactNode, Ref } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppVersionBadge } from '@/components/common/app-version-badge'
-import { APP_UPDATE_COMMAND, type AppFreshnessResult } from '@/lib/app-version'
+import { APP_UPDATE_COMMAND } from '@/lib/app-version'
 import type { UserSummary } from '@/lib/types'
 import { useAuthStore } from '@/stores/auth-store'
 import { renderWithProviders } from '@/test/render'
@@ -101,6 +101,7 @@ describe('AppLayout accessibility smoke', () => {
 
     const nav = screen.getByRole('navigation')
     const navLinks = within(nav).getAllByRole('link')
+    const currentLabel = screen.getByText('智能问答')
     const versionButton = screen.getByRole('button', { name: /^前端版本 v\d+\.\d+\.\d+/ })
     const helpButton = screen.getByRole('button', { name: '打开帮助' })
     const logoutButton = screen.getByRole('button', { name: '退出登录' })
@@ -109,9 +110,14 @@ describe('AppLayout accessibility smoke', () => {
     navLinks.forEach((link) => {
       expect(link).toHaveAccessibleName(/.+/)
     })
+    expect(currentLabel.compareDocumentPosition(versionButton)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
     expect(versionButton).toHaveTextContent(/^v\d+\.\d+\.\d+$/)
     expect(logoutButton).toHaveAccessibleName(/.+/)
 
+    await keyboard.tab()
+    expect(versionButton).toHaveFocus()
     await keyboard.tab()
     expect(navLinks[0]).toHaveFocus()
     await keyboard.tab()
@@ -120,8 +126,6 @@ describe('AppLayout accessibility smoke', () => {
     expect(routerMocks.navigate).toHaveBeenCalledWith({ to: '/reports' })
     await keyboard.tab()
     expect(navLinks[2]).toHaveFocus()
-    await keyboard.tab()
-    expect(versionButton).toHaveFocus()
     await keyboard.tab()
     expect(helpButton).toHaveFocus()
     await keyboard.tab()
@@ -175,25 +179,18 @@ describe('AppLayout accessibility smoke', () => {
     expect(screen.getByRole('button', { name: /^前端版本 v0\.0\.0/ })).toHaveTextContent('v0.0.0')
   })
 
-  it('checks upstream develop and shows the update command when commits differ', async () => {
-    const checkLatest = vi.fn<() => Promise<AppFreshnessResult>>().mockResolvedValue({
-      checkedAt: new Date('2026-07-03T00:00:00.000Z'),
-      commitsAhead: 0,
-      commitsBehind: 2,
-      currentSha: '1111111111111111111111111111111111111111',
-      latestSha: '2222222222222222222222222222222222222222',
-      latestUrl: 'https://github.com/Sakayori-Iroha-168/Software_Teamwork/commit/2222222',
-      status: 'different',
-    })
+  it('shows local version links without requesting the GitHub API', async () => {
+    const fetcher = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetcher)
     const pointer = userEvent.setup()
 
-    renderWithProviders(<AppVersionBadge checkLatest={checkLatest} />)
+    renderWithProviders(<AppVersionBadge />)
 
     await pointer.click(screen.getByRole('button', { name: /^前端版本/ }))
 
-    expect(await screen.findByText('当前构建落后 develop 2 个提交')).toBeVisible()
-    expect(screen.getByText('2 个')).toBeVisible()
+    expect(await screen.findByText('本地构建版本')).toBeVisible()
+    expect(screen.getByText('打开 GitHub 对比')).toBeVisible()
     expect(screen.getByText(APP_UPDATE_COMMAND)).toBeVisible()
-    expect(checkLatest).toHaveBeenCalledOnce()
+    expect(fetcher).not.toHaveBeenCalled()
   })
 })
