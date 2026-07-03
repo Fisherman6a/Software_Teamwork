@@ -7,6 +7,7 @@ import {
   deleteSessionAttachment,
   getSessionAttachment,
   listSessionAttachments,
+  listSessions,
 } from '@/api/conversations'
 import {
   AttachmentList,
@@ -804,12 +805,21 @@ export function ChatPage() {
   )
 
   const handleClearAll = useCallback(async () => {
+    let page = 1
     let failed = 0
-    // Loop to cover all pages beyond the currently loaded one
+    const pageSize = 50
+    // Fetch and delete all pages via API directly (don't rely on store sync)
     while (true) {
-      const ids = useChatStore.getState().sessions.map((s) => s.id)
-      if (ids.length === 0) break
-      for (const id of ids) {
+      let pageIds: string[] = []
+      try {
+        const result = await listSessions(page, pageSize)
+        pageIds = result.data.map((s: { id: string }) => s.id)
+      } catch {
+        failed++
+        break
+      }
+      if (pageIds.length === 0) break
+      for (const id of pageIds) {
         try {
           await deleteSessionMut.mutateAsync(id)
           removeSession(id)
@@ -817,12 +827,11 @@ export function ChatPage() {
           failed++
         }
       }
-      // Refetch next page if any sessions remain
-      if (ids.length < 20) break
-      await refetchSessions()
+      if (pageIds.length < pageSize) break
+      page++
     }
     if (failed > 0) setError(`${failed} 个对话删除失败，请稍后重试`)
-  }, [deleteSessionMut, removeSession, setError, refetchSessions])
+  }, [deleteSessionMut, removeSession, setError])
 
   // ══════════════════════════════════════════════════════════════════════════
   // Rename session
