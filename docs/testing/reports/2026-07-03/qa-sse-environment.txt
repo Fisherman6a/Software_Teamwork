@@ -2,7 +2,8 @@ QA SSE behavior verification environment snapshot
 Date: 2026-07-03
 Task: T-013 / GitHub issue #498
 Branch: Test/test/qa-sse-behavior-verification
-Head commit: 801ff74cceb694ac07d26cacb70521b35f44e6e5
+Runtime code under test: 801ff74cceb694ac07d26cacb70521b35f44e6e5
+Report / evidence commit: 4667cfb5
 Base branch: upstream/develop @ 801ff74cceb694ac07d26cacb70521b35f44e6e5
 
 Tooling:

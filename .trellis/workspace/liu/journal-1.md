@@ -1007,10 +1007,7 @@ Fixed the admin model profile form so create and update payloads omit default ma
 
 ### Main Changes
 
-- Added the dated QA SSE verification report and committed sanitized evidence under `docs/testing/reports/2026-07-03/`.
-- Captured real SSE headers, raw stream, parsed event counts, replay output, run metadata, tool-call summaries, validation-error responses, abort behavior, environment readiness, and redaction scan output.
-- Created follow-up issues #604 and #605 for the two major behavior defects found during testing.
-- Opened PR #606 against `develop` and archived the Trellis task after the work commit.
+(Add details)
 
 ### Git Commits
 
@@ -1021,12 +1018,7 @@ Fixed the admin model profile form so create and update payloads omit default ma
 
 ### Testing
 
-- [OK] Real local QA SSE verification captured HTTP 200 SSE headers, ordered events, replay output, validation errors, and disconnect behavior.
-- [OK] Redaction scan ran over committed evidence and selected local logs; committed evidence had no token/API key/DB URL/object-key hits, with only uncommitted Knowledge local-log internal URL diagnostics recorded.
-- [OK] `git diff --cached --check`
-- [OK] `cd services/qa && go test ./...`
-- [OK] `cd services/qa && go build ./cmd/server`
-- [OK] `cd services/qa && go build ./cmd/agent`
+- [OK] (Add test results)
 
 ### Status
 
@@ -1183,7 +1175,10 @@ Recorded real-environment QA SSE behavior evidence for issue #498, transferred s
 
 ### Main Changes
 
-(Add details)
+- Added the dated QA SSE verification report and committed sanitized evidence under `docs/testing/reports/2026-07-03/`.
+- Captured real SSE headers, raw stream, parsed event counts, replay output, run metadata, tool-call summaries, validation-error responses, abort behavior, environment readiness, and redaction scan output.
+- Created follow-up issues #604 and #605 for the two major behavior defects found during testing.
+- Opened PR #606 against `develop` and archived the Trellis task after the work commit.
 
 ### Git Commits
 
@@ -1193,7 +1188,12 @@ Recorded real-environment QA SSE behavior evidence for issue #498, transferred s
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] Real local QA SSE verification captured HTTP 200 SSE headers, ordered events, replay output, validation errors, and disconnect behavior.
+- [OK] Redaction scan ran over committed evidence and selected local logs; committed evidence had no token/API key/DB URL/object-key hits, with only uncommitted Knowledge local-log internal URL diagnostics recorded.
+- [OK] `git diff --cached --check`
+- [OK] `cd services/qa && go test ./...`
+- [OK] `cd services/qa && go build ./cmd/server`
+- [OK] `cd services/qa && go build ./cmd/agent`
 
 ### Status
 

@@ -9,7 +9,8 @@
 | Owner | `@Jackeyliu37` |
 | Scope | QA SSE stream, QA internal replay API, QA public payload redaction, local service logs |
 | Tested branch | `Test/test/qa-sse-behavior-verification` |
-| Tested commit | `801ff74cceb694ac07d26cacb70521b35f44e6e5` |
+| Runtime code under test | `801ff74cceb694ac07d26cacb70521b35f44e6e5` |
+| Report / evidence commit | `4667cfb5` |
 | Base branch | `upstream/develop @ 801ff74cceb694ac07d26cacb70521b35f44e6e5` |
 | Environment | Local Windows host, Docker infrastructure, host-run backend services |
 | Conclusion | Test failed and was transferred to follow-up issues `#604` and `#605`; Knowledge tool success path is environment-blocked |
