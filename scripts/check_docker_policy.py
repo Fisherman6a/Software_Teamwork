@@ -398,7 +398,7 @@ def validate_env_example(root: Path) -> list[str]:
     for key in KNOWN_IMAGE_OVERRIDE_VARS:
         if key in values:
             issues.append(
-                f"deploy/.env.example: `{key}` must not be active by default; use ./scripts/local/dev-up.sh --china or local deploy/.env overrides"
+                f"deploy/.env.example: `{key}` must not be active by default under the official-by-default source policy; use ./scripts/local/dev-up.sh --china or local deploy/.env overrides"
             )
 
     for key, value in values.items():

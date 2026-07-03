@@ -123,6 +123,8 @@ REQUIRED_DOC_TOKENS = [
     "superadmin / LocalDemoAdmin#12345",
     "cp deploy/.env.example deploy/.env",
     "Go modules 下载默认读取",
+    "源选择采用新策略",
+    "早期把 DaoCloud、TUNA 和 goproxy.cn 写进 `deploy/.env.example` 的默认契约",
     "默认使用官方源",
     "--china",
     "大陆镜像",

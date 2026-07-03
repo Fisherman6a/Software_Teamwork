@@ -15,6 +15,10 @@ Host:   auth + file + knowledge + ai-gateway + qa + document + gateway + fronten
 Go 必须安装在实际运行这些脚本的宿主机环境中；如果使用 WSL 启动脚本，Windows
 里的 Go 不等于 WSL 里的 Go。
 
+源选择采用新策略：仓库默认配置保持官方源，国内网络通过显式 `--china` 切换镜像。
+这取代了早期把 DaoCloud、TUNA 和 goproxy.cn 写进 `deploy/.env.example` 的默认契约；
+默认文件不再提交 active 第三方镜像值。
+
 默认使用官方源。`deploy/.env.example` 里的 Docker、uv 和 Go 默认值分别指向
 Docker Hub pinned images、PyPI、`proxy.golang.org` 和 `sum.golang.org`。中国大陆网络
 如果下载慢，给本地脚本加 `--china`，只在本次进程使用大陆镜像，不改写

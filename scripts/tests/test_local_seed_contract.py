@@ -86,6 +86,8 @@ class LocalSeedContractTests(unittest.TestCase):
                 "admin / LocalDemoAdmin#12345\n"
                 "superadmin / LocalDemoAdmin#12345\n"
                 "Go modules 下载默认读取 `deploy/.env`\n"
+                "源选择采用新策略\n"
+                "早期把 DaoCloud、TUNA 和 goproxy.cn 写进 `deploy/.env.example` 的默认契约\n"
                 "默认使用官方源\n"
                 "--china\n"
                 "大陆镜像\n"

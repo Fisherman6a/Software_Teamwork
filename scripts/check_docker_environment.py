@@ -117,7 +117,7 @@ def main() -> int:
     print("\nRecommendation")
     if args.profile in ("china", "all"):
         print(
-            "- For mainland China, keep the pinned *_IMAGE entries from deploy/.env.example."
+            "- For mainland China, run ./scripts/local/dev-up.sh --china or keep local untracked *_IMAGE overrides."
         )
         print(
             "- Do not rely on docker.m.daocloud.io as a daemon registry-mirror unless manifest probes prove mirror-mode works."
