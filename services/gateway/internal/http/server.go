@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -194,7 +195,7 @@ func ValidateOwnerBaseURLs(values map[string]string) error {
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}
-		if _, err := parseOwnerBaseURL(raw); err != nil {
+		if _, err := parseOwnerBaseURL(owner, raw); err != nil {
 			return fmt.Errorf("%s owner base URL is invalid: %w", owner, err)
 		}
 	}
@@ -211,7 +212,7 @@ type healthResponse struct {
 func parseOwnerBaseURLs(values map[string]string) map[string]*url.URL {
 	parsed := make(map[string]*url.URL, len(values))
 	for owner, raw := range values {
-		u, err := parseOwnerBaseURL(raw)
+		u, err := parseOwnerBaseURL(owner, raw)
 		if err != nil || u == nil {
 			continue
 		}
@@ -220,7 +221,7 @@ func parseOwnerBaseURLs(values map[string]string) map[string]*url.URL {
 	return parsed
 }
 
-func parseOwnerBaseURL(raw string) (*url.URL, error) {
+func parseOwnerBaseURL(owner string, raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, nil
@@ -238,13 +239,43 @@ func parseOwnerBaseURL(raw string) (*url.URL, error) {
 	if u.User != nil {
 		return nil, fmt.Errorf("must not include credentials")
 	}
-	if u.RawQuery != "" {
+	if u.RawQuery != "" || u.ForceQuery {
 		return nil, fmt.Errorf("must not include query parameters")
 	}
-	if u.Fragment != "" {
+	if u.Fragment != "" || strings.Contains(raw, "#") {
 		return nil, fmt.Errorf("must not include fragment")
 	}
+	if !trustedOwnerBaseURLHost(owner, u.Hostname()) {
+		return nil, fmt.Errorf("host is not trusted")
+	}
 	return u, nil
+}
+
+var trustedOwnerServiceHosts = map[string][]string{
+	"auth":       {"auth"},
+	"knowledge":  {"knowledge"},
+	"qa":         {"qa"},
+	"document":   {"document"},
+	"ai-gateway": {"ai-gateway"},
+}
+
+func trustedOwnerBaseURLHost(owner string, host string) bool {
+	host = strings.Trim(strings.ToLower(host), "[]")
+	if host == "" {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	for _, trusted := range trustedOwnerServiceHosts[owner] {
+		if host == trusted {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneHTTPClientWithoutTimeout(client *http.Client) *http.Client {

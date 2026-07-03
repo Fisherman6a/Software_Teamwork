@@ -58,7 +58,9 @@ Use the local integration runbook smoke checks for those workflows.
 All non-empty service base URL variables must be absolute `http` or `https`
 URLs with a host and without credentials, query, or fragment. Blank owner
 service URLs remain allowed at config load time and make `/readyz` report the
-owner as not configured.
+owner as not configured. Owner service hosts must be the documented service DNS
+name (`auth`, `knowledge`, `qa`, `document`, or `ai-gateway`) or a local
+development loopback host such as `localhost`, `127.0.0.1`, or `[::1]`.
 
 ## Environment Variables
 

@@ -356,9 +356,11 @@ document, and ai-gateway
 - Gateway `/readyz` may check Gateway-owned runtime dependencies, Auth
   readiness, and owner base URL configuration needed for route dispatch.
 - Non-empty owner base URLs must be absolute `http` or `https` URLs with a
-  host and no credentials, query, or fragment. Invalid configured owner URLs
-  fail startup/config validation; direct server construction must still treat
-  invalid owner URLs as not configured without exposing the raw URL.
+  host and no credentials, query, or fragment. Hosts must be the corresponding
+  owner service DNS name or a local loopback/`localhost` development target.
+  Invalid configured owner URLs fail startup/config validation; direct server
+  construction must still treat invalid owner URLs as not configured without
+  exposing the raw URL.
 - Gateway `/readyz` must not synchronously call every owner service readiness
   endpoint or run business workflows such as upload, retrieval, QA answer,
   report generation, AI Gateway provider smoke, or model-profile bootstrap.
@@ -398,7 +400,8 @@ document, and ai-gateway
 - When `gatewayReadyCheck` behavior changes, add or update unit tests for Redis,
   Auth, and owner base URL failure classification. Owner base URL validation
   tests must cover allowed `http`/`https` URLs, blank values, unsupported
-  schemes, credentials, query strings, fragments, missing hosts, and no raw URL
+  schemes, credentials, query strings, fragments, missing hosts, public hosts,
+  raw private/link-local hosts, wrong owner-service hosts, and no raw URL
   leakage in errors or public responses.
 - Documentation-only readiness changes must parse the changed Gateway OpenAPI
   files, run `python3 scripts/verify_gateway_active_api.py`, and run
