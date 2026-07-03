@@ -67,15 +67,17 @@ describe('report generation API wrappers', () => {
   })
 
   it('uploads report templates as multipart form data', async () => {
+    const appendSpy = vi.spyOn(FormData.prototype, 'append')
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init)
       const url = new URL(request.url)
 
       expect(request.method).toBe('POST')
       expect(url.pathname).toBe('/api/v1/report-templates')
+      expect(request.headers.get('Content-Type')).not.toBe('application/json')
       expect(request.headers.get('Content-Type')).toContain('multipart/form-data')
 
-      const form = await request.formData()
+      const form = new Map(appendSpy.mock.calls.map(([key, value]) => [key, value]))
       expect(form.get('templateName')).toBe('巡检模板')
       expect(form.get('reportType')).toBe('inspection')
       expect(form.get('description')).toBe('现场巡检')
