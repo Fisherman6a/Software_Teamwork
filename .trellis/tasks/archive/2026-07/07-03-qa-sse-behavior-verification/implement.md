@@ -55,8 +55,8 @@
   - `cd services/qa && go build ./cmd/server`
   - `cd services/qa && go build ./cmd/agent`
 - [x] Review changed files for secrets before commit.
-- [ ] Commit with Conventional Commit.
-- [ ] Push branch to fork and open PR to `develop` with `Closes #498`.
+- [x] Commit with Conventional Commit.
+- [x] Push branch to fork and open PR to `develop` with `Closes #498`.
 
 ## Risk Notes
 
