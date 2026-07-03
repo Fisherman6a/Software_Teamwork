@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-07-03
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~158 | Active |
+| `journal-1.md` | ~191 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-07-03 | Smooth QA chat streaming output | `294582f8` | `Special/deploy/qa-document-mcp-integration` |
 | 4 | 2026-07-03 | QA Document MCP integration | `f8695cf` | `Special/deploy/qa-document-mcp-integration` |
 | 3 | 2026-06-30 | Fix PR 300 review findings | `c9ae097`, `251a521` | `JerryTeam/test/qa-ai-gateway-smoke` |
 | 2 | 2026-06-30 | QA to AI Gateway smoke | `f9662a9` | `JerryTeam/test/qa-ai-gateway-smoke` |

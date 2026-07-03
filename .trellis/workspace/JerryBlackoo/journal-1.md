@@ -156,3 +156,36 @@ Registered host-run Document MCP metadata and env credentials for QA, fixed alia
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: Smooth QA chat streaming output
+
+**Date**: 2026-07-03
+**Task**: Smooth QA chat streaming output
+**Branch**: `Special/deploy/qa-document-mcp-integration`
+
+### Summary
+
+Implemented and verified adaptive QA answer streaming, committed the frontend task, pushed it, and opened draft PR #602.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `294582f8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
