@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 31
+- **Total Sessions**: 32
 - **Last Active**: 2026-07-03
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1130 | Active |
+| `journal-1.md` | ~1163 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-07-03 | Stabilize report generation outline workflow | `9e821c58` | `Liutest/fix/report-outline-drag-renumber` |
 | 31 | 2026-07-03 | Report generation model settings and seed fix | `41ecfad`, `79428f0`, `3c54db5` | `Liutest/fix/report-generation-config` |
 | 30 | 2026-07-02 | Cover QA session delete 204 response | `8df6ec0` | `Liutest/test/qa-session-delete-204` |
 | 29 | 2026-07-02 | Improve model profile LLM config UX | `9af374b` | `Liutest/feat/model-profile-llm-config-ux` |

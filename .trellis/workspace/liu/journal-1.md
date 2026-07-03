@@ -1128,3 +1128,36 @@ Supported both seeded report generation types, added frontend report model setti
 ### Next Steps
 
 - None - task complete
+
+
+## Session 32: Stabilize report generation outline workflow
+
+**Date**: 2026-07-03
+**Task**: Stabilize report generation outline workflow
+**Branch**: `Liutest/fix/report-outline-drag-renumber`
+
+### Summary
+
+Fixed report outline editing, replacement outline resets, retry status refresh, cancellation state handling, and saved-outline propagation into content generation.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9e821c58` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
