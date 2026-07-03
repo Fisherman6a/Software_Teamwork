@@ -805,15 +805,14 @@ export function ChatPage() {
   )
 
   const handleClearAll = useCallback(async () => {
-    let page = 1
     let failed = 0
-    const pageSize = 50
-    // Fetch and delete all pages via API directly (don't rely on store sync)
+    // Always fetch page 1: deleting sessions contracts the collection,
+    // so subsequent pages shift into page 1.
     while (true) {
       let pageIds: string[] = []
       try {
-        const result = await listSessions(page, pageSize)
-        pageIds = result.data.map((s: { id: string }) => s.id)
+        const result = await listSessions({ page: 1, pageSize: 50 })
+        pageIds = result.items.map((s) => s.id)
       } catch {
         failed++
         break
@@ -827,8 +826,6 @@ export function ChatPage() {
           failed++
         }
       }
-      if (pageIds.length < pageSize) break
-      page++
     }
     if (failed > 0) setError(`${failed} 个对话删除失败，请稍后重试`)
   }, [deleteSessionMut, removeSession, setError])
