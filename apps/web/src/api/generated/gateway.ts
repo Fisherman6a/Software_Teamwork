@@ -52,11 +52,15 @@ export interface paths {
          *     `currentSha...develop`; `ahead_by > 0` means develop has commits the
          *     current build does not contain, while `ahead_by = 0` means the build
          *     contains the latest develop commit even if it also has feature-branch
-         *     commits. The request runs server-side with short-lived cache and an
-         *     optional backend-only `GATEWAY_GITHUB_TOKEN`; browser clients never call
-         *     GitHub API directly and never receive the token. If GitHub returns 403,
-         *     404, 429, a network error, or an invalid response, the endpoint still
-         *     returns 200 with `data.status=unknown` and a short safe `reason`.
+         *     commits. Gateway only performs the server-side GitHub request when
+         *     `currentSha` is present in `GATEWAY_APP_VERSION_ALLOWED_SHAS`; untrusted
+         *     but syntactically valid SHAs return `data.status=unknown` without a
+         *     GitHub request or cache write. Trusted requests use short-lived cache
+         *     and an optional backend-only `GATEWAY_GITHUB_TOKEN`; browser clients
+         *     never call GitHub API directly and never receive the token. If GitHub
+         *     returns 403, 404, 429, a network error, or an invalid response, the
+         *     endpoint still returns 200 with `data.status=unknown` and a short safe
+         *     `reason`.
          *     Missing or blank `currentSha` is treated as an unknown build. Non-empty
          *     values must be complete 40-character hexadecimal Git SHAs and are
          *     rejected before any GitHub request or cache write when invalid.
@@ -1581,7 +1585,7 @@ export interface components {
          * @description Safe fallback reason when freshness could not be determined.
          * @enum {string}
          */
-        AppVersionFreshnessReason: "missing_current_sha" | "github_403" | "github_404" | "github_429" | "github_status" | "network_error" | "invalid_response";
+        AppVersionFreshnessReason: "missing_current_sha" | "untrusted_current_sha" | "github_403" | "github_404" | "github_429" | "github_status" | "network_error" | "invalid_response";
         AppVersionFreshness: {
             status: components["schemas"]["AppVersionFreshnessStatus"];
             /** @description Current frontend build commit SHA, when available. */
@@ -3382,7 +3386,7 @@ export interface operations {
     getAppVersionFreshness: {
         parameters: {
             query?: {
-                /** @description Current frontend build commit SHA injected at build time. Omit or send blank when unavailable; otherwise send the full 40-character hexadecimal SHA. */
+                /** @description Current frontend build commit SHA injected at build time. Omit or send blank when unavailable; otherwise send the full 40-character hexadecimal SHA. Gateway checks GitHub only for SHAs configured in `GATEWAY_APP_VERSION_ALLOWED_SHAS`. */
                 currentSha?: string;
             };
             header?: never;

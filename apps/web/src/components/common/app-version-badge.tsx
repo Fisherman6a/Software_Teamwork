@@ -38,6 +38,7 @@ const reasonLabels: Partial<Record<AppVersionFreshnessReason, string>> = {
   invalid_response: 'GitHub 响应格式不可用。',
   missing_current_sha: '当前构建没有可用提交号。',
   network_error: 'Gateway 暂时无法连接 GitHub。',
+  untrusted_current_sha: '当前提交未在 Gateway 允许列表中，已跳过外部检查。',
 }
 
 export function AppVersionBadge({

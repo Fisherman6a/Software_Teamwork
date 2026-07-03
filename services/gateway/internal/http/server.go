@@ -38,6 +38,7 @@ type Config struct {
 	TokenHasher            service.TokenHasher
 	HTTPClient             *http.Client
 	GitHubToken            string
+	AppVersionAllowedSHAs  []string
 	ReadyCheck             func(context.Context) error
 	MetricsReg             *metrics.Registry
 }
@@ -72,7 +73,7 @@ func NewServer(cfg Config) *Server {
 		cfg.HTTPClient = &http.Client{Timeout: cfg.DownstreamTimeout}
 	}
 	if cfg.AppVersionChecker == nil {
-		cfg.AppVersionChecker = newGitHubAppVersionChecker(cfg.HTTPClient, cfg.Logger, cfg.GitHubToken)
+		cfg.AppVersionChecker = newGitHubAppVersionChecker(cfg.HTTPClient, cfg.Logger, cfg.GitHubToken, cfg.AppVersionAllowedSHAs)
 	}
 	s := &Server{
 		logger:                cfg.Logger,

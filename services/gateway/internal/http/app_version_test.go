@@ -27,7 +27,7 @@ func TestAppVersionFreshnessReturnsCurrentWhenBuildIncludesDevelop(t *testing.T)
 	}))
 	defer github.Close()
 
-	server := newAppVersionTestServer(t, github.URL, "backend-github-token")
+	server := newAppVersionTestServer(t, github.URL, "backend-github-token", currentSHA)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/app-version/freshness?currentSha="+currentSHA, nil)
 	req.Header.Set("X-Request-Id", "req_app_version")
 	res := httptest.NewRecorder()
@@ -68,7 +68,7 @@ func TestAppVersionFreshnessReturnsDifferentWhenCurrentSHAIsDevelopAncestor(t *t
 	}))
 	defer github.Close()
 
-	server := newAppVersionTestServer(t, github.URL, "")
+	server := newAppVersionTestServer(t, github.URL, "", currentSHA)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/app-version/freshness?currentSha="+currentSHA, nil)
 	res := httptest.NewRecorder()
 
@@ -94,7 +94,7 @@ func TestAppVersionFreshnessFallsBackToUnknownOnGitHubForbidden(t *testing.T) {
 	}))
 	defer github.Close()
 
-	server := newAppVersionTestServer(t, github.URL, "")
+	server := newAppVersionTestServer(t, github.URL, "", currentSHA)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/app-version/freshness?currentSha="+currentSHA, nil)
 	req.Header.Set("X-Request-Id", "req_app_version_403")
 	res := httptest.NewRecorder()
@@ -124,7 +124,7 @@ func TestAppVersionFreshnessCachesFreshnessByCurrentSHA(t *testing.T) {
 	}))
 	defer github.Close()
 
-	server := newAppVersionTestServer(t, github.URL, "")
+	server := newAppVersionTestServer(t, github.URL, "", currentSHA)
 	for range 2 {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/app-version/freshness?currentSha="+currentSHA, nil)
 		res := httptest.NewRecorder()
@@ -156,7 +156,7 @@ func TestAppVersionFreshnessCoalescesConcurrentGitHubRequests(t *testing.T) {
 	}))
 	defer github.Close()
 
-	checker := newAppVersionTestChecker(t, github.URL, "")
+	checker := newAppVersionTestChecker(t, github.URL, "", currentSHA)
 	var wg sync.WaitGroup
 	begin := make(chan struct{})
 	for range 12 {
@@ -233,6 +233,48 @@ func TestAppVersionFreshnessRejectsInvalidCurrentSHAWithoutGitHubCall(t *testing
 	}
 }
 
+func TestAppVersionFreshnessReturnsUnknownForUntrustedCurrentSHAWithoutGitHubOrCache(t *testing.T) {
+	tests := []struct {
+		name        string
+		allowedSHAs []string
+	}{
+		{name: "no allowlist configured", allowedSHAs: nil},
+		{name: "sha not in allowlist", allowedSHAs: []string{strings.Repeat("a", 40)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			githubCalls := 0
+			github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				githubCalls++
+				t.Fatalf("GitHub should not be called for untrusted currentSha")
+			}))
+			defer github.Close()
+
+			currentSHA := strings.Repeat("b", 40)
+			checker := newAppVersionTestChecker(t, github.URL, "", tt.allowedSHAs...)
+
+			freshness := checker.CheckFreshness(context.Background(), currentSHA)
+
+			if freshness.Status != appFreshnessUnknown ||
+				freshness.Reason != appFreshnessReasonUntrustedCurrentSHA ||
+				freshness.CurrentSHA != currentSHA {
+				t.Fatalf("freshness = %+v", freshness)
+			}
+			checker.cacheLock.Lock()
+			cacheLen := len(checker.cache)
+			inFlightLen := len(checker.inFlight)
+			checker.cacheLock.Unlock()
+			if cacheLen != 0 || inFlightLen != 0 {
+				t.Fatalf("cache entries = %d, in-flight entries = %d, want 0", cacheLen, inFlightLen)
+			}
+			if githubCalls != 0 {
+				t.Fatalf("GitHub calls = %d, want 0", githubCalls)
+			}
+		})
+	}
+}
+
 func TestAppVersionFreshnessEvictsOldestCacheEntryWhenCapacityExceeded(t *testing.T) {
 	now := time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)
 	calls := 0
@@ -244,15 +286,15 @@ func TestAppVersionFreshnessEvictsOldestCacheEntryWhenCapacityExceeded(t *testin
 	}))
 	defer github.Close()
 
-	checker := newAppVersionTestChecker(t, github.URL, "")
-	checker.cacheMaxEntries = 2
-	checker.now = func() time.Time {
-		return now
-	}
 	shas := []string{
 		strings.Repeat("1", 40),
 		strings.Repeat("2", 40),
 		strings.Repeat("3", 40),
+	}
+	checker := newAppVersionTestChecker(t, github.URL, "", shas...)
+	checker.cacheMaxEntries = 2
+	checker.now = func() time.Time {
+		return now
 	}
 
 	for _, sha := range shas {
@@ -290,14 +332,14 @@ func TestAppVersionFreshnessPrunesExpiredCacheEntries(t *testing.T) {
 	}))
 	defer github.Close()
 
-	checker := newAppVersionTestChecker(t, github.URL, "")
+	expiredSHA := strings.Repeat("4", 40)
+	currentSHA := strings.Repeat("5", 40)
+	checker := newAppVersionTestChecker(t, github.URL, "", expiredSHA, currentSHA)
 	checker.cacheTTL = time.Minute
 	checker.cacheMaxEntries = 10
 	checker.now = func() time.Time {
 		return now
 	}
-	expiredSHA := strings.Repeat("4", 40)
-	currentSHA := strings.Repeat("5", 40)
 
 	_ = checker.CheckFreshness(context.Background(), expiredSHA)
 	now = now.Add(2 * time.Minute)
@@ -314,9 +356,9 @@ func TestAppVersionFreshnessPrunesExpiredCacheEntries(t *testing.T) {
 	}
 }
 
-func newAppVersionTestServer(t *testing.T, githubURL string, githubToken string) http.Handler {
+func newAppVersionTestServer(t *testing.T, githubURL string, githubToken string, allowedSHAs ...string) http.Handler {
 	t.Helper()
-	checker := newAppVersionTestChecker(t, githubURL, githubToken)
+	checker := newAppVersionTestChecker(t, githubURL, githubToken, allowedSHAs...)
 	return NewServer(Config{
 		Logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
 		ServiceVersion:     "test",
@@ -328,9 +370,9 @@ func newAppVersionTestServer(t *testing.T, githubURL string, githubToken string)
 	})
 }
 
-func newAppVersionTestChecker(t *testing.T, githubURL string, githubToken string) *gitHubAppVersionChecker {
+func newAppVersionTestChecker(t *testing.T, githubURL string, githubToken string, allowedSHAs ...string) *gitHubAppVersionChecker {
 	t.Helper()
-	checker := newGitHubAppVersionChecker(http.DefaultClient, slog.New(slog.NewTextHandler(io.Discard, nil)), githubToken)
+	checker := newGitHubAppVersionChecker(http.DefaultClient, slog.New(slog.NewTextHandler(io.Discard, nil)), githubToken, allowedSHAs)
 	checker.apiURL = strings.TrimRight(githubURL, "/") + "/compare"
 	checker.now = func() time.Time {
 		return time.Date(2026, 7, 3, 12, 0, 0, 0, time.UTC)

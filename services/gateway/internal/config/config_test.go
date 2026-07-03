@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,6 +28,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_INTERNAL_SERVICE_TOKEN", "")
 	t.Setenv("GATEWAY_AUTH_ADMIN_SERVICE_TOKEN", "auth-admin-token")
 	t.Setenv("GATEWAY_GITHUB_TOKEN", "")
+	t.Setenv("GATEWAY_APP_VERSION_ALLOWED_SHAS", "")
 	t.Setenv("GATEWAY_AUTH_BASE_URL", "")
 	t.Setenv("GATEWAY_KNOWLEDGE_BASE_URL", "")
 	t.Setenv("GATEWAY_QA_BASE_URL", "")
@@ -55,6 +57,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RedisAddr != DefaultRedisAddr || cfg.TokenHashKeyVersion != DefaultTokenKeyVersion {
 		t.Fatalf("session config = %+v", cfg)
 	}
+	if len(cfg.AppVersionAllowedSHAs) != 0 {
+		t.Fatalf("AppVersionAllowedSHAs = %#v", cfg.AppVersionAllowedSHAs)
+	}
 }
 
 func TestLoadParsesEnvironment(t *testing.T) {
@@ -79,6 +84,8 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	t.Setenv("GATEWAY_INTERNAL_SERVICE_TOKEN", "svc-token")
 	t.Setenv("GATEWAY_AUTH_ADMIN_SERVICE_TOKEN", "auth-admin-token")
 	t.Setenv("GATEWAY_GITHUB_TOKEN", "github-token")
+	allowedSHAs := strings.Repeat("A", 40) + ", " + strings.Repeat("b", 40) + ", " + strings.Repeat("a", 40)
+	t.Setenv("GATEWAY_APP_VERSION_ALLOWED_SHAS", allowedSHAs)
 	t.Setenv("GATEWAY_AUTH_BASE_URL", "http://auth:8001")
 	t.Setenv("GATEWAY_KNOWLEDGE_BASE_URL", "http://knowledge:8002")
 	t.Setenv("GATEWAY_QA_BASE_URL", "http://qa:8003")
@@ -106,6 +113,9 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	}
 	if cfg.GitHubToken != "github-token" {
 		t.Fatalf("GitHubToken = %q", cfg.GitHubToken)
+	}
+	if got, want := cfg.AppVersionAllowedSHAs, []string{strings.Repeat("a", 40), strings.Repeat("b", 40)}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("AppVersionAllowedSHAs = %#v, want %#v", got, want)
 	}
 	if cfg.AuthBaseURL != "http://auth:8001" || cfg.KnowledgeBaseURL != "http://knowledge:8002" || cfg.QABaseURL != "http://qa:8003" || cfg.DocumentBaseURL != "http://document:8004" || cfg.AIGatewayBaseURL != "http://ai-gateway:8005" {
 		t.Fatalf("base URLs = %+v", cfg)
@@ -163,10 +173,13 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{name: "downstream timeout", key: "GATEWAY_DOWNSTREAM_TIMEOUT", val: "0s"},
 		{name: "redis db", key: "GATEWAY_REDIS_DB", val: "-1"},
 		{name: "cors credentials", key: "GATEWAY_CORS_ALLOW_CREDENTIALS", val: "maybe"},
+		{name: "app version allowed sha short", key: "GATEWAY_APP_VERSION_ALLOWED_SHAS", val: strings.Repeat("a", 39)},
+		{name: "app version allowed sha non hex", key: "GATEWAY_APP_VERSION_ALLOWED_SHAS", val: strings.Repeat("a", 39) + "g"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("GATEWAY_AUTH_ADMIN_SERVICE_TOKEN", "auth-admin-token")
 			t.Setenv(tt.key, tt.val)
 			if _, err := Load(); err == nil {
 				t.Fatal("Load() error = nil")

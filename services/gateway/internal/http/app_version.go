@@ -24,13 +24,14 @@ const (
 	appFreshnessDifferent = "different"
 	appFreshnessUnknown   = "unknown"
 
-	appFreshnessReasonMissingCurrentSHA = "missing_current_sha"
-	appFreshnessReasonGitHub403         = "github_403"
-	appFreshnessReasonGitHub404         = "github_404"
-	appFreshnessReasonGitHub429         = "github_429"
-	appFreshnessReasonGitHubStatus      = "github_status"
-	appFreshnessReasonNetworkError      = "network_error"
-	appFreshnessReasonInvalidResponse   = "invalid_response"
+	appFreshnessReasonMissingCurrentSHA   = "missing_current_sha"
+	appFreshnessReasonUntrustedCurrentSHA = "untrusted_current_sha"
+	appFreshnessReasonGitHub403           = "github_403"
+	appFreshnessReasonGitHub404           = "github_404"
+	appFreshnessReasonGitHub429           = "github_429"
+	appFreshnessReasonGitHubStatus        = "github_status"
+	appFreshnessReasonNetworkError        = "network_error"
+	appFreshnessReasonInvalidResponse     = "invalid_response"
 )
 
 type AppVersionChecker interface {
@@ -49,6 +50,7 @@ type AppVersionFreshness struct {
 type gitHubAppVersionChecker struct {
 	apiURL          string
 	token           string
+	allowedSHAs     map[string]struct{}
 	client          *http.Client
 	logger          *slog.Logger
 	cacheTTL        time.Duration
@@ -82,7 +84,7 @@ type gitHubCompareResponse struct {
 	Commits         []gitHubCommitResponse `json:"commits"`
 }
 
-func newGitHubAppVersionChecker(client *http.Client, logger *slog.Logger, token string) *gitHubAppVersionChecker {
+func newGitHubAppVersionChecker(client *http.Client, logger *slog.Logger, token string, allowedSHAs []string) *gitHubAppVersionChecker {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -92,6 +94,7 @@ func newGitHubAppVersionChecker(client *http.Client, logger *slog.Logger, token 
 	return &gitHubAppVersionChecker{
 		apiURL:          githubDevelopCompareAPI,
 		token:           strings.TrimSpace(token),
+		allowedSHAs:     commitSHASet(allowedSHAs),
 		client:          client,
 		logger:          logger,
 		cacheTTL:        appVersionCacheTTL,
@@ -118,7 +121,7 @@ func (s *Server) handleAppVersionFreshness(w http.ResponseWriter, r *http.Reques
 
 	checker := s.appVersionChecker
 	if checker == nil {
-		checker = newGitHubAppVersionChecker(s.httpClient, s.logger, "")
+		checker = newGitHubAppVersionChecker(s.httpClient, s.logger, "", nil)
 	}
 	freshness := checker.CheckFreshness(r.Context(), currentSHA)
 	response.WriteJSON(w, http.StatusOK, freshness, middleware.RequestIDFromContext(r.Context()))
@@ -130,8 +133,16 @@ func (c *gitHubAppVersionChecker) CheckFreshness(ctx context.Context, currentSHA
 	if currentSHA == "" {
 		return unknownAppVersionFreshness(currentSHA, checkedAt, appFreshnessReasonMissingCurrentSHA)
 	}
+	if !c.isAllowedCurrentSHA(currentSHA) {
+		return unknownAppVersionFreshness(currentSHA, checkedAt, appFreshnessReasonUntrustedCurrentSHA)
+	}
 
 	return c.cachedFreshness(ctx, currentSHA, checkedAt)
+}
+
+func (c *gitHubAppVersionChecker) isAllowedCurrentSHA(currentSHA string) bool {
+	_, ok := c.allowedSHAs[currentSHA]
+	return ok
 }
 
 func (c *gitHubAppVersionChecker) cachedFreshness(ctx context.Context, currentSHA string, checkedAt time.Time) AppVersionFreshness {
@@ -303,6 +314,18 @@ func unknownAppVersionFreshness(currentSHA string, checkedAt time.Time, reason s
 
 func normalizeCommitSHA(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func commitSHASet(values []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		sha := normalizeCommitSHA(value)
+		if !isFullCommitSHA(sha) {
+			continue
+		}
+		set[sha] = struct{}{}
+	}
+	return set
 }
 
 func isFullCommitSHA(value string) bool {
