@@ -74,6 +74,54 @@ func TestActiveRouteMatrixCoversGatewayOwnerMap(t *testing.T) {
 	}
 }
 
+func TestValidateOwnerBaseURLsAcceptsSafeURLsAndEmptyValues(t *testing.T) {
+	values := map[string]string{
+		"auth":       "http://auth:8001",
+		"knowledge":  "http://knowledge:8083",
+		"qa":         "https://localhost:8084/base",
+		"document":   "http://127.0.0.1:8085",
+		"ai-gateway": "http://[::1]:8086",
+		"empty":      "",
+		"blank":      "   ",
+	}
+
+	if err := ValidateOwnerBaseURLs(values); err != nil {
+		t.Fatalf("ValidateOwnerBaseURLs() error = %v", err)
+	}
+}
+
+func TestValidateOwnerBaseURLsRejectsUnsafeURLsWithoutEchoingRawURL(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "missing host", raw: "knowledge:8082"},
+		{name: "unsupported scheme", raw: "ftp://knowledge:8082"},
+		{name: "credentials", raw: "http://user:pass@knowledge:8082"},
+		{name: "query", raw: "http://knowledge:8082?token=secret"},
+		{name: "empty query marker", raw: "http://knowledge:8082?"},
+		{name: "fragment", raw: "http://knowledge:8082#readyz"},
+		{name: "empty fragment marker", raw: "http://knowledge:8082#"},
+		{name: "public host", raw: "https://public.example.test"},
+		{name: "private ip", raw: "http://10.0.0.5:8083"},
+		{name: "link local ip", raw: "http://169.254.169.254"},
+		{name: "wrong owner service host", raw: "http://qa:8084"},
+		{name: "parse error", raw: "http://knowledge/%zz"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateOwnerBaseURLs(map[string]string{"knowledge": tt.raw})
+			if err == nil {
+				t.Fatal("ValidateOwnerBaseURLs() error = nil")
+			}
+			if strings.Contains(err.Error(), tt.raw) {
+				t.Fatalf("error leaked raw URL: %v", err)
+			}
+		})
+	}
+}
+
 func TestNotImplementedRoutesReturnStableGatewayError(t *testing.T) {
 	hasher, err := service.NewTokenHasher("test-secret", "v1")
 	if err != nil {
