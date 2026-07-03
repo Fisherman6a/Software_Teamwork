@@ -803,6 +803,14 @@ export function ChatPage() {
     [deleteSessionMut, removeSession, setError],
   )
 
+  const handleClearAll = useCallback(async () => {
+    const ids = sidebarItems.map((s) => s.id)
+    for (const id of ids) {
+      try { await deleteSessionMut.mutateAsync(id) } catch { /* continue */ }
+      removeSession(id)
+    }
+  }, [sidebarItems, deleteSessionMut, removeSession])
+
   // ══════════════════════════════════════════════════════════════════════════
   // Rename session
   // ══════════════════════════════════════════════════════════════════════════
@@ -1371,6 +1379,7 @@ export function ChatPage() {
           onCreate={handleCreate}
           onDelete={handleDelete}
           onRename={handleRename}
+          onClearAll={handleClearAll}
         />
 
         {/* Right: main chat area — single input DOM node with FLIP animation */}

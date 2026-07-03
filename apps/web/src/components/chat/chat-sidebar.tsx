@@ -13,7 +13,6 @@ import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState }
 
 import { ConfirmDialog, StateBlock } from '@/components/common'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import type { QASessionListItem } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
@@ -27,6 +26,7 @@ type ChatSidebarProps = {
   onCreate: () => void
   onDelete: (sessionId: string) => void
   onRename: (sessionId: string, title: string) => void
+  onClearAll?: () => void
 }
 
 export default function ChatSidebar({
@@ -39,12 +39,14 @@ export default function ChatSidebar({
   onCreate,
   onDelete,
   onRename,
+  onClearAll,
 }: ChatSidebarProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const trimmedSearchQuery = searchQuery.trim()
@@ -208,8 +210,40 @@ export default function ChatSidebar({
         </div>
       )}
 
+      {/* ── Clear all button ── */}
+      {onClearAll && sessions.length > 0 && (
+        <div className="border-t border-border/30 px-2 py-1.5">
+          {collapsed ? (
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              className="mx-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+              title="清空全部对话"
+            >
+              <Trash2 className="size-4" />
+            </button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start gap-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              onClick={() => setShowClearConfirm(true)}
+            >
+              <Trash2 className="size-3.5" />
+              清空全部对话
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* ── Session list ── */}
-      <ScrollArea className="flex-1" viewportClassName="overscroll-y-contain">
+      <div
+        className="flex-1 overflow-y-auto pr-1
+        [&::-webkit-scrollbar]:w-2
+        [&::-webkit-scrollbar-thumb]:rounded-full
+        [&::-webkit-scrollbar-thumb]:bg-border
+        [&::-webkit-scrollbar-thumb]:hover:bg-muted-foreground/30
+        [&::-webkit-scrollbar-track]:bg-transparent"
+      >
         <div className="flex flex-col gap-1 p-2">
           {/* Fetch error state — hidden when collapsed */}
           {!collapsed && fetchError && !isLoading && (
@@ -386,7 +420,7 @@ export default function ChatSidebar({
             )
           })}
         </div>
-      </ScrollArea>
+      </div>
       <ConfirmDialog
         cancelLabel="取消"
         confirmLabel="确认删除"
@@ -404,6 +438,21 @@ export default function ChatSidebar({
         }}
         open={Boolean(deleteTargetId)}
         title="确定删除该会话？"
+        variant="destructive"
+      />
+      <ConfirmDialog
+        cancelLabel="取消"
+        confirmLabel="全部删除"
+        description={`即将删除全部 ${sessions.length} 个对话。此操作不可撤销。`}
+        onConfirm={() => {
+          onClearAll?.()
+          setShowClearConfirm(false)
+        }}
+        onOpenChange={(open) => {
+          if (!open) setShowClearConfirm(false)
+        }}
+        open={showClearConfirm}
+        title="清空全部对话？"
         variant="destructive"
       />
     </aside>
