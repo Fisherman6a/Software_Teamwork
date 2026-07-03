@@ -81,6 +81,7 @@ func main() {
 		DownstreamTimeout:      cfg.DownstreamTimeout,
 		InternalServiceToken:   cfg.InternalServiceToken,
 		AuthAdminServiceToken:  cfg.AuthAdminServiceToken,
+		GitHubToken:            cfg.GitHubToken,
 		AuthClient:             authClient,
 		SessionStore:           sessionStore,
 		TokenHasher:            tokenHasher,

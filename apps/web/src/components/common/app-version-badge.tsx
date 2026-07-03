@@ -1,5 +1,7 @@
-import { ExternalLink, GitBranch } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, ExternalLink, GitBranch, Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 
+import { getCachedAppVersionFreshness } from '@/api/app-version'
 import { badgeVariants } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import {
@@ -13,34 +15,78 @@ import {
 import {
   APP_UPDATE_COMMAND,
   appCommitSha,
-  appCommitShortSha,
   appVersionLabel,
   formatAppVersion,
+  formatCommitLabel,
   getAppCommitUrl,
   getUpstreamDevelopCompareUrl,
 } from '@/lib/app-version'
+import type { AppVersionFreshness, AppVersionFreshnessReason } from '@/lib/types'
 import { cn } from '@/lib/utils'
 
 type AppVersionBadgeProps = {
   className?: string
+  currentSha?: string
   version?: string | null
 }
 
-export function AppVersionBadge({ className, version = appVersionLabel }: AppVersionBadgeProps) {
+const reasonLabels: Partial<Record<AppVersionFreshnessReason, string>> = {
+  github_403: 'GitHub 返回 403，可能触发了匿名请求限流。',
+  github_404: 'GitHub 返回 404，暂时找不到 develop 提交。',
+  github_429: 'GitHub 返回 429，请求过于频繁。',
+  github_status: 'GitHub 返回非成功状态。',
+  invalid_response: 'GitHub 响应格式不可用。',
+  missing_current_sha: '当前构建没有可用提交号。',
+  network_error: 'Gateway 暂时无法连接 GitHub。',
+}
+
+export function AppVersionBadge({
+  className,
+  currentSha = appCommitSha,
+  version = appVersionLabel,
+}: AppVersionBadgeProps) {
   const label = formatAppVersion(version)
-  const appCommitUrl = getAppCommitUrl()
-  const compareUrl = getUpstreamDevelopCompareUrl()
+  const normalizedCurrentSha = currentSha.trim()
+  const appCommitUrl = getAppCommitUrl(normalizedCurrentSha)
+  const compareUrl = getUpstreamDevelopCompareUrl(normalizedCurrentSha)
+  const [open, setOpen] = useState(false)
+  const [freshness, setFreshness] = useState<AppVersionFreshness | null | undefined>()
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    setFreshness(undefined)
+  }, [normalizedCurrentSha])
+
+  useEffect(() => {
+    if (!open || freshness !== undefined) return
+
+    let active = true
+    setLoading(true)
+    void getCachedAppVersionFreshness(normalizedCurrentSha)
+      .then((result) => {
+        if (active) setFreshness(result)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [freshness, normalizedCurrentSha, open])
+
+  const status = getFreshnessStatus(freshness, loading)
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        aria-label={`前端版本 ${label}，查看本地构建信息`}
+        aria-label={`前端版本 ${label}，查看构建状态`}
         className={cn(
           badgeVariants({ variant: 'outline' }),
           'cursor-pointer border-primary/25 bg-background/70 font-mono text-[0.68rem] text-muted-foreground hover:bg-muted hover:text-foreground',
           className,
         )}
-        title={`前端版本 ${label}，查看本地构建信息`}
+        title={`前端版本 ${label}，查看构建状态`}
       >
         {label}
       </PopoverTrigger>
@@ -51,9 +97,17 @@ export function AppVersionBadge({ className, version = appVersionLabel }: AppVer
             本地构建版本
           </PopoverTitle>
           <PopoverDescription>
-            前端不直接请求 GitHub API；如需确认是否落后 develop，可打开 GitHub 对比页。
+            通过 Gateway 检查当前构建是否跟上 upstream/develop。
           </PopoverDescription>
         </PopoverHeader>
+
+        <div className={cn('rounded-md border p-2', status.className)}>
+          <div className="flex items-center gap-2 font-medium">
+            <status.Icon className={cn('size-3.5', status.iconClassName)} />
+            {status.title}
+          </div>
+          <p className="mt-1 text-muted-foreground">{status.description}</p>
+        </div>
 
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-muted-foreground">
           <dt>当前版本</dt>
@@ -67,14 +121,29 @@ export function AppVersionBadge({ className, version = appVersionLabel }: AppVer
                 rel="noreferrer"
                 target="_blank"
               >
-                {appCommitShortSha}
+                {formatCommitLabel(normalizedCurrentSha)}
               </a>
             ) : (
-              appCommitShortSha
+              formatCommitLabel(normalizedCurrentSha)
             )}
           </dd>
-          <dt>完整提交</dt>
-          <dd className="break-all font-mono text-foreground">{appCommitSha || 'unknown'}</dd>
+          <dt>develop 最新</dt>
+          <dd className="font-mono text-foreground">
+            {freshness?.latestUrl && freshness.latestSha ? (
+              <a
+                className="underline-offset-4 hover:underline"
+                href={freshness.latestUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {formatCommitLabel(freshness.latestSha)}
+              </a>
+            ) : (
+              'unknown'
+            )}
+          </dd>
+          <dt>检查时间</dt>
+          <dd className="text-foreground">{formatCheckedAt(freshness?.checkedAt)}</dd>
         </dl>
 
         <div className="rounded-md border border-border bg-muted/40 p-2">
@@ -96,4 +165,57 @@ export function AppVersionBadge({ className, version = appVersionLabel }: AppVer
       </PopoverContent>
     </Popover>
   )
+}
+
+function getFreshnessStatus(freshness: AppVersionFreshness | null | undefined, loading: boolean) {
+  if (loading && freshness === undefined) {
+    return {
+      Icon: Loader2,
+      className: 'border-border bg-muted/40',
+      description: '正在读取 Gateway 缓存或查询 upstream/develop。',
+      iconClassName: 'animate-spin text-muted-foreground',
+      title: '正在检查构建状态',
+    }
+  }
+
+  if (freshness?.status === 'current') {
+    return {
+      Icon: CheckCircle2,
+      className: 'border-emerald-500/30 bg-emerald-500/10',
+      description: '当前构建提交号和 upstream/develop 一致。',
+      iconClassName: 'text-emerald-600',
+      title: '已是 develop 最新构建',
+    }
+  }
+
+  if (freshness?.status === 'different') {
+    return {
+      Icon: AlertTriangle,
+      className: 'border-amber-500/30 bg-amber-500/10',
+      description: '当前构建提交号不同于 upstream/develop，请按需同步后重新构建。',
+      iconClassName: 'text-amber-600',
+      title: '当前构建可能落后 develop',
+    }
+  }
+
+  return {
+    Icon: AlertTriangle,
+    className: 'border-border bg-muted/40',
+    description:
+      freshness?.reason && reasonLabels[freshness.reason]
+        ? reasonLabels[freshness.reason]
+        : 'Gateway 没有返回可用提交号，稍后会自动重试。',
+    iconClassName: 'text-muted-foreground',
+    title: '无法判断当前构建状态',
+  }
+}
+
+function formatCheckedAt(value: string | undefined) {
+  if (!value) return 'unknown'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'unknown'
+  return new Intl.DateTimeFormat('zh-CN', {
+    dateStyle: 'short',
+    timeStyle: 'medium',
+  }).format(date)
 }

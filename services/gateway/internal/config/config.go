@@ -46,6 +46,7 @@ type Config struct {
 	TokenHashKeyVersion    string
 	InternalServiceToken   string
 	AuthAdminServiceToken  string
+	GitHubToken            string
 	AuthBaseURL            string
 	KnowledgeBaseURL       string
 	QABaseURL              string
@@ -74,6 +75,7 @@ func Load() (Config, error) {
 		TokenHashKeyVersion:    stringValue("GATEWAY_TOKEN_HASH_KEY_VERSION", DefaultTokenKeyVersion),
 		InternalServiceToken:   firstNonEmptyEnv("GATEWAY_INTERNAL_SERVICE_TOKEN", "INTERNAL_SERVICE_TOKEN"),
 		AuthAdminServiceToken:  strings.TrimSpace(os.Getenv("GATEWAY_AUTH_ADMIN_SERVICE_TOKEN")),
+		GitHubToken:            strings.TrimSpace(os.Getenv("GATEWAY_GITHUB_TOKEN")),
 		AuthBaseURL:            stringValue("GATEWAY_AUTH_BASE_URL", "http://localhost:8001"),
 		KnowledgeBaseURL:       strings.TrimSpace(os.Getenv("GATEWAY_KNOWLEDGE_BASE_URL")),
 		QABaseURL:              strings.TrimSpace(os.Getenv("GATEWAY_QA_BASE_URL")),

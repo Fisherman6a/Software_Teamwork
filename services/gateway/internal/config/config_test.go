@@ -26,6 +26,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_TOKEN_HASH_KEY_VERSION", "")
 	t.Setenv("GATEWAY_INTERNAL_SERVICE_TOKEN", "")
 	t.Setenv("GATEWAY_AUTH_ADMIN_SERVICE_TOKEN", "auth-admin-token")
+	t.Setenv("GATEWAY_GITHUB_TOKEN", "")
 	t.Setenv("GATEWAY_AUTH_BASE_URL", "")
 	t.Setenv("GATEWAY_KNOWLEDGE_BASE_URL", "")
 	t.Setenv("GATEWAY_QA_BASE_URL", "")
@@ -77,6 +78,7 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	t.Setenv("GATEWAY_TOKEN_HASH_KEY_VERSION", "v9")
 	t.Setenv("GATEWAY_INTERNAL_SERVICE_TOKEN", "svc-token")
 	t.Setenv("GATEWAY_AUTH_ADMIN_SERVICE_TOKEN", "auth-admin-token")
+	t.Setenv("GATEWAY_GITHUB_TOKEN", "github-token")
 	t.Setenv("GATEWAY_AUTH_BASE_URL", "http://auth:8001")
 	t.Setenv("GATEWAY_KNOWLEDGE_BASE_URL", "http://knowledge:8002")
 	t.Setenv("GATEWAY_QA_BASE_URL", "http://qa:8003")
@@ -101,6 +103,9 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	}
 	if cfg.RedisAddr != "redis:6379" || cfg.RedisPassword != "secret" || cfg.TokenHashSecret != "hash-secret" || cfg.TokenHashKeyVersion != "v9" || cfg.InternalServiceToken != "svc-token" || cfg.AuthAdminServiceToken != "auth-admin-token" {
 		t.Fatalf("session config = %+v", cfg)
+	}
+	if cfg.GitHubToken != "github-token" {
+		t.Fatalf("GitHubToken = %q", cfg.GitHubToken)
 	}
 	if cfg.AuthBaseURL != "http://auth:8001" || cfg.KnowledgeBaseURL != "http://knowledge:8002" || cfg.QABaseURL != "http://qa:8003" || cfg.DocumentBaseURL != "http://document:8004" || cfg.AIGatewayBaseURL != "http://ai-gateway:8005" {
 		t.Fatalf("base URLs = %+v", cfg)

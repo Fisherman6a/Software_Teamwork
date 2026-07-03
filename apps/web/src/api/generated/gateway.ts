@@ -38,6 +38,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/app-version/freshness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get frontend app version freshness
+         * @description Gateway-owned metadata endpoint that compares the current frontend build
+         *     commit with upstream `develop`. Gateway calls the GitHub commits API
+         *     server-side with a short-lived cache and an optional backend-only
+         *     `GATEWAY_GITHUB_TOKEN`; browser clients never call GitHub API directly
+         *     and never receive the token. If GitHub returns 403, 404, 429, a network
+         *     error, or an invalid response, the endpoint still returns 200 with
+         *     `data.status=unknown` and a short safe `reason`.
+         */
+        get: operations["getAppVersionFreshness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users": {
         parameters: {
             query?: never;
@@ -1538,6 +1564,35 @@ export interface components {
                 /** @example ok */
                 status: string;
             };
+            requestId: string;
+        };
+        /**
+         * @description Freshness comparison between the current frontend build and upstream develop.
+         * @enum {string}
+         */
+        AppVersionFreshnessStatus: "current" | "different" | "unknown";
+        /**
+         * @description Safe fallback reason when freshness could not be determined.
+         * @enum {string}
+         */
+        AppVersionFreshnessReason: "missing_current_sha" | "github_403" | "github_404" | "github_429" | "github_status" | "network_error" | "invalid_response";
+        AppVersionFreshness: {
+            status: components["schemas"]["AppVersionFreshnessStatus"];
+            /** @description Current frontend build commit SHA, when available. */
+            currentSha?: string;
+            /** @description Latest upstream develop commit SHA, when GitHub was reachable. */
+            latestSha?: string;
+            /**
+             * Format: uri
+             * @description Browser URL for the latest upstream develop commit.
+             */
+            latestUrl?: string;
+            /** Format: date-time */
+            checkedAt: string;
+            reason?: components["schemas"]["AppVersionFreshnessReason"];
+        };
+        AppVersionFreshnessResponse: {
+            data: components["schemas"]["AppVersionFreshness"];
             requestId: string;
         };
         ErrorResponse: {
@@ -3316,6 +3371,30 @@ export interface operations {
             };
             429: components["responses"]["Error"];
             503: components["responses"]["Error"];
+        };
+    };
+    getAppVersionFreshness: {
+        parameters: {
+            query?: {
+                /** @description Current frontend build commit SHA injected at build time. */
+                currentSha?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current build freshness status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppVersionFreshnessResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
         };
     };
     createUser: {
