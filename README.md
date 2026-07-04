@@ -159,6 +159,14 @@ bun run dev
 cd apps/web && bun run dev
 ```
 
+命令边界：
+
+| 命令 | 会做什么 | 不会做什么 |
+| --- | --- | --- |
+| `./scripts/local/start.sh` | 检查宿主机环境，补齐缺失工具、二进制、runtime 依赖和 infra images，启动 infra、migration、seed、Knowledge runtime 和后端服务。 | 不创建或覆盖 `.env.local`；不启动前端 Vite。 |
+| `./scripts/local/stop.sh` | 停止 `.local/run/` 中记录的 host-run 后端和 Knowledge runtime 进程组。 | 不停止 Docker infra；不停止前端 Vite。 |
+| `./scripts/local/clean.sh` | 先 stop，再删除本地 infra Compose 容器和数据卷。 | 不删除 Docker images、`.env.local`、`.local/tools` 或 `.local/bin`。 |
+
 停止后端和 Knowledge runtime：
 
 ```bash

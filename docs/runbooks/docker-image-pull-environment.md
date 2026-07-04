@@ -13,11 +13,13 @@ Knowledge runtime 的 `uv sync` 下载 Python 包，不走 Docker registry。uv 
 `config/base.yaml` 里的 `UV_DEFAULT_INDEX` 控制；默认是官方 PyPI。Knowledge runtime
 Python 依赖和 artifact 由 `./scripts/local/start.sh` 按当前源模式准备；中国大陆网络使用
 `--china`。不要把 `pyproject.toml` 或 `uv.lock` 的默认 URL 改成第三方代理。
-Go 后端二进制构建期间的模块下载由 `config/base.yaml` 里的 `GOPROXY` / `GOSUMDB`
-控制；默认是官方 `proxy.golang.org` / `sum.golang.org`。中国大陆网络用
-`./scripts/local/start.sh --china` 在本次准备阶段启用 Go mirror，也不属于 Docker
-registry 问题。`./scripts/local/start.sh` 会在缺少所选 infra image 时执行 `docker pull`，
-随后用 `docker compose up --pull never` 启动。
+Go 模块下载是宿主机 Go 工具链行为，不属于 Docker registry 问题。`start.sh` 会在构建
+`config-ctl`、安装 goose 和构建 seed helper 前先读取 shell 环境与 `.env.local` 中的
+`GOPROXY` / `GOSUMDB` 等 Go 源变量；渲染配置后，profile 中的 Go 源默认值继续用于后续
+服务二进制准备。默认是官方 `proxy.golang.org` / `sum.golang.org`。中国大陆网络用
+`./scripts/local/start.sh --china` 在本次准备阶段启用 Go mirror。
+`./scripts/local/start.sh` 会在缺少所选 infra image 时执行 `docker pull`，随后用
+`docker compose up --pull never` 启动。
 
 ## 源策略契约
 

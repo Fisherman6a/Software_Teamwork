@@ -962,14 +962,14 @@ Runtime rules:
 - `start.sh --china` should apply Docker image rewrites after config rendering
   and update the generated compose env file used for that run, while leaving
   committed config and `.env.local` unchanged.
-- Keep `GOPROXY` and `GOSUMDB` in `config/base.yaml` as the default host-run
-  Go module proxy/checksum settings, using official upstream values by default.
-  Mainland China mirror usage must be explicit through `start.sh --china` or
-  local untracked `.env.local` overrides. It affects `start.sh` Go tool/service
-  preparation, not Docker image pulls or Knowledge runtime uv downloads.
+- Keep `GOPROXY` and `GOSUMDB` defaults official. Long-lived local or enterprise
+  Go source overrides belong in the shell environment or untracked `.env.local`;
+  Mainland China mirror usage must be explicit through `start.sh --china`.
   Because `config-ctl` itself is built during local preparation, `start.sh` must
   read Go source variables from `.env.local` before building config-ctl, goose,
   or seed helpers; do not rely on rendered config for the earliest Go downloads.
+  Go source settings affect `start.sh` Go tool/service preparation, not Docker
+  image pulls or Knowledge runtime uv downloads.
 - `start.sh` is the only standard local setup/start entrypoint. It may build
   `.local/tools/config-ctl`, install `goose@v3.27.0`, build `.local/bin`
   service binaries, inspect/pull selected Docker infra images, and prepare

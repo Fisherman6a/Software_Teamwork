@@ -328,12 +328,12 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.0 -dir migrations postgres "$
   or forced by runtime scripts in official-default mode. Mainland China runtime
   model download mirrors are explicit through
   `start.sh --runtime full --china` or local untracked env overrides.
-- Host-run Go module downloads should use `GOPROXY` and `GOSUMDB` from
-  `config/base.yaml`, with official upstream values as the committed
-  default. Mainland China mirror usage must be explicit through
-  `start.sh --china` or local untracked env overrides. This covers
-  `start.sh` Go tool/service binary preparation; it is separate from Docker
-  registry rewrite and Knowledge runtime `UV_DEFAULT_INDEX`.
+- Host-run Go module downloads should use official upstream values by default.
+  Long-lived local or enterprise Go source overrides belong in the shell
+  environment or untracked `.env.local`. Mainland China mirror usage must be
+  explicit through `start.sh --china` or local untracked env overrides. This
+  covers `start.sh` Go tool/service binary preparation; it is separate from
+  Docker registry rewrite and Knowledge runtime `UV_DEFAULT_INDEX`.
 - Because `config-ctl` is built during local preparation, `start.sh` must read
   Go source variables from `.env.local` before building config-ctl, goose, or
   seed helpers; long-lived enterprise `GOPROXY` / `GOSUMDB` overrides cannot
@@ -430,7 +430,7 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.0 -dir migrations postgres "$
 | Docker policy checker fails | Fix the Compose/docs/script regression or update `scripts/check_docker_policy.py` and the runbook in the same PR when the policy intentionally changes. |
 | Retired parser paths or env keys reappear in startup scripts | Remove the parser dependency and route document parsing through `services/knowledge-runtime`. |
 | Local startup script exits without a success or failure summary | Add or restore explicit command-line status output in the script and local seed contract checker. |
-| Go module preflight, migration, or service startup shows `Get "https://proxy.golang.org/...": i/o timeout` | Confirm `config/base.yaml` contains the repository `GOPROXY` / `GOSUMDB` defaults and `.env.local` has not overridden them unexpectedly. If the mirror is unavailable, override only local `.env.local` or enterprise shell config. The startup script should surface failures in the terminal and exit non-zero. |
+| Go module preflight, migration, or service startup shows `Get "https://proxy.golang.org/...": i/o timeout` | Confirm the effective `GOPROXY` / `GOSUMDB` printed by `start.sh`. For long-lived enterprise sources, set shell env or untracked `.env.local`; `start.sh` must read `.env.local` before building config-ctl/goose/seed helper. If the mirror is unavailable, override only local `.env.local` or enterprise shell config. The startup script should surface failures in the terminal and exit non-zero. |
 | Local helper adds PyPI, Docker Hub, `proxy.golang.org`, or an external runtime host to `NO_PROXY` | Restrict automatic `NO_PROXY` additions to loopback hosts and add/restore a helper unit test. Official/external paths must be able to use the user's proxy. |
 | `ENABLE_TIMEOUT_ASSERTION` is missing or disabled in the default local profile | Restore `ENABLE_TIMEOUT_ASSERTION=1` in `config/base.yaml` or document the replacement timeout mechanism and accepted risk in the Knowledge runtime runbook. |
 | `stop.sh` only kills the wrapper PID | Start host services in a managed process group and stop the whole group; verify the script does not leave child service processes bound to ports. |

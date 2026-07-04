@@ -114,6 +114,16 @@ kill <pid>
 `docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env down -v --remove-orphans`；
 不删除 Docker 镜像、`.env.local`、`.local/tools` 或 `.local/bin`。
 
+简单判断：
+
+| 目标 | 命令 |
+| --- | --- |
+| 启动本地后端栈 | `./scripts/local/start.sh` |
+| 中国大陆网络启动 | `./scripts/local/start.sh --china` |
+| 只停止后端/runtime，保留 infra 数据 | `./scripts/local/stop.sh` |
+| 清空本地 PostgreSQL/MinIO/Elasticsearch 数据 | `./scripts/local/clean.sh` |
+| 非交互清空本地 infra 数据 | `./scripts/local/clean.sh --yes` |
+
 彻底冷启动时，如果还要删除本项目本地容器、卷和镜像，先确认没有其他项目依赖这些镜像：
 
 ```bash
