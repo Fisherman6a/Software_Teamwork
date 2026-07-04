@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/knowledge/internal/service"
 )
@@ -854,7 +855,7 @@ func (s *Server) handleCreateKnowledgeQuery(w http.ResponseWriter, r *http.Reque
 func (s *Server) handleKnowledgeStatistics(w http.ResponseWriter, r *http.Request) {
 	userID := strings.TrimSpace(r.Header.Get("X-User-Id"))
 	if userID == "" {
-		writeJSON(w, http.StatusOK, knowledgeStatisticsSummary{}, requestIDFromContext(r.Context()))
+		writeJSON(w, http.StatusOK, emptyKnowledgeStatisticsSummary(), requestIDFromContext(r.Context()))
 		return
 	}
 	reqCtx, ok := s.gatewayContext(w, r)
@@ -865,7 +866,12 @@ func (s *Server) handleKnowledgeStatistics(w http.ResponseWriter, r *http.Reques
 		writeAppError(w, r, err)
 		return
 	}
-	stats, err := s.collectKnowledgeStatistics(r.Context(), s.runtimeScopeID())
+	days, granularity, includeSeries, err := parseKnowledgeStatisticsQuery(r)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	stats, err := s.collectKnowledgeStatistics(r.Context(), s.runtimeScopeID(), days, granularity, includeSeries)
 	if err != nil {
 		writeAppError(w, r, mapVendorError(err))
 		return
@@ -873,14 +879,14 @@ func (s *Server) handleKnowledgeStatistics(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, stats, reqCtx.RequestID)
 }
 
-func (s *Server) collectKnowledgeStatistics(ctx context.Context, runtimeScopeID string) (knowledgeStatisticsSummary, error) {
+func (s *Server) collectKnowledgeStatistics(ctx context.Context, runtimeScopeID string, days int, granularity string, includeSeries bool) (knowledgeStatisticsSummary, error) {
 	const pageSize = 100
 	var datasets []map[string]interface{}
 	var kbCount int64
 	for page := 1; ; page++ {
 		items, total, err := s.vendor.ListDatasets(ctx, runtimeScopeID, page, pageSize)
 		if err != nil {
-			return knowledgeStatisticsSummary{}, err
+			return emptyKnowledgeStatisticsSummary(), err
 		}
 		datasets = append(datasets, items...)
 		if total > kbCount {
@@ -894,15 +900,116 @@ func (s *Server) collectKnowledgeStatistics(ctx context.Context, runtimeScopeID 
 		kbCount = int64(len(datasets))
 	}
 
-	var documentCount int64
-	for _, dataset := range datasets {
-		documentCount += int64Field(dataset, "document_count", "doc_num")
+	stats := emptyKnowledgeStatisticsSummary()
+	stats.KnowledgeBaseCount = kbCount
+	datasetSummaries := knowledgeBasesFromVendor(datasets)
+	var datasetDocumentCount int64
+	var datasetChunkCount int64
+	for _, dataset := range datasetSummaries {
+		datasetDocumentCount += dataset.DocumentCount
+		datasetChunkCount += dataset.ChunkCount
+		if includeSeries {
+			stats.Series.KnowledgeBaseCount = addKnowledgeStatisticsPoint(stats.Series.KnowledgeBaseCount, dataset.CreatedAt, 1, days, granularity)
+		}
+	}
+	stats.DocumentCount = datasetDocumentCount
+	stats.ChunkCount = datasetChunkCount
+
+	if !includeSeries {
+		return stats, nil
 	}
 
+	var documentCount int64
+	var chunkCount int64
+	for _, dataset := range datasetSummaries {
+		if dataset.ID == "" {
+			continue
+		}
+		var datasetDocumentTotal int64
+		var runtimeDocumentTotal int64
+		for page := 1; ; page++ {
+			items, total, err := s.vendor.ListDocuments(ctx, runtimeScopeID, dataset.ID, page, pageSize)
+			if err != nil {
+				return emptyKnowledgeStatisticsSummary(), err
+			}
+			if total > runtimeDocumentTotal {
+				runtimeDocumentTotal = total
+			}
+			documents := documentsFromVendor(items)
+			datasetDocumentTotal += int64(len(documents))
+			for _, document := range documents {
+				chunkCount += document.ChunkCount
+				stats.Series.DocumentCount = addKnowledgeStatisticsPoint(stats.Series.DocumentCount, document.CreatedAt, 1, days, granularity)
+				stats.Series.ChunkCount = addKnowledgeStatisticsPoint(stats.Series.ChunkCount, document.CreatedAt, document.ChunkCount, days, granularity)
+			}
+			if len(items) == 0 || int64(page*pageSize) >= total {
+				break
+			}
+		}
+		if runtimeDocumentTotal > datasetDocumentTotal {
+			datasetDocumentTotal = runtimeDocumentTotal
+		}
+		documentCount += datasetDocumentTotal
+	}
+	if documentCount > 0 {
+		stats.DocumentCount = documentCount
+	}
+	if chunkCount > 0 {
+		stats.ChunkCount = chunkCount
+	}
+	return stats, nil
+}
+
+func emptyKnowledgeStatisticsSummary() knowledgeStatisticsSummary {
 	return knowledgeStatisticsSummary{
-		KnowledgeBaseCount: kbCount,
-		DocumentCount:      documentCount,
-	}, nil
+		Series: knowledgeStatisticsSeries{
+			KnowledgeBaseCount: []knowledgeStatisticsPoint{},
+			DocumentCount:      []knowledgeStatisticsPoint{},
+			ChunkCount:         []knowledgeStatisticsPoint{},
+		},
+	}
+}
+
+func parseKnowledgeStatisticsQuery(r *http.Request) (int, string, bool, error) {
+	query := r.URL.Query()
+	includeSeries := query.Has("days") || query.Has("granularity")
+	days := 30
+	if raw := strings.TrimSpace(query.Get("days")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil || value < 1 || value > 90 {
+			return 0, "", includeSeries, service.ValidationError("request validation failed", map[string]string{"days": "must be between 1 and 90"})
+		}
+		days = value
+	}
+	granularity := strings.TrimSpace(query.Get("granularity"))
+	if granularity == "" {
+		granularity = "daily"
+	}
+	if granularity != "daily" && granularity != "hourly" {
+		return 0, "", includeSeries, service.ValidationError("request validation failed", map[string]string{"granularity": "must be daily or hourly"})
+	}
+	return days, granularity, includeSeries, nil
+}
+
+func addKnowledgeStatisticsPoint(points []knowledgeStatisticsPoint, value time.Time, count int64, days int, granularity string) []knowledgeStatisticsPoint {
+	if value.IsZero() || count <= 0 {
+		return points
+	}
+	value = value.UTC()
+	if value.Before(time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)) {
+		return points
+	}
+	bucket := time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
+	if granularity == "hourly" {
+		bucket = time.Date(value.Year(), value.Month(), value.Day(), value.Hour(), 0, 0, 0, time.UTC)
+	}
+	for i := range points {
+		if points[i].Date.Equal(bucket) {
+			points[i].Count += count
+			return points
+		}
+	}
+	return append(points, knowledgeStatisticsPoint{Date: bucket, Count: count})
 }
 
 func parsePageQuery(r *http.Request) (service.PageInput, error) {

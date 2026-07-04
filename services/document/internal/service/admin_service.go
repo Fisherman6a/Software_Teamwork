@@ -13,6 +13,7 @@ type AdminRepository interface {
 	FindReportTemplateByID(ctx context.Context, id string) (ReportTemplate, error)
 	GetReportStatisticsOverview(ctx context.Context, recentDays int) (ReportStatisticsOverview, error)
 	ListReportDailyStatistics(ctx context.Context, days int) ([]ReportDailyStatistic, error)
+	GetAdminStatistics(ctx context.Context, days int, granularity string) (AdminStatistics, error)
 	ListOperationLogs(ctx context.Context, filter OperationLogListFilter) (OperationLogListResult, error)
 	CreateOperationLog(ctx context.Context, log OperationLog) (OperationLog, error)
 }
@@ -142,6 +143,27 @@ func (s *AdminService) ListDailyStatistics(ctx context.Context, reqCtx RequestCo
 		items = []ReportDailyStatistic{}
 	}
 	return items, nil
+}
+
+func (s *AdminService) GetAdminStatistics(ctx context.Context, reqCtx RequestContext, days int, granularity string) (AdminStatistics, error) {
+	if err := requireAdminContext(reqCtx); err != nil {
+		return AdminStatistics{}, err
+	}
+	normalizedDays, normalizedGranularity, err := normalizeAdminStatisticsQuery(days, granularity)
+	if err != nil {
+		return AdminStatistics{}, err
+	}
+	stats, err := s.repo.GetAdminStatistics(ctx, normalizedDays, normalizedGranularity)
+	if err != nil {
+		return AdminStatistics{}, dependencyError("get admin statistics", err)
+	}
+	if stats.Series.ReportTemplateCount == nil {
+		stats.Series.ReportTemplateCount = []AdminMetricPoint{}
+	}
+	if stats.Series.ReportRecordCount == nil {
+		stats.Series.ReportRecordCount = []AdminMetricPoint{}
+	}
+	return stats, nil
 }
 
 func (s *AdminService) ListOperationLogs(ctx context.Context, reqCtx RequestContext, filter OperationLogListFilter) (OperationLogListResult, error) {
@@ -334,6 +356,25 @@ func normalizeStatisticsDays(days int) (int, error) {
 		return 0, ValidationError(map[string]string{"days": "must be between 1 and 366"})
 	}
 	return days, nil
+}
+
+func normalizeAdminStatisticsQuery(days int, granularity string) (int, string, error) {
+	if days == 0 {
+		days = DefaultAdminStatisticsDays
+	}
+	if days < 1 || days > MaximumAdminStatisticsDays {
+		return 0, "", ValidationError(map[string]string{"days": "must be between 1 and 90"})
+	}
+	granularity = strings.TrimSpace(granularity)
+	if granularity == "" {
+		granularity = "daily"
+	}
+	switch granularity {
+	case "daily", "hourly":
+		return days, granularity, nil
+	default:
+		return 0, "", ValidationError(map[string]string{"granularity": "must be daily or hourly"})
+	}
 }
 
 func recordOperationLog(ctx context.Context, recorder OperationLogRecorder, log OperationLog) {

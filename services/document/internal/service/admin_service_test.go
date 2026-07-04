@@ -84,6 +84,9 @@ func TestAdminReadMethodsRequireAdmin(t *testing.T) {
 	if _, err := svc.ListDailyStatistics(ctx, reqCtx, 0); errorCode(t, err) != CodeForbidden {
 		t.Fatalf("ListDailyStatistics() error = %v, want forbidden", err)
 	}
+	if _, err := svc.GetAdminStatistics(ctx, reqCtx, 0, ""); errorCode(t, err) != CodeForbidden {
+		t.Fatalf("GetAdminStatistics() error = %v, want forbidden", err)
+	}
 	if _, err := svc.ListOperationLogs(ctx, reqCtx, OperationLogListFilter{}); errorCode(t, err) != CodeForbidden {
 		t.Fatalf("ListOperationLogs() error = %v, want forbidden", err)
 	}
@@ -265,6 +268,14 @@ func TestStatisticsOverviewAndDailyAreBounded(t *testing.T) {
 	repo.daily = []ReportDailyStatistic{
 		{Date: "2026-06-30", ReportType: "summer_peak_inspection", CreatedCount: 1, GeneratedCount: 1},
 	}
+	repo.adminStats = AdminStatistics{
+		ReportTemplateCount: 2,
+		ReportRecordCount:   3,
+		Series: AdminStatisticsSeries{
+			ReportTemplateCount: []AdminMetricPoint{{Date: time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC), Count: 2}},
+			ReportRecordCount:   []AdminMetricPoint{{Date: time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC), Count: 3}},
+		},
+	}
 	svc := NewAdminService(repo, nil)
 	reqCtx := RequestContext{UserID: "admin-1", Roles: []string{"admin"}}
 
@@ -288,6 +299,20 @@ func TestStatisticsOverviewAndDailyAreBounded(t *testing.T) {
 	if repo.lastDailyDays != 7 || len(daily) != 1 {
 		t.Fatalf("daily days/items = %d/%d, want 7/1", repo.lastDailyDays, len(daily))
 	}
+
+	stats, err := svc.GetAdminStatistics(ctx, reqCtx, 0, "")
+	if err != nil {
+		t.Fatalf("GetAdminStatistics() error = %v", err)
+	}
+	if repo.lastAdminStatsDays != 30 || repo.lastAdminStatsGranularity != "daily" || stats.ReportRecordCount != 3 {
+		t.Fatalf("admin stats = %+v, repo query = %d/%q", stats, repo.lastAdminStatsDays, repo.lastAdminStatsGranularity)
+	}
+	if _, err := svc.GetAdminStatistics(ctx, reqCtx, 91, "daily"); errorCode(t, err) != CodeValidation {
+		t.Fatalf("admin stats days error = %v, want validation", err)
+	}
+	if _, err := svc.GetAdminStatistics(ctx, reqCtx, 30, "weekly"); errorCode(t, err) != CodeValidation {
+		t.Fatalf("admin stats granularity error = %v, want validation", err)
+	}
 }
 
 func toString(value any) string {
@@ -298,13 +323,16 @@ func toString(value any) string {
 }
 
 type fakeAdminRepository struct {
-	settings      ReportSettings
-	reportTypes   map[string]bool
-	templates     map[string]ReportTemplate
-	overview      ReportStatisticsOverview
-	daily         []ReportDailyStatistic
-	logs          []OperationLog
-	lastDailyDays int
+	settings                  ReportSettings
+	reportTypes               map[string]bool
+	templates                 map[string]ReportTemplate
+	overview                  ReportStatisticsOverview
+	daily                     []ReportDailyStatistic
+	adminStats                AdminStatistics
+	logs                      []OperationLog
+	lastDailyDays             int
+	lastAdminStatsDays        int
+	lastAdminStatsGranularity string
 }
 
 func newFakeAdminRepository() *fakeAdminRepository {
@@ -347,6 +375,12 @@ func (r *fakeAdminRepository) GetReportStatisticsOverview(context.Context, int) 
 func (r *fakeAdminRepository) ListReportDailyStatistics(_ context.Context, days int) ([]ReportDailyStatistic, error) {
 	r.lastDailyDays = days
 	return r.daily, nil
+}
+
+func (r *fakeAdminRepository) GetAdminStatistics(_ context.Context, days int, granularity string) (AdminStatistics, error) {
+	r.lastAdminStatsDays = days
+	r.lastAdminStatsGranularity = granularity
+	return r.adminStats, nil
 }
 
 func (r *fakeAdminRepository) ListOperationLogs(_ context.Context, filter OperationLogListFilter) (OperationLogListResult, error) {

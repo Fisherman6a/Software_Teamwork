@@ -9,6 +9,11 @@ func (r RequestContext) IsAdmin() bool {
 			return true
 		}
 	}
+	for _, permission := range r.Permissions {
+		if permission == "system:admin" {
+			return true
+		}
+	}
 	return false
 }
 

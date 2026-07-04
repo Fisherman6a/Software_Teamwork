@@ -340,7 +340,8 @@ func hasAdminRouteAccess(entry service.SessionCacheEntry, allowedPermissions []s
 	// (backward-compatible with existing admin route conventions).
 	if isAdminPath {
 		for _, role := range entry.Roles {
-			if strings.EqualFold(strings.TrimSpace(role), "admin") {
+			role = strings.TrimSpace(role)
+			if strings.EqualFold(role, "admin") || strings.EqualFold(role, "super_admin") {
 				return true
 			}
 		}

@@ -725,6 +725,28 @@ func TestRevokeSessionReturnsSuccessWhenSecurityEventWriteFails(t *testing.T) {
 	}
 }
 
+func TestGetAdminStatisticsValidatesGatewayCallerAndQuery(t *testing.T) {
+	repo := newFakeRepository(t)
+	svc := newTestService(repo, "atk_v1_fixed")
+
+	stats, err := svc.GetAdminStatistics(context.Background(), testRequestContext(), 0, "")
+	if err != nil {
+		t.Fatalf("GetAdminStatistics() error = %v", err)
+	}
+	if stats.UserCount != 3 || len(stats.Series.UserCount) != 1 || stats.Series.UserCount[0].Count != 3 {
+		t.Fatalf("stats = %+v", stats)
+	}
+	if _, err := svc.GetAdminStatistics(context.Background(), RequestContext{}, 30, "daily"); requireAppError(t, err).Code != CodeUnauthorized {
+		t.Fatalf("missing caller error = %v", err)
+	}
+	if _, err := svc.GetAdminStatistics(context.Background(), testRequestContext(), 91, "daily"); requireAppError(t, err).Code != CodeValidation {
+		t.Fatalf("days error = %v", err)
+	}
+	if _, err := svc.GetAdminStatistics(context.Background(), testRequestContext(), 30, "weekly"); requireAppError(t, err).Code != CodeValidation {
+		t.Fatalf("granularity error = %v", err)
+	}
+}
+
 func newTestService(repo *fakeRepository, token string, opts ...Option) *Service {
 	now := time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC)
 	counter := map[string]int{}
@@ -1121,6 +1143,28 @@ func (r *fakeRepository) ResetLoginFailures(_ context.Context, params ResetLogin
 		r.usersByUsername[user.Username] = user
 	}
 	return nil
+}
+
+func (r *fakeRepository) GetAdminStatistics(_ context.Context, _ int, _ string) (AdminStatistics, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	stats := AdminStatistics{
+		Series: AdminStatisticsSeries{UserCount: []AdminStatisticsPoint{}},
+	}
+	var latest time.Time
+	for _, user := range r.usersByID {
+		if user.DeletedAt != nil {
+			continue
+		}
+		stats.UserCount++
+		if user.CreatedAt.After(latest) {
+			latest = user.CreatedAt
+		}
+	}
+	if !latest.IsZero() {
+		stats.Series.UserCount = append(stats.Series.UserCount, AdminStatisticsPoint{Date: latest, Count: stats.UserCount})
+	}
+	return stats, nil
 }
 
 func (r *fakeRepository) CreateSession(_ context.Context, params CreateSessionParams) (SessionIdentity, error) {

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/qa/internal/service"
 )
@@ -26,6 +27,7 @@ func (s *Server) registerResourceRoutes() {
 	s.mux.HandleFunc("GET /internal/v1/qa-metrics/trend", s.handleMetricsTrend)
 	s.mux.HandleFunc("GET /internal/v1/qa-metrics/top-queries", s.handleTopQueries)
 	s.mux.HandleFunc("GET /internal/v1/qa-metrics/intent-distribution", s.handleIntentDistribution)
+	s.mux.HandleFunc("GET /internal/v1/admin/statistics", s.handleAdminStatistics)
 }
 
 func (s *Server) handleListEvents(w http.ResponseWriter, r *http.Request) {
@@ -318,6 +320,23 @@ func (s *Server) handleIntentDistribution(w http.ResponseWriter, r *http.Request
 	writeData(w, r, http.StatusOK, value)
 }
 
+func (s *Server) handleAdminStatistics(w http.ResponseWriter, r *http.Request) {
+	if _, ok := requireAdminStatisticsAccess(w, r); !ok {
+		return
+	}
+	days, granularity, err := adminStatisticsQuery(r)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	value, err := s.resources.GetAdminStatistics(r.Context(), days, granularity)
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeData(w, r, http.StatusOK, value)
+}
+
 func metricsDaysQuery(r *http.Request, name string, fallback int) (int, error) {
 	raw := r.URL.Query().Get(name)
 	if raw == "" {
@@ -328,6 +347,38 @@ func metricsDaysQuery(r *http.Request, name string, fallback int) (int, error) {
 		return 0, service.ValidationError(map[string]string{name: "must be an integer between 1 and 366"})
 	}
 	return value, nil
+}
+
+func adminStatisticsQuery(r *http.Request) (int, string, error) {
+	days := 0
+	if raw := strings.TrimSpace(r.URL.Query().Get("days")); raw != "" {
+		value, err := strconv.Atoi(raw)
+		if err != nil {
+			return 0, "", service.ValidationError(map[string]string{"days": "must be an integer"})
+		}
+		days = value
+	}
+	return days, strings.TrimSpace(r.URL.Query().Get("granularity")), nil
+}
+
+func requireAdminStatisticsAccess(w http.ResponseWriter, r *http.Request) (string, bool) {
+	userID, ok := userIDFromRequest(w, r)
+	if !ok {
+		return "", false
+	}
+	for _, role := range strings.Split(r.Header.Get("X-User-Roles"), ",") {
+		role = strings.TrimSpace(role)
+		if role == "admin" || role == "super_admin" {
+			return userID, true
+		}
+	}
+	for _, permission := range strings.Split(r.Header.Get("X-User-Permissions"), ",") {
+		if strings.TrimSpace(permission) == "system:admin" {
+			return userID, true
+		}
+	}
+	writeError(w, r, service.NewError(service.CodeForbidden, "admin access is forbidden", nil))
+	return "", false
 }
 
 func positiveQuery(r *http.Request, name string, fallback int, allowZero bool) (int, error) {

@@ -131,6 +131,20 @@ type userPermissionsResponse struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+type adminStatisticsPointResponse struct {
+	Date  time.Time `json:"date"`
+	Count int64     `json:"count"`
+}
+
+type adminStatisticsSeriesResponse struct {
+	UserCount []adminStatisticsPointResponse `json:"userCount"`
+}
+
+type adminStatisticsResponse struct {
+	UserCount int64                         `json:"userCount"`
+	Series    adminStatisticsSeriesResponse `json:"series"`
+}
+
 func (s *Server) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	auth, ok := s.requireAuth(w, r)
 	if !ok {
@@ -284,6 +298,24 @@ func (s *Server) handleResetAdminUserPassword(w http.ResponseWriter, r *http.Req
 		return
 	}
 	writeJSON(w, http.StatusOK, adminUserFromDomain(result), requestIDFromContext(r.Context()))
+}
+
+func (s *Server) handleGetAdminStatistics(w http.ResponseWriter, r *http.Request) {
+	auth, ok := s.requireAuth(w, r)
+	if !ok {
+		return
+	}
+	days, err := intQuery(r, "days", 0)
+	if err != nil {
+		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"days": "must be an integer"}))
+		return
+	}
+	result, err := auth.GetAdminStatistics(r.Context(), requestContextFromHeaders(r), days, r.URL.Query().Get("granularity"))
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, adminStatisticsFromDomain(result), requestIDFromContext(r.Context()))
 }
 
 func (s *Server) handleUpdateUserProfile(w http.ResponseWriter, r *http.Request) {
@@ -592,6 +624,26 @@ func userPermissionsFromDomain(permissions service.UserPermissions) userPermissi
 		Permissions: safeStrings(permissions.Permissions),
 		UpdatedAt:   permissions.UpdatedAt,
 	}
+}
+
+func adminStatisticsFromDomain(stats service.AdminStatistics) adminStatisticsResponse {
+	return adminStatisticsResponse{
+		UserCount: stats.UserCount,
+		Series: adminStatisticsSeriesResponse{
+			UserCount: adminStatisticsPointsFromDomain(stats.Series.UserCount),
+		},
+	}
+}
+
+func adminStatisticsPointsFromDomain(points []service.AdminStatisticsPoint) []adminStatisticsPointResponse {
+	if points == nil {
+		return []adminStatisticsPointResponse{}
+	}
+	out := make([]adminStatisticsPointResponse, 0, len(points))
+	for _, point := range points {
+		out = append(out, adminStatisticsPointResponse{Date: point.Date, Count: point.Count})
+	}
+	return out
 }
 
 func safeStrings(values []string) []string {

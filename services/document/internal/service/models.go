@@ -501,6 +501,22 @@ type ReportDailyStatistic struct {
 	ExportedCount  int
 }
 
+type AdminMetricPoint struct {
+	Date  time.Time
+	Count int
+}
+
+type AdminStatisticsSeries struct {
+	ReportTemplateCount []AdminMetricPoint
+	ReportRecordCount   []AdminMetricPoint
+}
+
+type AdminStatistics struct {
+	ReportTemplateCount int
+	ReportRecordCount   int
+	Series              AdminStatisticsSeries
+}
+
 type OperationLog struct {
 	ID               string
 	OperatorID       string
@@ -569,4 +585,6 @@ const (
 	ReportNumberingModeByChapter       = "by_chapter"
 	DefaultReportStatisticsDays        = 30
 	MaximumReportStatisticsDays        = 366
+	DefaultAdminStatisticsDays         = 30
+	MaximumAdminStatisticsDays         = 90
 )

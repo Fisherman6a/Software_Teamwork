@@ -77,6 +77,23 @@ func (s *Server) handleListReportDailyStatistics(w http.ResponseWriter, r *http.
 	writeData(w, r, http.StatusOK, out)
 }
 
+func (s *Server) handleGetAdminStatistics(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminService(w, r) {
+		return
+	}
+	days, err := parsePositiveIntQuery(r, "days")
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	stats, err := s.adminService.GetAdminStatistics(r.Context(), s.requestContext(r), days, r.URL.Query().Get("granularity"))
+	if err != nil {
+		writeError(w, r, err)
+		return
+	}
+	writeData(w, r, http.StatusOK, adminStatisticsFromDomain(stats))
+}
+
 func (s *Server) handleListReportOperationLogs(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminService(w, r) {
 		return
@@ -169,6 +186,22 @@ type reportDailyStatisticResponse struct {
 	ExportedCount  int    `json:"exportedCount"`
 }
 
+type adminMetricPointResponse struct {
+	Date  time.Time `json:"date"`
+	Count int       `json:"count"`
+}
+
+type adminStatisticsSeriesResponse struct {
+	ReportTemplateCount []adminMetricPointResponse `json:"reportTemplateCount"`
+	ReportRecordCount   []adminMetricPointResponse `json:"reportRecordCount"`
+}
+
+type adminStatisticsResponse struct {
+	ReportTemplateCount int                           `json:"reportTemplateCount"`
+	ReportRecordCount   int                           `json:"reportRecordCount"`
+	Series              adminStatisticsSeriesResponse `json:"series"`
+}
+
 type operationLogResponse struct {
 	ID               string         `json:"id"`
 	OperatorID       string         `json:"operatorId,omitempty"`
@@ -254,6 +287,28 @@ func dailyStatisticFromDomain(value service.ReportDailyStatistic) reportDailySta
 		FailedCount:    value.FailedCount,
 		ExportedCount:  value.ExportedCount,
 	}
+}
+
+func adminStatisticsFromDomain(value service.AdminStatistics) adminStatisticsResponse {
+	return adminStatisticsResponse{
+		ReportTemplateCount: value.ReportTemplateCount,
+		ReportRecordCount:   value.ReportRecordCount,
+		Series: adminStatisticsSeriesResponse{
+			ReportTemplateCount: adminMetricPointsFromDomain(value.Series.ReportTemplateCount),
+			ReportRecordCount:   adminMetricPointsFromDomain(value.Series.ReportRecordCount),
+		},
+	}
+}
+
+func adminMetricPointsFromDomain(points []service.AdminMetricPoint) []adminMetricPointResponse {
+	if points == nil {
+		return []adminMetricPointResponse{}
+	}
+	out := make([]adminMetricPointResponse, 0, len(points))
+	for _, point := range points {
+		out = append(out, adminMetricPointResponse{Date: point.Date, Count: point.Count})
+	}
+	return out
 }
 
 func operationLogFromDomain(value service.OperationLog) operationLogResponse {

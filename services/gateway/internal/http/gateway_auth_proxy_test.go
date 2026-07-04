@@ -661,6 +661,169 @@ func TestAdminUsersRouteRejectsBareSystemAdminPermission(t *testing.T) {
 	}
 }
 
+func TestAdminMetricsAggregatesOwnersAndPropagatesContext(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_admin",
+		Username:    "admin",
+		Roles:       []string{"admin"},
+		Permissions: []string{"system:admin", "knowledge:read"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	owners := map[string]*httptest.Server{}
+	owners["auth"] = adminStatsOwnerServer(t, "auth", "/internal/v1/admin/statistics", "auth-admin-token", true, `{"data":{"userCount":10,"series":{"userCount":[{"date":"2026-07-04T01:00:00Z","count":2}]}},"requestId":"req_auth"}`)
+	owners["knowledge"] = adminStatsOwnerServer(t, "knowledge", "/internal/v1/knowledge-statistics", "svc-token", true, `{"data":{"knowledgeBaseCount":3,"documentCount":4,"chunkCount":5,"series":{"knowledgeBaseCount":[{"date":"2026-07-04T01:00:00Z","count":1}],"documentCount":[{"date":"2026-07-04T01:00:00Z","count":2}],"chunkCount":[{"date":"2026-07-04T01:00:00Z","count":5}]}},"requestId":"req_knowledge"}`)
+	owners["document"] = adminStatsOwnerServer(t, "document", "/admin/statistics", "svc-token", true, `{"data":{"reportTemplateCount":6,"reportRecordCount":7,"series":{"reportTemplateCount":[{"date":"2026-07-04T01:00:00Z","count":3}],"reportRecordCount":[{"date":"2026-07-04T01:00:00Z","count":4}]}},"requestId":"req_document"}`)
+	owners["qa"] = adminStatsOwnerServer(t, "qa", "/internal/v1/admin/statistics", "svc-token", true, `{"data":{"qaCount":8,"series":{"qaCount":[{"date":"2026-07-04T01:00:00Z","count":6}]}},"requestId":"req_qa"}`)
+	defer closeOwnerServers(owners)
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		store:                 store,
+		hasher:                hasher,
+		ownerBaseURLs:         ownerBaseURLsFromServers(owners),
+		serviceToken:          "svc-token",
+		authAdminServiceToken: "auth-admin-token",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/metrics?days=7&granularity=hourly", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Request-Id", "req_admin_metrics")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	for _, want := range []string{
+		`"days":7`,
+		`"granularity":"hourly"`,
+		`"userCount":[{"date":"2026-07-04T01:00:00Z","count":2}]`,
+		`"knowledgeBaseCount":[{"date":"2026-07-04T01:00:00Z","count":1}]`,
+		`"reportRecordCount":[{"date":"2026-07-04T01:00:00Z","count":4}]`,
+		`"qaCount":[{"date":"2026-07-04T01:00:00Z","count":6}]`,
+		`"requestId":"req_admin_metrics"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestAdminOverviewAggregatesOwnerTotals(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_admin",
+		Username:    "admin",
+		Roles:       []string{"super_admin"},
+		Permissions: []string{"knowledge:read"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	owners := map[string]*httptest.Server{}
+	owners["auth"] = adminStatsOwnerServer(t, "auth", "/internal/v1/admin/statistics", "auth-admin-token", false, `{"data":{"userCount":10},"requestId":"req_auth"}`)
+	owners["knowledge"] = adminStatsOwnerServer(t, "knowledge", "/internal/v1/knowledge-statistics", "svc-token", false, `{"data":{"knowledgeBaseCount":3,"documentCount":4,"chunkCount":5},"requestId":"req_knowledge"}`)
+	owners["document"] = adminStatsOwnerServer(t, "document", "/admin/statistics", "svc-token", false, `{"data":{"reportTemplateCount":6,"reportRecordCount":7},"requestId":"req_document"}`)
+	owners["qa"] = adminStatsOwnerServer(t, "qa", "/internal/v1/admin/statistics", "svc-token", false, `{"data":{"qaCount":8},"requestId":"req_qa"}`)
+	defer closeOwnerServers(owners)
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		store:                 store,
+		hasher:                hasher,
+		ownerBaseURLs:         ownerBaseURLsFromServers(owners),
+		serviceToken:          "svc-token",
+		authAdminServiceToken: "auth-admin-token",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/overview", nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("X-Request-Id", "req_admin_overview")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	for _, want := range []string{
+		`"userCount":10`,
+		`"knowledgeBaseCount":3`,
+		`"documentCount":4`,
+		`"chunkCount":5`,
+		`"reportTemplateCount":6`,
+		`"reportRecordCount":7`,
+		`"qaCount":8`,
+		`"requestId":"req_admin_overview"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("response missing %s: %s", want, body)
+		}
+	}
+}
+
+func TestAdminMetricsValidationAndDependencyErrors(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_admin",
+		Username:    "admin",
+		Roles:       []string{"admin"},
+		Permissions: []string{"knowledge:read"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+	server := newGatewayTestServer(t, gatewayDeps{store: store, hasher: hasher})
+
+	invalidReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/metrics?days=0&granularity=weekly", nil)
+	invalidReq.Header.Set("Authorization", "Bearer "+accessToken)
+	invalidReq.Header.Set("X-Request-Id", "req_admin_invalid")
+	invalidRes := httptest.NewRecorder()
+	server.ServeHTTP(invalidRes, invalidReq)
+	if invalidRes.Code != http.StatusBadRequest || !strings.Contains(invalidRes.Body.String(), `"code":"validation_error"`) || !strings.Contains(invalidRes.Body.String(), `"requestId":"req_admin_invalid"`) {
+		t.Fatalf("validation response = %d %s", invalidRes.Code, invalidRes.Body.String())
+	}
+
+	authOwner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"userCount":10,"series":{"userCount":[{"date":"2026-07-04T00:00:00Z","count":1}]}},"requestId":"req_auth"}`))
+	}))
+	defer authOwner.Close()
+	knowledgeOwner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"knowledgeBaseCount":3,"documentCount":4,"chunkCount":5},"requestId":"req_knowledge"}`))
+	}))
+	defer knowledgeOwner.Close()
+	server = newGatewayTestServer(t, gatewayDeps{
+		store:                 store,
+		hasher:                hasher,
+		ownerBaseURLs:         map[string]string{"auth": authOwner.URL, "knowledge": knowledgeOwner.URL},
+		serviceToken:          "svc-token",
+		authAdminServiceToken: "auth-admin-token",
+	})
+	depReq := httptest.NewRequest(http.MethodGet, "/api/v1/admin/metrics", nil)
+	depReq.Header.Set("Authorization", "Bearer "+accessToken)
+	depReq.Header.Set("X-Request-Id", "req_admin_dep")
+	depRes := httptest.NewRecorder()
+	server.ServeHTTP(depRes, depReq)
+	if depRes.Code != http.StatusBadGateway || !strings.Contains(depRes.Body.String(), `"code":"dependency_error"`) {
+		t.Fatalf("dependency response = %d %s", depRes.Code, depRes.Body.String())
+	}
+	if strings.Contains(depRes.Body.String(), "knowledgeBaseCount") || strings.Contains(depRes.Body.String(), "req_knowledge") {
+		t.Fatalf("dependency response leaked owner details: %s", depRes.Body.String())
+	}
+}
+
 func TestMustChangePasswordBlocksProtectedRoutesButAllowsPasswordChange(t *testing.T) {
 	hasher := testHasher(t)
 	store := newMemorySessionStore()
@@ -1840,6 +2003,49 @@ func newGatewayTestServer(t *testing.T, deps gatewayDeps) http.Handler {
 		InternalServiceToken:   deps.serviceToken,
 		AuthAdminServiceToken:  deps.authAdminServiceToken,
 	})
+}
+
+func adminStatsOwnerServer(t *testing.T, owner string, wantPath string, wantToken string, wantMetricsQuery bool, body string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != wantPath {
+			t.Fatalf("%s path = %q, want %q", owner, r.URL.Path, wantPath)
+		}
+		if got := r.Header.Get("X-Request-Id"); got == "" {
+			t.Fatalf("%s missing X-Request-Id", owner)
+		}
+		if r.Header.Get("X-User-Id") != "usr_admin" ||
+			r.Header.Get("X-Caller-Service") != "gateway" ||
+			!strings.Contains(r.Header.Get("X-User-Roles"), "admin") && !strings.Contains(r.Header.Get("X-User-Roles"), "super_admin") {
+			t.Fatalf("%s headers = %#v", owner, r.Header)
+		}
+		if got := r.Header.Get("X-Service-Token"); got != wantToken {
+			t.Fatalf("%s X-Service-Token = %q, want %q", owner, got, wantToken)
+		}
+		if wantMetricsQuery {
+			if r.URL.Query().Get("days") != "7" || r.URL.Query().Get("granularity") != "hourly" {
+				t.Fatalf("%s query = %s", owner, r.URL.RawQuery)
+			}
+		} else if r.URL.RawQuery != "" {
+			t.Fatalf("%s query = %s, want empty", owner, r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+}
+
+func ownerBaseURLsFromServers(owners map[string]*httptest.Server) map[string]string {
+	values := map[string]string{}
+	for owner, server := range owners {
+		values[owner] = server.URL
+	}
+	return values
+}
+
+func closeOwnerServers(owners map[string]*httptest.Server) {
+	for _, server := range owners {
+		server.Close()
+	}
 }
 
 func testHasher(t *testing.T) service.TokenHasher {

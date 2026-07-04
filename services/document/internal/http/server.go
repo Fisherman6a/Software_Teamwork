@@ -48,6 +48,7 @@ type AdminSvc interface {
 	UpdateReportSettings(context.Context, service.RequestContext, service.UpdateReportSettingsInput) (service.ReportSettings, error)
 	GetStatisticsOverview(context.Context, service.RequestContext, int) (service.ReportStatisticsOverview, error)
 	ListDailyStatistics(context.Context, service.RequestContext, int) ([]service.ReportDailyStatistic, error)
+	GetAdminStatistics(context.Context, service.RequestContext, int, string) (service.AdminStatistics, error)
 	ListOperationLogs(context.Context, service.RequestContext, service.OperationLogListFilter) (service.OperationLogListResult, error)
 }
 
@@ -141,6 +142,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /report-files/{reportFileId}/content", s.handleGetReportFileContent)
 	s.mux.HandleFunc("GET /report-statistics/overview", s.handleGetReportStatisticsOverview)
 	s.mux.HandleFunc("GET /report-statistics/daily", s.handleListReportDailyStatistics)
+	s.mux.HandleFunc("GET /admin/statistics", s.handleGetAdminStatistics)
 	s.mux.HandleFunc("GET /report-operation-logs", s.handleListReportOperationLogs)
 	s.mux.HandleFunc("GET /report-settings", s.handleGetReportSettings)
 	s.mux.HandleFunc("PATCH /report-settings", s.handleUpdateReportSettings)

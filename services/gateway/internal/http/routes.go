@@ -127,8 +127,8 @@ var activeProxyRoutes = []routeSpec{
 	{Method: "GET", Pattern: "/api/v1/qa-metrics/trend", Owner: "qa", OperationID: "getQAMetricsTrend"},
 	{Method: "GET", Pattern: "/api/v1/qa-metrics/top-queries", Owner: "qa", OperationID: "listQATopQueries"},
 	{Method: "GET", Pattern: "/api/v1/qa-metrics/intent-distribution", Owner: "qa", OperationID: "listQAIntentDistribution"},
-	{Method: "GET", Pattern: "/api/v1/admin/overview", Owner: "gateway", OperationID: "getAdminOverview", NotImplemented: true, AdminPermissions: dashboardAdminPermissions},
-	{Method: "GET", Pattern: "/api/v1/admin/metrics", Owner: "gateway", OperationID: "getAdminMetrics", NotImplemented: true, AdminPermissions: dashboardAdminPermissions},
+	{Method: "GET", Pattern: "/api/v1/admin/overview", Owner: "gateway", OperationID: "getAdminOverview", AdminPermissions: dashboardAdminPermissions},
+	{Method: "GET", Pattern: "/api/v1/admin/metrics", Owner: "gateway", OperationID: "getAdminMetrics", AdminPermissions: dashboardAdminPermissions},
 }
 
 var activeDirectRoutes = []routeSpec{
@@ -150,4 +150,9 @@ func activeOperationCount() int {
 
 func (route routeSpec) requiresAdmin() bool {
 	return strings.HasPrefix(route.Pattern, "/api/v1/admin/") || len(route.AdminPermissions) > 0 || len(route.AdminRoles) > 0
+}
+
+func (route routeSpec) isGatewayOwnedAdminStats() bool {
+	return route.Owner == "gateway" && route.Method == "GET" &&
+		(route.Pattern == "/api/v1/admin/overview" || route.Pattern == "/api/v1/admin/metrics")
 }

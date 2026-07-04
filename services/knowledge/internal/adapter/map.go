@@ -140,8 +140,21 @@ type knowledgeQueryTrace struct {
 }
 
 type knowledgeStatisticsSummary struct {
-	KnowledgeBaseCount int64 `json:"knowledgeBaseCount"`
-	DocumentCount      int64 `json:"documentCount"`
+	KnowledgeBaseCount int64                     `json:"knowledgeBaseCount"`
+	DocumentCount      int64                     `json:"documentCount"`
+	ChunkCount         int64                     `json:"chunkCount"`
+	Series             knowledgeStatisticsSeries `json:"series"`
+}
+
+type knowledgeStatisticsSeries struct {
+	KnowledgeBaseCount []knowledgeStatisticsPoint `json:"knowledgeBaseCount"`
+	DocumentCount      []knowledgeStatisticsPoint `json:"documentCount"`
+	ChunkCount         []knowledgeStatisticsPoint `json:"chunkCount"`
+}
+
+type knowledgeStatisticsPoint struct {
+	Date  time.Time `json:"date"`
+	Count int64     `json:"count"`
 }
 
 type documentSummary struct {

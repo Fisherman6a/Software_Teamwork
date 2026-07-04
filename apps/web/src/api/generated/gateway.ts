@@ -1590,8 +1590,6 @@ export interface paths {
          *     collects lightweight counts from Auth, Knowledge, Document, and QA
          *     owner services on each request. Data is suitable for landing-page
          *     cards and is not a real-time operational view.
-         *     Route is registered and returns 501 Not Implemented until
-         *     aggregation implementation is complete.
          */
         get: operations["getAdminOverview"];
         put?: never;
@@ -1613,8 +1611,7 @@ export interface paths {
          * Cross-service time-series metrics
          * @description Daily or hourly trend data across Auth, Knowledge, Document, and QA
          *     owner services. Supports a configurable lookback window for the
-         *     administration dashboard trend chart. Route is registered and returns
-         *     501 Not Implemented until aggregation implementation is complete.
+         *     administration dashboard trend chart.
          */
         get: operations["getAdminMetrics"];
         put?: never;
@@ -6408,7 +6405,6 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            501: components["responses"]["Error"];
             502: components["responses"]["Error"];
         };
     };
@@ -6438,7 +6434,6 @@ export interface operations {
             400: components["responses"]["Error"];
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
-            501: components["responses"]["Error"];
             502: components["responses"]["Error"];
         };
     };

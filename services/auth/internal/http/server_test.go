@@ -239,6 +239,48 @@ func TestAdminUsersRequiresGatewayAdminServiceToken(t *testing.T) {
 	}
 }
 
+func TestAdminStatisticsReturnsUserTotals(t *testing.T) {
+	now := time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC)
+	auth := fakeAuthService{now: now}
+	server := authhttp.NewServer(authhttp.Config{
+		Auth:              auth,
+		ServiceToken:      "test-service-token",
+		GatewayAdminToken: "gateway-admin-token",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/admin/statistics?days=7&granularity=hourly", nil)
+	req.Header.Set("X-Request-Id", "req_admin_stats")
+	req.Header.Set("X-Service-Token", "gateway-admin-token")
+	req.Header.Set("X-Caller-Service", "gateway")
+	req.Header.Set("X-User-Id", "usr_admin")
+	req.Header.Set("X-User-Roles", "admin")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Data struct {
+			UserCount int64 `json:"userCount"`
+			Series    struct {
+				UserCount []struct {
+					Date  time.Time `json:"date"`
+					Count int64     `json:"count"`
+				} `json:"userCount"`
+			} `json:"series"`
+		} `json:"data"`
+		RequestID string `json:"requestId"`
+	}
+	decodeJSON(t, res.Body.Bytes(), &body)
+	if body.RequestID != "req_admin_stats" || body.Data.UserCount != 3 {
+		t.Fatalf("body = %+v", body)
+	}
+	if len(body.Data.Series.UserCount) != 1 || body.Data.Series.UserCount[0].Count != 3 {
+		t.Fatalf("series = %+v", body.Data.Series.UserCount)
+	}
+}
+
 func TestSelfWriteRoutesRequireGatewayServiceToken(t *testing.T) {
 	auth := fakeAuthService{now: time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC)}
 	server := authhttp.NewServer(authhttp.Config{
@@ -449,6 +491,18 @@ func (s fakeAuthService) ResetManagedUserPassword(_ context.Context, reqCtx serv
 		return service.AdminUserRecord{}, service.UnauthorizedError()
 	}
 	return s.adminUser(), nil
+}
+
+func (s fakeAuthService) GetAdminStatistics(_ context.Context, reqCtx service.RequestContext, _ int, _ string) (service.AdminStatistics, error) {
+	if reqCtx.CallerService == "" {
+		return service.AdminStatistics{}, service.UnauthorizedError()
+	}
+	return service.AdminStatistics{
+		UserCount: 3,
+		Series: service.AdminStatisticsSeries{
+			UserCount: []service.AdminStatisticsPoint{{Date: s.now, Count: 3}},
+		},
+	}, nil
 }
 
 func (s fakeAuthService) UpdateProfile(_ context.Context, reqCtx service.RequestContext, _ string, _ service.UpdateProfileInput) (service.UserRecord, error) {

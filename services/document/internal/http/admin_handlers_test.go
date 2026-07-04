@@ -160,6 +160,22 @@ func TestStatisticsAndOperationLogHandlers(t *testing.T) {
 			}
 			return []service.ReportDailyStatistic{{Date: "2026-06-30", CreatedCount: 1, GeneratedCount: 1}}, nil
 		},
+		getAdminStats: func(_ context.Context, reqCtx service.RequestContext, days int, granularity string) (service.AdminStatistics, error) {
+			if !reqCtx.IsAdmin() {
+				t.Fatalf("admin stats request context roles = %+v, want admin", reqCtx.Roles)
+			}
+			if days != 7 || granularity != "hourly" {
+				t.Fatalf("admin stats query = %d/%q, want 7/hourly", days, granularity)
+			}
+			return service.AdminStatistics{
+				ReportTemplateCount: 2,
+				ReportRecordCount:   5,
+				Series: service.AdminStatisticsSeries{
+					ReportTemplateCount: []service.AdminMetricPoint{{Date: time.Date(2026, 6, 30, 11, 0, 0, 0, time.UTC), Count: 1}},
+					ReportRecordCount:   []service.AdminMetricPoint{{Date: time.Date(2026, 6, 30, 11, 0, 0, 0, time.UTC), Count: 3}},
+				},
+			}, nil
+		},
 		listLogs: func(_ context.Context, reqCtx service.RequestContext, filter service.OperationLogListFilter) (service.OperationLogListResult, error) {
 			if !reqCtx.IsAdmin() {
 				t.Fatalf("logs request context roles = %+v, want admin", reqCtx.Roles)
@@ -205,6 +221,15 @@ func TestStatisticsAndOperationLogHandlers(t *testing.T) {
 		t.Fatalf("daily response = %d %s", dailyRec.Code, dailyRec.Body.String())
 	}
 
+	statsReq := httptest.NewRequest(http.MethodGet, "/admin/statistics?days=7&granularity=hourly", nil)
+	statsReq.Header.Set("X-User-Id", "admin-1")
+	statsReq.Header.Set("X-User-Roles", "admin")
+	statsRec := httptest.NewRecorder()
+	server.ServeHTTP(statsRec, statsReq)
+	if statsRec.Code != http.StatusOK || !strings.Contains(statsRec.Body.String(), `"reportTemplateCount":2`) || !strings.Contains(statsRec.Body.String(), `"reportRecordCount":5`) {
+		t.Fatalf("admin stats response = %d %s", statsRec.Code, statsRec.Body.String())
+	}
+
 	logReq := httptest.NewRequest(http.MethodGet, "/report-operation-logs?page=2&pageSize=5&targetType=report&requestSource=mcp", nil)
 	logReq.Header.Set("X-User-Id", "admin-1")
 	logReq.Header.Set("X-User-Roles", "admin")
@@ -223,6 +248,7 @@ type fakeAdminService struct {
 	updateSettings func(context.Context, service.RequestContext, service.UpdateReportSettingsInput) (service.ReportSettings, error)
 	getOverview    func(context.Context, service.RequestContext, int) (service.ReportStatisticsOverview, error)
 	listDaily      func(context.Context, service.RequestContext, int) ([]service.ReportDailyStatistic, error)
+	getAdminStats  func(context.Context, service.RequestContext, int, string) (service.AdminStatistics, error)
 	listLogs       func(context.Context, service.RequestContext, service.OperationLogListFilter) (service.OperationLogListResult, error)
 }
 
@@ -252,6 +278,13 @@ func (f *fakeAdminService) ListDailyStatistics(ctx context.Context, reqCtx servi
 		return nil, service.NewError(service.CodeInternal, "fake method not configured", nil)
 	}
 	return f.listDaily(ctx, reqCtx, days)
+}
+
+func (f *fakeAdminService) GetAdminStatistics(ctx context.Context, reqCtx service.RequestContext, days int, granularity string) (service.AdminStatistics, error) {
+	if f.getAdminStats == nil {
+		return service.AdminStatistics{}, service.NewError(service.CodeInternal, "fake method not configured", nil)
+	}
+	return f.getAdminStats(ctx, reqCtx, days, granularity)
 }
 
 func (f *fakeAdminService) ListOperationLogs(ctx context.Context, reqCtx service.RequestContext, filter service.OperationLogListFilter) (service.OperationLogListResult, error) {

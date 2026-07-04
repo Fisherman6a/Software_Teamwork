@@ -1753,10 +1753,9 @@ Instead, list them under the OpenAPI root extension:
 x-missing-contracts:
   - service: gateway
     status: missing
-    reason: Management overview aggregation fields are not finalized yet.
+    reason: Future dashboard slice has no finalized request/response shape yet.
     placeholderOperations:
-      - GET /api/v1/admin-overview
-      - GET /api/v1/admin-metrics
+      - GET /api/v1/future-dashboard-slices
 ```
 
 ### 3. Contracts
@@ -1779,15 +1778,13 @@ placeholder operations are TODO markers only:
 
 ### 5. Good/Base/Bad Cases
 
-- Good: keep management overview and cross-service metric aggregation under
-  `x-missing-contracts` until request, response, owner, and aggregation source
-  fields are finalized.
-- Base: keep only management overview or metric aggregation placeholders in
-  `x-missing-contracts` until their sources and display fields are finalized.
+- Good: keep a future dashboard slice under `x-missing-contracts` until
+  request, response, owner, and aggregation source fields are finalized.
+- Base: keep only genuinely unfinalized placeholders in `x-missing-contracts`
+  until their sources and display fields are finalized.
   Do not mark QA, document, knowledge, auth, or admin runtime configuration
   routes missing once they are active paths in the gateway OpenAPI.
-- Bad: add placeholder management overview schemas to OpenAPI active `paths`
-  just to reserve routes.
+- Bad: add placeholder schemas to OpenAPI active `paths` just to reserve routes.
 
 ### 6. Tests Required
 
@@ -1805,15 +1802,113 @@ For documentation-only contract changes:
 #### Wrong
 
 ```text
-OpenAPI paths include GET /api/v1/admin-overview with made-up fields even
-though management overview aggregation is still listed as missing.
+OpenAPI paths include GET /api/v1/future-dashboard-slices with made-up fields
+even though the slice is still listed as missing.
 ```
 
 #### Correct
 
 ```text
-x-missing-contracts lists only placeholders such as
-GET /api/v1/admin-overview and GET /api/v1/admin-metrics until those contracts are finalized.
+x-missing-contracts lists only unfinalized placeholders until those contracts
+are reviewed and moved into active OpenAPI paths.
+```
+
+## Scenario: Gateway Admin Overview And Metrics Aggregation
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing the administration dashboard overview/metrics
+  aggregation, owner statistics routes, required aggregate fields, or gateway
+  dependency-failure behavior.
+- Applies to `services/gateway/internal/http/admin_metrics.go`,
+  `services/gateway/internal/http/routes.go`, Auth/Knowledge/Document/QA owner
+  statistics handlers and services, `docs/services/gateway/api/public.openapi.yaml`,
+  and `docs/services/gateway/docs/admin-metrics-contract.md`.
+
+### 2. Signatures
+
+- Gateway public routes:
+  - `GET /api/v1/admin/overview`
+  - `GET /api/v1/admin/metrics?days=<1..90>&granularity=daily|hourly`
+- Owner statistics routes:
+  - Auth: `GET /internal/v1/admin/statistics`
+  - Knowledge: `GET /internal/v1/knowledge-statistics`
+  - Document: `GET /admin/statistics`
+  - QA: `GET /internal/v1/admin/statistics`
+
+### 3. Contracts
+
+- Gateway owns only the public aggregation shape and must not read owner
+  databases, Knowledge runtime internals, object storage, prompts, or provider
+  APIs directly.
+- Gateway must propagate request/user context headers to every owner request:
+  `X-Request-Id`, `X-User-Id`, `X-User-Roles`, `X-User-Permissions`,
+  `X-Forwarded-For`, and `X-Forwarded-Proto`.
+- Auth admin statistics use the dedicated gateway admin service token. Other
+  owner statistics routes use the shared internal service token unless their
+  service documents define a more specific credential.
+- Overview requires all total fields: `userCount`, `knowledgeBaseCount`,
+  `documentCount`, `chunkCount`, `reportTemplateCount`, `reportRecordCount`,
+  and `qaCount`.
+- Metrics requires `days`, `granularity`, `updatedAt`, and a `series` object
+  with arrays for every total field. Every point must include RFC 3339
+  `date` and non-negative integer `count`.
+- Gateway responses use the standard success envelope `{ data, requestId }`;
+  errors use `{ error }`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| Missing or invalid bearer token | `401 unauthorized` |
+| Caller lacks `admin`, `super_admin`, or equivalent admin permission | `403 forbidden` |
+| `days` is absent on metrics | Default to `30` |
+| `days` is not an integer or outside `1..90` | `400 validation_error` with `fields.days` |
+| `granularity` is absent on metrics | Default to `daily` |
+| `granularity` is not `daily` or `hourly` | `400 validation_error` with `fields.granularity` |
+| Owner base URL is missing, owner request fails, owner returns non-2xx, malformed JSON, missing required fields, invalid dates, or negative counts | `502 dependency_error` with sanitized message |
+| Owner returns a partial statistics payload | Treat as dependency failure; do not fill missing values with `0` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: Gateway aggregates over HTTP owner statistics routes, strictly checks
+  every required field, logs only sanitized dependency names with request id,
+  and returns a complete dashboard payload.
+- Base: Owner services expose internal statistics DTOs that are narrower than
+  their public domain APIs but still follow the standard envelope and request
+  id convention.
+- Bad: Gateway imports owner repository packages, queries PostgreSQL directly,
+  returns partial success when one owner fails, or forwards raw downstream
+  error bodies to the frontend.
+
+### 6. Tests Required
+
+- Gateway tests cover successful overview and metrics aggregation, default and
+  explicit query parameters, admin authorization, validation errors,
+  request/user header propagation, service-token choice, and sanitized `502`
+  mapping for owner/config/network/malformed responses.
+- Owner service tests cover statistics success envelopes, invalid query
+  validation, permission or service-token requirements, and repository/runtime
+  dependency failures.
+- Contract checks run `python scripts/verify_gateway_active_api.py`,
+  `cd services/gateway && go test ./...`, and service-local tests/builds for
+  every owner touched by the change.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+gateway -> auth DB + knowledge runtime + document DB + qa DB
+gateway -> returns partial data with missing owner fields set to 0
+```
+
+#### Correct
+
+```text
+gateway -> owner statistics HTTP routes with request/user context
+owner services -> return their authoritative counts/series
+gateway -> validates complete payload -> standard admin envelope
 ```
 
 ## Scenario: Domain Service Interface Documents
