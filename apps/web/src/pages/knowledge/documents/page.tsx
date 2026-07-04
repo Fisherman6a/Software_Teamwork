@@ -41,7 +41,7 @@ import {
   useDocuments,
   useKnowledgeBases,
   useUpdateDocument,
-  useUploadDocument,
+  useUploadDocumentBatch,
 } from '@/features/knowledge'
 import { canAccess } from '@/lib/permissions'
 import type { DocumentStatus, DocumentSummary } from '@/lib/types'
@@ -171,6 +171,18 @@ const FILTERABLE_STATUSES: (DocumentStatus | '')[] = [
 
 const PROCESSING_STATUSES: DocumentStatus[] = ['parsing', 'chunking', 'embedding']
 
+const MAX_BATCH_FILES = 10
+
+type UploadItemStatus = 'queued' | 'uploaded' | 'failed'
+
+type UploadItem = {
+  id: string
+  file: File
+  status: UploadItemStatus
+  message?: string
+  documentId?: string
+}
+
 // ── Helpers ──
 
 function formatSize(bytes?: number): string {
@@ -225,6 +237,14 @@ function isProcessing(status: DocumentStatus): boolean {
   return PROCESSING_STATUSES.includes(status)
 }
 
+function newUploadItemId(file: File, index: number): string {
+  const random =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return `${file.name}-${file.size}-${file.lastModified}-${index}-${random}`
+}
+
 // ── Main component ──
 
 interface KnowledgeDocumentsPageProps {
@@ -263,7 +283,7 @@ export function KnowledgeDocumentsPage({
 
   // Upload state
   const [uploadOpen, setUploadOpen] = useState(false)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [uploadTags, setUploadTags] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
@@ -287,7 +307,7 @@ export function KnowledgeDocumentsPage({
     statusFilter || undefined,
   )
 
-  const uploadMutation = useUploadDocument()
+  const uploadMutation = useUploadDocumentBatch()
   const updateMutation = useUpdateDocument()
   const deleteMutation = useDeleteDocument()
 
@@ -305,7 +325,9 @@ export function KnowledgeDocumentsPage({
   // ── Permissions ──
 
   const user = useAuthStore((s) => s.user)
-  const canUpload = canAccess(user, { any: ['document:upload', 'knowledge:write'] })
+  const canUpload = canAccess(user, {
+    any: ['knowledge:write', 'knowledge:admin', 'system:admin'],
+  })
   const canEditTags = canAccess(user, { any: ['knowledge:write'] })
   const canDelete = canAccess(user, { any: ['knowledge:write'] })
 
@@ -370,6 +392,7 @@ export function KnowledgeDocumentsPage({
   const documentListIssue = isError ? getGatewayCapabilityIssue(error, '文档列表') : null
   const knowledgeBaseListIssue =
     !knowledgeBaseId && isKbListError ? getGatewayCapabilityIssue(kbListError, '知识库列表') : null
+  const submittableUploadItems = uploadItems.filter((item) => item.status !== 'uploaded')
 
   // ── Filtered items (client-side keyword search) ──
 
@@ -392,15 +415,48 @@ export function KnowledgeDocumentsPage({
     return null
   }, [])
 
-  const handleFileSelect = useCallback(
-    (file: File) => {
-      const err = validateFile(file)
-      if (err) {
-        setNotification({ type: 'error', text: err })
-        return
+  const handleFilesSelect = useCallback(
+    (files: File[] | FileList) => {
+      const incoming = Array.from(files)
+      if (incoming.length === 0) return
+
+      const validItems: UploadItem[] = []
+      const rejected: string[] = []
+      incoming.forEach((file, index) => {
+        const err = validateFile(file)
+        if (err) {
+          rejected.push(`${file.name}: ${err}`)
+          return
+        }
+        validItems.push({
+          id: newUploadItemId(file, index),
+          file,
+          status: 'queued',
+        })
+      })
+
+      if (validItems.length > 0) {
+        setUploadItems((current) => {
+          const availableSlots = Math.max(0, MAX_BATCH_FILES - current.length)
+          const accepted = validItems.slice(0, availableSlots)
+          if (accepted.length < validItems.length) {
+            setNotification({
+              type: 'error',
+              text: `单次最多上传 ${MAX_BATCH_FILES} 个文件，已添加前 ${accepted.length} 个。`,
+            })
+          }
+          return [...current, ...accepted]
+        })
+        setShowSuccess(true)
       }
-      setSelectedFile(file)
-      setShowSuccess(true)
+
+      if (rejected.length > 0) {
+        setNotification({
+          type: 'error',
+          text:
+            rejected.length === 1 ? (rejected[0] ?? '') : `${rejected.length} 个文件类型不受支持`,
+        })
+      }
     },
     [validateFile],
   )
@@ -409,28 +465,64 @@ export function KnowledgeDocumentsPage({
     (e: React.DragEvent) => {
       e.preventDefault()
       setDragOver(false)
-      const file = e.dataTransfer.files?.[0]
-      if (file) handleFileSelect(file)
+      const files = e.dataTransfer.files
+      if (files?.length) handleFilesSelect(files)
     },
-    [handleFileSelect],
+    [handleFilesSelect],
   )
 
   const handleUpload = useCallback(() => {
-    if (!selectedFile) return
+    if (submittableUploadItems.length === 0) return
     const tags = uploadTags
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean)
+    const submitted = submittableUploadItems
 
     uploadMutation.mutate(
-      { knowledgeBaseId, file: selectedFile, tags },
+      { knowledgeBaseId, files: submitted.map((item) => item.file), tags },
       {
-        onSuccess: () => {
-          setNotification({ type: 'success', text: '文档上传成功' })
-          setUploadOpen(false)
-          setSelectedFile(null)
-          setUploadTags('')
+        onSuccess: (summary) => {
+          setUploadItems((current) => {
+            const submittedByIndex = new Map(submitted.map((item, index) => [index, item.id]))
+            const resultByItemId = new Map<string, (typeof summary.results)[number]>()
+            summary.results.forEach((result, index) => {
+              const itemId = submittedByIndex.get(index)
+              if (itemId) resultByItemId.set(itemId, result)
+            })
+            return current
+              .map((item) => {
+                const result = resultByItemId.get(item.id)
+                if (!result) return item
+                if (result.status === 'uploaded') {
+                  const uploadedItem: UploadItem = {
+                    ...item,
+                    status: 'uploaded',
+                    message: undefined,
+                    documentId: result.document?.id,
+                  }
+                  return uploadedItem
+                }
+                const failedItem: UploadItem = {
+                  ...item,
+                  status: 'failed',
+                  message: result.error?.message ?? '上传失败',
+                }
+                return failedItem
+              })
+              .filter((item) => item.status !== 'uploaded')
+          })
           setPage(1)
+          if (summary.failedCount === 0) {
+            setNotification({ type: 'success', text: '文档上传成功' })
+            setUploadOpen(false)
+            setUploadItems([])
+            setUploadTags('')
+          } else if (summary.successCount > 0) {
+            setNotification({ type: 'error', text: '部分文档上传失败，请检查失败项后重试' })
+          } else {
+            setNotification({ type: 'error', text: '文档上传失败，请检查失败项后重试' })
+          }
         },
         onError: (err: Error) => {
           setNotification({
@@ -440,7 +532,7 @@ export function KnowledgeDocumentsPage({
         },
       },
     )
-  }, [selectedFile, uploadTags, knowledgeBaseId, uploadMutation])
+  }, [submittableUploadItems, uploadTags, knowledgeBaseId, uploadMutation])
 
   const openEditTags = useCallback((doc: DocumentSummary) => {
     setEditingDoc(doc)
@@ -893,7 +985,7 @@ export function KnowledgeDocumentsPage({
               className={`relative flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-all duration-200 ${
                 dragOver
                   ? 'border-primary bg-primary/5 scale-[1.02]'
-                  : selectedFile
+                  : uploadItems.length > 0
                     ? 'border-emerald-500/50 bg-emerald-50 dark:bg-emerald-950/20'
                     : 'upload-zone border-border hover:border-muted-foreground/30'
               }`}
@@ -911,26 +1003,70 @@ export function KnowledgeDocumentsPage({
                   <Check className="size-10 text-emerald-500" strokeWidth={2.5} />
                 </div>
               )}
-              {selectedFile ? (
-                <div className="text-center">
-                  <FileText aria-hidden="true" className="mx-auto mb-2 size-8 text-emerald-500" />
-                  <p className="text-sm font-medium text-foreground">{selectedFile.name}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {formatSize(selectedFile.size)}
-                  </p>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="mt-2"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setSelectedFile(null)
-                      if (fileInputRef.current) fileInputRef.current.value = ''
-                    }}
-                  >
-                    <X aria-hidden="true" className="mr-1 size-3" />
-                    移除
-                  </Button>
+              {uploadItems.length > 0 ? (
+                <div className="w-full space-y-3">
+                  <div className="text-center">
+                    <FileText aria-hidden="true" className="mx-auto mb-2 size-8 text-emerald-500" />
+                    <p className="text-sm font-medium text-foreground">
+                      已选择 {uploadItems.length} 个文件
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      单次最多 {MAX_BATCH_FILES} 个文件
+                    </p>
+                  </div>
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-border bg-background/70 p-2">
+                    {uploadItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex min-h-12 items-center gap-2 rounded-md px-2 py-1.5 text-left"
+                      >
+                        <FileText
+                          aria-hidden="true"
+                          className="size-4 shrink-0 text-muted-foreground"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">
+                            {item.file.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatSize(item.file.size)}
+                            {item.message ? ` · ${item.message}` : ''}
+                          </p>
+                        </div>
+                        <Badge
+                          variant={
+                            item.status === 'failed'
+                              ? 'destructive'
+                              : item.status === 'uploaded'
+                                ? 'outline'
+                                : 'secondary'
+                          }
+                        >
+                          {item.status === 'failed'
+                            ? '失败'
+                            : item.status === 'uploaded'
+                              ? '已上传'
+                              : '待上传'}
+                        </Badge>
+                        {item.status !== 'uploaded' && (
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setUploadItems((current) =>
+                                current.filter((candidate) => candidate.id !== item.id),
+                              )
+                            }}
+                            aria-label={`移除 ${item.file.name}`}
+                            title="移除"
+                          >
+                            <X aria-hidden="true" className="size-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <>
@@ -944,11 +1080,13 @@ export function KnowledgeDocumentsPage({
               <input
                 ref={fileInputRef}
                 type="file"
+                multiple
                 accept={FILE_ACCEPT_TYPES}
                 className="hidden"
                 onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) handleFileSelect(file)
+                  const files = e.target.files
+                  if (files?.length) handleFilesSelect(files)
+                  e.currentTarget.value = ''
                 }}
               />
             </div>
@@ -977,18 +1115,22 @@ export function KnowledgeDocumentsPage({
               variant="outline"
               onClick={() => {
                 setUploadOpen(false)
-                setSelectedFile(null)
+                setUploadItems([])
                 setUploadTags('')
               }}
               disabled={isMutating}
             >
               取消
             </Button>
-            <Button onClick={handleUpload} disabled={!selectedFile || isMutating}>
+            <Button
+              onClick={handleUpload}
+              disabled={submittableUploadItems.length === 0 || isMutating}
+            >
               {uploadMutation.isPending && (
                 <Loader2 aria-hidden="true" className="mr-1.5 size-3.5 animate-spin" />
               )}
               上传
+              {submittableUploadItems.length > 1 ? ` ${submittableUploadItems.length} 个文件` : ''}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -192,6 +192,44 @@ func TestQAAttachmentUploadRejectsBodyAboveMultipartEnvelope(t *testing.T) {
 	}
 }
 
+func TestKnowledgeDocumentBatchUploadAllowsContractBodySize(t *testing.T) {
+	server := gatewayhttp.NewServer(gatewayhttp.Config{
+		Logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ServiceVersion:     "test",
+		Environment:        "test",
+		RequestTimeout:     time.Second,
+		MaxBodyBytes:       4,
+		CORSAllowedOrigins: []string{"*"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-bases/kb-1/document-batches", bytes.NewReader(make([]byte, (320<<20)+(512<<10))))
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code == http.StatusRequestEntityTooLarge {
+		t.Fatalf("Knowledge batch upload was rejected by the default gateway body limit: body = %s", res.Body.String())
+	}
+}
+
+func TestKnowledgeDocumentBatchUploadRejectsBodyAboveMultipartEnvelope(t *testing.T) {
+	server := gatewayhttp.NewServer(gatewayhttp.Config{
+		Logger:             slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ServiceVersion:     "test",
+		Environment:        "test",
+		RequestTimeout:     time.Second,
+		MaxBodyBytes:       512 << 20,
+		CORSAllowedOrigins: []string{"*"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-bases/kb-1/document-batches", bytes.NewReader(make([]byte, (324<<20)+1)))
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413; body = %s", res.Code, res.Body.String())
+	}
+}
+
 func newHTTPTestServer(t *testing.T) http.Handler {
 	t.Helper()
 	return gatewayhttp.NewServer(gatewayhttp.Config{

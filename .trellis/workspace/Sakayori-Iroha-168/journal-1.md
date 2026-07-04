@@ -418,3 +418,39 @@ Replaced the optional Elasticsearch root Compose build path with a pinned image 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Knowledge bulk CSV upload
+
+**Date**: 2026-07-04
+**Task**: Knowledge bulk CSV upload
+**Branch**: `Sakayori-Iroha-168/feat/knowledge-bulk-csv-upload`
+
+### Summary
+
+Implemented Knowledge batch document upload with CSV support across Gateway/Knowledge contracts, backend handlers, frontend upload UI, tests, and synced latest develop before PR.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `db84a980` | (see git log) |
+| `6c8ca937` | (see git log) |
+| `57af57c4` | (see git log) |
+| `e7291d34` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

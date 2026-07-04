@@ -7,6 +7,7 @@ import (
 )
 
 type TimeoutSkipFunc func(*http.Request) bool
+type TimeoutForRequestFunc func(*http.Request) time.Duration
 
 func Timeout(timeout time.Duration) Middleware {
 	return TimeoutWithSkip(timeout, nil)
@@ -16,6 +17,25 @@ func TimeoutWithSkip(timeout time.Duration, skip TimeoutSkipFunc) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if timeout <= 0 || (skip != nil && skip(r)) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+func TimeoutForRequest(timeoutForRequest TimeoutForRequestFunc) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if timeoutForRequest == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+			timeout := timeoutForRequest(r)
+			if timeout <= 0 {
 				next.ServeHTTP(w, r)
 				return
 			}

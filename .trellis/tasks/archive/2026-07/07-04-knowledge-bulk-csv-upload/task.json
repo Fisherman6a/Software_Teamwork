@@ -1,0 +1,28 @@
+{
+  "id": "knowledge-bulk-csv-upload",
+  "name": "knowledge-bulk-csv-upload",
+  "title": "Knowledge bulk CSV upload",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "Sakayori-Iroha-168",
+  "assignee": "Sakayori-Iroha-168",
+  "createdAt": "2026-07-04",
+  "completedAt": "2026-07-04",
+  "branch": "Sakayori-Iroha-168/feat/knowledge-bulk-csv-upload",
+  "base_branch": "develop",
+  "worktree_path": "/Users/fengling/github/Software_Teamwork/.worktrees/knowledge-bulk-csv-upload",
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {
+    "github_issue_url": "https://github.com/Sakayori-Iroha-168/Software_Teamwork/issues/628"
+  }
+}

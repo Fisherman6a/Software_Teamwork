@@ -15,6 +15,7 @@ export {
   useKnowledgeSearch,
   useUpdateDocument,
   useUploadDocument,
+  useUploadDocumentBatch,
 } from './hooks/use-documents'
 export {
   knowledgeBaseKeys,

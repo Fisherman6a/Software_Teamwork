@@ -17,6 +17,13 @@ const defaultMaxUploadBytes = int64(32 << 20)
 const defaultMaxJSONBodyBytes = int64(1 << 20)
 
 const (
+	documentBatchMaxFiles             = 10
+	documentBatchMultipartMemoryBytes = defaultMaxUploadBytes
+	documentBatchMultipartOverhead    = int64(4 << 20)
+	documentBatchMaxUploadBytes       = defaultMaxUploadBytes*documentBatchMaxFiles + documentBatchMultipartOverhead
+)
+
+const (
 	vendorRetCodeArgument       = 101
 	vendorRetCodePermission     = 108
 	vendorRetCodeAuthentication = 109
@@ -147,6 +154,25 @@ type documentSummary struct {
 	CreatedAt       time.Time              `json:"createdAt"`
 	UpdatedAt       time.Time              `json:"updatedAt"`
 	JobID           *string                `json:"jobId,omitempty"`
+}
+
+type documentBatchSummary struct {
+	TotalCount   int                 `json:"totalCount"`
+	SuccessCount int                 `json:"successCount"`
+	FailedCount  int                 `json:"failedCount"`
+	Results      []documentBatchItem `json:"results"`
+}
+
+type documentBatchItem struct {
+	Filename string                  `json:"filename"`
+	Status   string                  `json:"status"`
+	Document *documentSummary        `json:"document,omitempty"`
+	Error    *documentBatchItemError `json:"error,omitempty"`
+}
+
+type documentBatchItemError struct {
+	Code    service.Code `json:"code"`
+	Message string       `json:"message"`
 }
 
 type documentChunkSummary struct {

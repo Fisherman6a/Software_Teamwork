@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,6 +34,7 @@ type fakeVendorState struct {
 	listDocumentsCalls int
 	taskExecutorReady  bool
 	failParse          bool
+	failParseIDs       map[string]bool
 	searchStatus       int
 	searchResponse     map[string]any
 	searchBody         []byte
@@ -55,6 +57,7 @@ func newFakeVendorState() *fakeVendorState {
 	return &fakeVendorState{
 		datasets:          map[string]map[string]any{},
 		documents:         map[string]map[string]any{},
+		failParseIDs:      map[string]bool{},
 		taskExecutorReady: true,
 	}
 }
@@ -119,6 +122,15 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			}
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": items, "total_datasets": total})
 			return
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/datasets/") && !strings.Contains(r.URL.Path, "/documents"):
+			kbID := strings.TrimPrefix(r.URL.Path, "/api/v1/datasets/")
+			item, ok := state.datasets[kbID]
+			if !ok {
+				writeVendorJSON(w, http.StatusNotFound, map[string]any{"code": 102, "message": "dataset not found"})
+				return
+			}
+			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": item})
+			return
 		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/datasets" || r.URL.Path == "/api/v1/internal/datasets"):
 			var body map[string]any
 			raw, _ := io.ReadAll(r.Body)
@@ -166,13 +178,19 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			writeVendorJSON(w, http.StatusOK, map[string]any{"code": 0, "data": item})
 			return
 		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/documents/parse"):
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			ids := documentIDsFromParseBody(body)
 			if state.failParse {
 				writeVendorJSON(w, http.StatusBadRequest, map[string]any{"code": 100, "message": "parse failed"})
 				return
 			}
-			var body map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			ids := documentIDsFromParseBody(body)
+			for _, id := range ids {
+				if state.failParseIDs[id] {
+					writeVendorJSON(w, http.StatusInternalServerError, map[string]any{"code": 500, "message": "parse failed"})
+					return
+				}
+			}
 			for _, id := range ids {
 				state.parseCalls = append(state.parseCalls, id)
 				if doc, ok := state.documents[id]; ok {
@@ -195,7 +213,7 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 			}
 			defer file.Close()
 			state.uploadContentTypes = append(state.uploadContentTypes, header.Header.Get("Content-Type"))
-			docID := "doc_fake_1"
+			docID := fmt.Sprintf("doc_fake_%d", len(state.documents)+1)
 			doc := map[string]any{
 				"id": docID, "kb_id": kbID, "dataset_id": kbID, "name": header.Filename,
 				"type": "txt", "size": header.Size, "run": "UNSTART", "chunk_count": 0,
@@ -303,6 +321,53 @@ func anyStrings(values []any) []string {
 		}
 	}
 	return out
+}
+
+type multipartTestFile struct {
+	fieldName    string
+	filename     string
+	content      string
+	contentType  string
+	omitMimeType bool
+}
+
+func newMultipartBody(t *testing.T, files []multipartTestFile, tags []string) (*bytes.Buffer, string) {
+	t.Helper()
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	for _, file := range files {
+		fieldName := file.fieldName
+		if fieldName == "" {
+			fieldName = "files"
+		}
+		var part io.Writer
+		var err error
+		if file.omitMimeType || file.contentType != "" {
+			header := make(textproto.MIMEHeader)
+			header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, fieldName, file.filename))
+			if file.contentType != "" {
+				header.Set("Content-Type", file.contentType)
+			}
+			part, err = writer.CreatePart(header)
+		} else {
+			part, err = writer.CreateFormFile(fieldName, file.filename)
+		}
+		if err != nil {
+			t.Fatalf("create multipart part: %v", err)
+		}
+		if _, err := io.WriteString(part, file.content); err != nil {
+			t.Fatalf("write multipart part: %v", err)
+		}
+	}
+	for _, tag := range tags {
+		if err := writer.WriteField("tags", tag); err != nil {
+			t.Fatalf("write tag field: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	return body, writer.FormDataContentType()
 }
 
 func TestAdapterCreateKnowledgeBaseAppliesDefaultParserConfig(t *testing.T) {
@@ -612,6 +677,371 @@ func TestAdapterDocumentUploadStartsVendorIngestion(t *testing.T) {
 	}
 	if len(state.uploadContentTypes) != 1 || state.uploadContentTypes[0] != "text/plain" {
 		t.Fatalf("uploadContentTypes=%v, want [text/plain]", state.uploadContentTypes)
+	}
+}
+
+func TestAdapterDocumentBatchUploadAllSuccessAppliesTagsAndStartsIngestion(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:     "test",
+		VendorRuntimeURL:   vendor.URL,
+		ServiceToken:       testServiceToken,
+		AutoStartIngestion: true,
+	}, nil)
+
+	body, contentType := newMultipartBody(t, []multipartTestFile{
+		{filename: "guide.txt", content: "guide"},
+		{filename: "records.csv", content: "id,name\n1,A"},
+	}, []string{"锅炉", "检修"})
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-batches", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Data struct {
+			TotalCount   int `json:"totalCount"`
+			SuccessCount int `json:"successCount"`
+			FailedCount  int `json:"failedCount"`
+			Results      []struct {
+				Filename string `json:"filename"`
+				Status   string `json:"status"`
+				Document struct {
+					ID     string   `json:"id"`
+					Status string   `json:"status"`
+					Tags   []string `json:"tags"`
+				} `json:"document"`
+			} `json:"results"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode batch response: %v", err)
+	}
+	if payload.Data.TotalCount != 2 || payload.Data.SuccessCount != 2 || payload.Data.FailedCount != 0 {
+		t.Fatalf("summary=%+v", payload.Data)
+	}
+	for _, result := range payload.Data.Results {
+		if result.Status != "uploaded" || result.Document.ID == "" || result.Document.Status != string(service.DocumentStatusParsing) {
+			t.Fatalf("result=%+v", result)
+		}
+		if len(result.Document.Tags) != 2 || result.Document.Tags[0] != "锅炉" || result.Document.Tags[1] != "检修" {
+			t.Fatalf("tags=%v", result.Document.Tags)
+		}
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.parseCalls) != 2 || state.parseCalls[0] != "doc_fake_1" || state.parseCalls[1] != "doc_fake_2" {
+		t.Fatalf("parseCalls=%v", state.parseCalls)
+	}
+	if state.documents["doc_fake_1"]["meta_fields"] == nil || state.documents["doc_fake_2"]["meta_fields"] == nil {
+		t.Fatalf("tags were not applied to documents: %#v", state.documents)
+	}
+}
+
+func TestAdapterDocumentBatchUploadInfersCSVContentType(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	body, contentType := newMultipartBody(t, []multipartTestFile{
+		{filename: "records.csv", content: "id,name\n1,A", omitMimeType: true},
+	}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-batches", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.uploadContentTypes) != 1 || state.uploadContentTypes[0] != "text/csv" {
+		t.Fatalf("uploadContentTypes=%v, want [text/csv]", state.uploadContentTypes)
+	}
+}
+
+func TestAdapterDocumentBatchUploadPartialSuccessForEmptyFile(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:     "test",
+		VendorRuntimeURL:   vendor.URL,
+		ServiceToken:       testServiceToken,
+		AutoStartIngestion: true,
+	}, nil)
+
+	body, contentType := newMultipartBody(t, []multipartTestFile{
+		{filename: "good.txt", content: "good"},
+		{filename: "empty.txt", content: ""},
+	}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-batches", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Data struct {
+			TotalCount   int `json:"totalCount"`
+			SuccessCount int `json:"successCount"`
+			FailedCount  int `json:"failedCount"`
+			Results      []struct {
+				Filename string `json:"filename"`
+				Status   string `json:"status"`
+				Error    struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			} `json:"results"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode batch response: %v", err)
+	}
+	if payload.Data.TotalCount != 2 || payload.Data.SuccessCount != 1 || payload.Data.FailedCount != 1 {
+		t.Fatalf("summary=%+v", payload.Data)
+	}
+	if payload.Data.Results[1].Status != "failed" ||
+		payload.Data.Results[1].Error.Code != string(service.CodeValidation) ||
+		payload.Data.Results[1].Error.Message != "file must not be empty" {
+		t.Fatalf("failed result=%+v", payload.Data.Results[1])
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.parseCalls) != 1 || state.parseCalls[0] != "doc_fake_1" {
+		t.Fatalf("parseCalls=%v", state.parseCalls)
+	}
+}
+
+func TestAdapterDocumentBatchUploadRejectsNoFiles(t *testing.T) {
+	state := newFakeVendorState()
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	body, contentType := newMultipartBody(t, nil, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-batches", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdapterDocumentBatchUploadRejectsTooManyFiles(t *testing.T) {
+	state := newFakeVendorState()
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	files := make([]multipartTestFile, 0, documentBatchMaxFiles+1)
+	for i := 0; i < documentBatchMaxFiles+1; i++ {
+		files = append(files, multipartTestFile{
+			filename: fmt.Sprintf("file-%02d.txt", i),
+			content:  "content",
+		})
+	}
+	body, contentType := newMultipartBody(t, files, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-batches", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdapterDocumentBatchUploadReturnsNotFoundForMissingKnowledgeBase(t *testing.T) {
+	state := newFakeVendorState()
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	body, contentType := newMultipartBody(t, []multipartTestFile{
+		{filename: "missing-kb.txt", content: "content"},
+	}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/missing/document-batches", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if payload.Error.Code != string(service.CodeNotFound) || payload.Error.Message != "dataset not found" {
+		t.Fatalf("error=%+v", payload.Error)
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.documents) != 0 || len(state.parseCalls) != 0 {
+		t.Fatalf("missing knowledge base should not upload or parse documents: docs=%v parseCalls=%v", state.documents, state.parseCalls)
+	}
+}
+
+func TestParseDocumentBatchUploadRejectsOversizedMultipartBody(t *testing.T) {
+	body, contentType := newMultipartBody(t, []multipartTestFile{
+		{filename: "too-large.txt", content: "0123456789"},
+	}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-batches", body)
+	req.Header.Set("Content-Type", contentType)
+	rec := httptest.NewRecorder()
+
+	_, _, ok := parseDocumentBatchUpload(rec, req, int64(len("01234")))
+	if ok {
+		t.Fatal("parseDocumentBatchUpload succeeded for oversized multipart body")
+	}
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Error struct {
+			Code   string            `json:"code"`
+			Fields map[string]string `json:"fields"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if payload.Error.Code != string(service.CodeValidation) ||
+		payload.Error.Fields["files"] != "exceeds maximum upload size" {
+		t.Fatalf("error=%+v", payload.Error)
+	}
+}
+
+func TestAdapterDocumentBatchUploadCleansOnlyFailedParseDocument(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	state.failParseIDs["doc_fake_2"] = true
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:     "test",
+		VendorRuntimeURL:   vendor.URL,
+		ServiceToken:       testServiceToken,
+		AutoStartIngestion: true,
+	}, nil)
+
+	body, contentType := newMultipartBody(t, []multipartTestFile{
+		{filename: "good.txt", content: "good"},
+		{filename: "parse-fail.txt", content: "bad"},
+	}, nil)
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-batches", body)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Data struct {
+			SuccessCount int `json:"successCount"`
+			FailedCount  int `json:"failedCount"`
+			Results      []struct {
+				Status string `json:"status"`
+				Error  struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			} `json:"results"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode batch response: %v", err)
+	}
+	if payload.Data.SuccessCount != 1 || payload.Data.FailedCount != 1 {
+		t.Fatalf("summary=%+v", payload.Data)
+	}
+	if payload.Data.Results[1].Status != "failed" ||
+		payload.Data.Results[1].Error.Code != string(service.CodeDependency) ||
+		payload.Data.Results[1].Error.Message != "document upload dependency failed" {
+		t.Fatalf("failed result=%+v", payload.Data.Results[1])
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.parseCalls) != 1 || state.parseCalls[0] != "doc_fake_1" {
+		t.Fatalf("parseCalls=%v", state.parseCalls)
+	}
+	if len(state.deleteCalls) != 1 || state.deleteCalls[0] != (deleteCall{datasetID: "kb_fake_1", documentID: "doc_fake_2"}) {
+		t.Fatalf("deleteCalls=%v", state.deleteCalls)
+	}
+	if _, ok := state.documents["doc_fake_1"]; !ok {
+		t.Fatal("successful document should remain")
+	}
+	if _, ok := state.documents["doc_fake_2"]; ok {
+		t.Fatal("parse-failed document should be removed")
 	}
 }
 

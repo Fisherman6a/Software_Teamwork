@@ -269,6 +269,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge-bases/{knowledgeBaseId}/document-batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                knowledgeBaseId: components["parameters"]["KnowledgeBaseId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload multiple documents to a knowledge base
+         * @description Upload up to 10 documents in one multipart request. Gateway authenticates and proxies the request; Knowledge owns per-file upload, ingestion, CSV content-type inference, and partial-success aggregation. Standard users with only `knowledge:read` cannot upload document batches.
+         */
+        post: operations["uploadKnowledgeBaseDocumentBatch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{documentId}": {
         parameters: {
             query: {
@@ -1903,6 +1925,34 @@ export interface components {
         };
         DocumentResponse: {
             data: components["schemas"]["DocumentSummary"];
+            requestId: string;
+        };
+        CreateDocumentBatchRequest: {
+            files: string[];
+            /** @description Optional repeated shared tag fields applied to every uploaded document. */
+            tags?: string[];
+        };
+        /** @enum {string} */
+        DocumentBatchResultStatus: "uploaded" | "failed";
+        DocumentBatchItemError: {
+            /** @enum {string} */
+            code: "validation_error" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "rate_limited" | "dependency_error" | "internal_error";
+            message: string;
+        };
+        DocumentBatchItem: {
+            filename: string;
+            status: components["schemas"]["DocumentBatchResultStatus"];
+            document?: components["schemas"]["DocumentSummary"];
+            error?: components["schemas"]["DocumentBatchItemError"];
+        };
+        DocumentBatchSummary: {
+            totalCount: number;
+            successCount: number;
+            failedCount: number;
+            results: components["schemas"]["DocumentBatchItem"][];
+        };
+        DocumentBatchResponse: {
+            data: components["schemas"]["DocumentBatchSummary"];
             requestId: string;
         };
         DocumentListResponse: {
@@ -3785,6 +3835,46 @@ export interface operations {
                 };
             };
             400: components["responses"]["Error"];
+        };
+    };
+    uploadKnowledgeBaseDocumentBatch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                knowledgeBaseId: components["parameters"]["KnowledgeBaseId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["CreateDocumentBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description All documents were accepted for processing. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentBatchResponse"];
+                };
+            };
+            /** @description One or more files failed while other per-file results are available. */
+            207: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentBatchResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
+            413: components["responses"]["Error"];
+            502: components["responses"]["Error"];
         };
     };
     getDocument: {

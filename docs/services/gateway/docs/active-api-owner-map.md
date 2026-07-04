@@ -4,7 +4,7 @@ This document is the human-readable audit list for gateway active API paths. The
 
 ## Audit Result
 
-- Active operations: `112`.
+- Active operations: `113`.
 - Every `/api/v1/**` active operation has `operationId`, `tags`, `x-owner-service`, security, at least one `2XX` response, and at least one `4XX` response.
 - `/healthz` and `/readyz` are operational routes owned by `gateway`; they intentionally do not use bearer auth.
 - No stable active path uses action-style segments such as `/login`, `/logout`, `/search`, `/generate`, `/export`, `/retry`, or `/revoke`.
@@ -21,7 +21,7 @@ This document is the human-readable audit list for gateway active API paths. The
 | --- | ---: | --- |
 | `gateway` | 5 | Gateway health/readiness, app version freshness, public routing, admin overview and metrics aggregation. |
 | `auth` | 11 | Users, sessions, current-user identity, current-user profile, required password change, admin user management, roles, and permissions. |
-| `knowledge` | 18 | Knowledge bases, knowledge documents, chunks, retrieval, and parser runtime config. |
+| `knowledge` | 19 | Knowledge bases, knowledge documents, chunks, retrieval, and parser runtime config. |
 | `ai-gateway` | 5 | Model profile runtime configuration exposed through gateway admin paths. |
 | `document` | 44 | Report templates, materials, records, outlines, sections, jobs, files, settings, statistics, and logs. |
 | `qa` | 29 | QA sessions, messages, attachments, runs, citations, configuration, retrieval tests, and QA metrics. |
@@ -52,6 +52,7 @@ aggregation endpoints are now active gateway contracts listed below.
 | `DELETE` | `/api/v1/knowledge-bases/{knowledgeBaseId}` | `knowledge` | `knowledge` | `deleteKnowledgeBase` | `bearerAuth` |
 | `GET` | `/api/v1/knowledge-bases/{knowledgeBaseId}/documents` | `knowledge` | `knowledge` | `listKnowledgeBaseDocuments` | `bearerAuth` |
 | `POST` | `/api/v1/knowledge-bases/{knowledgeBaseId}/documents` | `knowledge` | `documents` | `uploadKnowledgeBaseDocument` | `bearerAuth` |
+| `POST` | `/api/v1/knowledge-bases/{knowledgeBaseId}/document-batches` | `knowledge` | `documents` | `uploadKnowledgeBaseDocumentBatch` | `bearerAuth` |
 | `GET` | `/api/v1/documents/{documentId}` | `knowledge` | `knowledge` | `getDocument` | `bearerAuth` |
 | `PATCH` | `/api/v1/documents/{documentId}` | `knowledge` | `documents` | `updateDocument` | `bearerAuth` |
 | `DELETE` | `/api/v1/documents/{documentId}` | `knowledge` | `documents` | `deleteDocument` | `bearerAuth` |

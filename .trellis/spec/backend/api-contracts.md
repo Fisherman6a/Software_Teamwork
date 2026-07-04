@@ -524,6 +524,149 @@ gateway /api/v1/documents/{documentId}/content -> knowledge -> Knowledge runtime
 gateway /api/v1/knowledge-queries -> knowledge -> runtime/doc-engine candidates -> Knowledge DTO hydrate
 ```
 
+## Scenario: Knowledge Document Batch Upload
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing multi-file upload for Knowledge documents,
+  including Gateway public contracts, Knowledge internal contracts, multipart
+  body limits, generated frontend Gateway types, or UI upload batching.
+- Applies to `docs/services/gateway/api/public.openapi.yaml`,
+  `services/gateway/internal/http/routes.go`,
+  `services/gateway/internal/http/server.go`,
+  `services/knowledge/api/openapi.yaml`,
+  `docs/services/knowledge/api/internal.openapi.yaml`,
+  `services/knowledge/internal/adapter`, and `apps/web/src/api/knowledge.ts`.
+
+### 2. Signatures
+
+Gateway public route:
+
+```text
+POST /api/v1/knowledge-bases/{knowledgeBaseId}/document-batches
+multipart/form-data fields:
+  files: repeated binary file, min 1, max 10
+  tags: repeated string, optional shared tags for every accepted document
+```
+
+Knowledge internal route:
+
+```text
+POST /internal/v1/knowledge-bases/{knowledgeBaseId}/document-batches
+```
+
+Frontend wrapper:
+
+```typescript
+uploadDocumentBatch(knowledgeBaseId: string, files: readonly File[], tags?: string[])
+```
+
+### 3. Contracts
+
+- Gateway owns authentication, `knowledge:write`/admin permission enforcement,
+  active route registration, context header injection, and a route-specific
+  request body cap for the batch envelope. It must not upload files, start
+  parsing, or aggregate per-file results itself.
+- Gateway must route this endpoint with a long multipart upload timeout for
+  both the request context and owner-service HTTP client. The large batch body
+  cap must not be paired with the default short downstream timeout.
+- Knowledge owns multipart parsing, per-file validation, upload, shared tag
+  application, optional ingestion start, cleanup of uploaded documents whose
+  post-upload step fails, and per-file result aggregation.
+- Each request may include at most 10 `files` parts. Each individual document
+  follows the existing Knowledge document size limit; the batch request body
+  cap is the per-document cap times 10 plus multipart overhead.
+- `http.MaxBytesReader` owns the total batch body cap. `ParseMultipartForm`
+  must use a smaller memory budget, such as the single-document upload limit,
+  because its argument controls in-memory multipart buffering rather than total
+  request size.
+- Request-shape validation happens before resource lookup. Once the multipart
+  shape is valid, Knowledge must validate that the target knowledge base exists
+  before any per-file upload. Shared resource or dependency failures, such as a
+  missing/hidden knowledge base, must use a top-level error envelope rather
+  than item-level `207` results.
+- CSV files must be accepted. When a `.csv` upload has a missing or generic
+  multipart content type, Knowledge should infer `text/csv` before delegating
+  to the runtime/vendor adapter.
+- Success responses use the standard `{ data, requestId }` envelope. `data`
+  contains `totalCount`, `successCount`, `failedCount`, and ordered `results`.
+- Response status is `201` only when every file succeeded. If one or more
+  per-file operations fail after the request shape is valid, return `207` with
+  item-level `status: failed` and sanitized `error`.
+- Frontend calls must send repeated `files` fields in `FormData`, must not set
+  a JSON `Content-Type`, and should invalidate document/base queries only when
+  `successCount > 0`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Response/error |
+| --- | --- |
+| Missing trusted user context | `401 unauthorized` |
+| Caller lacks Knowledge write/admin permission | `403 forbidden` |
+| Gateway upload route exceeds the configured long upload timeout | sanitized dependency or timeout error envelope; do not rely on the default short owner-service timeout |
+| Multipart body is invalid or has zero files | `400 validation_error` |
+| More than 10 files | `400 validation_error` |
+| Batch request body exceeds route-specific cap | `413` with standard error envelope |
+| Missing or hidden knowledge base after a valid multipart shape | top-level `404 not_found` |
+| Shared pre-upload runtime/catalog dependency failure | top-level error envelope, normally `502 dependency_error` |
+| Individual file is empty, nameless, or over per-file limit | `207` with that item `failed` |
+| Runtime upload/tag/parse dependency fails for one file | `207`; cleanup that file when upload already created it |
+| All files upload, tags apply, and ingestion starts when enabled | `201` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: Gateway proxies the multipart request unchanged to Knowledge; Knowledge
+  returns ordered per-file results; the UI removes successful items and keeps
+  failed items retryable.
+- Base: local tests use fake runtime/vendor adapters and explicitly report that
+  real runtime PDF/CSV ingestion smoke was not run when infrastructure is
+  unavailable.
+- Bad: frontend loops N single-file upload requests for one batch, Gateway
+  parses or rewrites multipart bodies, Knowledge returns raw runtime errors, or
+  a post-upload parse/tag failure leaves an orphan uploaded document.
+
+### 6. Tests Required
+
+- Gateway route matrix/OpenAPI tests for operation ID, owner, required
+  permissions, internal proxy path, and read-only-user rejection.
+- Gateway body-limit tests covering the batch envelope below and above the
+  route-specific cap.
+- Gateway timeout tests proving this route uses the long upload timeout rather
+  than the default request/downstream timeout.
+- Knowledge adapter tests for all-success, CSV content-type inference, partial
+  success, missing knowledge base top-level `404`, no files, too many files,
+  empty file, request body `413`, and cleanup of only the document whose
+  parse/tag step failed.
+- Frontend API tests asserting repeated `files` and `tags` `FormData` fields
+  and no JSON `Content-Type`.
+- Frontend hook/page tests for multi-select/drop, CSV selection, batch submit,
+  partial failure retry list, and query invalidation only when at least one file
+  succeeded.
+- Regenerate Gateway frontend types from `docs/services/gateway/api/public.openapi.yaml`.
+- Run `python3 scripts/verify_gateway_active_api.py`,
+  `cd services/gateway && go test ./...`,
+  `cd services/knowledge && go test ./...`,
+  `bun run --cwd apps/web check`, `bun run --cwd apps/web build`,
+  `bun run --cwd apps/web test:unit`, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+frontend -> loops POST /knowledge-bases/{id}/documents once per selected file
+gateway -> parses multipart and uploads files directly
+knowledge -> returns first error only, hiding successful files
+```
+
+#### Correct
+
+```text
+frontend -> one FormData request with repeated files fields
+gateway -> permission/body-limit check -> proxy to Knowledge internal route
+knowledge -> sequential per-file upload/tag/parse -> 201 all-success or 207 item results
+```
+
 ## Scenario: QA Owner Authorization
 
 ### 1. Scope / Trigger

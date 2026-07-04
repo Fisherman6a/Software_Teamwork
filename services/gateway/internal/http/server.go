@@ -29,6 +29,7 @@ type Config struct {
 	CORSAllowedHeaders     []string
 	CORSAllowCredentials   bool
 	DownstreamTimeout      time.Duration
+	UploadTimeout          time.Duration
 	InternalServiceToken   string
 	AuthAdminServiceToken  string
 	OwnerBaseURLs          map[string]string
@@ -58,6 +59,8 @@ type Server struct {
 	ownerBaseURLs         map[string]*url.URL
 	httpClient            *http.Client
 	streamHTTPClient      *http.Client
+	uploadHTTPClient      *http.Client
+	uploadTimeout         time.Duration
 	readyCheck            func(context.Context) error
 	mux                   *http.ServeMux
 	handler               http.Handler
@@ -69,6 +72,9 @@ func NewServer(cfg Config) *Server {
 	}
 	if cfg.DownstreamTimeout <= 0 {
 		cfg.DownstreamTimeout = 10 * time.Second
+	}
+	if cfg.UploadTimeout <= 0 {
+		cfg.UploadTimeout = 10 * time.Minute
 	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: cfg.DownstreamTimeout}
@@ -96,6 +102,8 @@ func NewServer(cfg Config) *Server {
 		ownerBaseURLs:         parseOwnerBaseURLs(cfg.OwnerBaseURLs),
 		httpClient:            cfg.HTTPClient,
 		streamHTTPClient:      cloneHTTPClientWithoutTimeout(cfg.HTTPClient),
+		uploadHTTPClient:      cloneHTTPClientWithTimeout(cfg.HTTPClient, cfg.UploadTimeout),
+		uploadTimeout:         cfg.UploadTimeout,
 		readyCheck:            cfg.ReadyCheck,
 		mux:                   http.NewServeMux(),
 	}
@@ -105,7 +113,7 @@ func NewServer(cfg Config) *Server {
 		middleware.RequestID(),
 		middleware.Metrics(cfg.MetricsReg, s.mux),
 		middleware.Recover(cfg.Logger),
-		middleware.TimeoutWithSkip(cfg.RequestTimeout, skipsFixedRequestTimeout),
+		middleware.TimeoutForRequest(s.timeoutForRequest(cfg.RequestTimeout)),
 		middleware.CORS(middleware.CORSConfig{
 			AllowedOrigins:   cfg.CORSAllowedOrigins,
 			AllowedMethods:   cfg.CORSAllowedMethods,
@@ -141,9 +149,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 const (
-	qaAttachmentMaxFileBytes       = int64(20 << 20)
-	qaAttachmentMultipartOverhead  = int64(1 << 20)
-	qaAttachmentUploadMaxBodyBytes = qaAttachmentMaxFileBytes + qaAttachmentMultipartOverhead
+	qaAttachmentMaxFileBytes                 = int64(20 << 20)
+	qaAttachmentMultipartOverhead            = int64(1 << 20)
+	qaAttachmentUploadMaxBodyBytes           = qaAttachmentMaxFileBytes + qaAttachmentMultipartOverhead
+	knowledgeDocumentBatchMaxFiles           = int64(10)
+	knowledgeDocumentMaxFileBytes            = int64(32 << 20)
+	knowledgeDocumentBatchMultipartOverhead  = int64(4 << 20)
+	knowledgeDocumentBatchUploadMaxBodyBytes = knowledgeDocumentMaxFileBytes*knowledgeDocumentBatchMaxFiles + knowledgeDocumentBatchMultipartOverhead
 )
 
 func bodyLimitForRequest(r *http.Request) int64 {
@@ -158,7 +170,22 @@ func bodyLimitForRequest(r *http.Request) int64 {
 		parts[4] == "attachments" {
 		return qaAttachmentUploadMaxBodyBytes
 	}
+	if isKnowledgeDocumentBatchUploadRequest(r) {
+		return knowledgeDocumentBatchUploadMaxBodyBytes
+	}
 	return 0
+}
+
+func (s *Server) timeoutForRequest(defaultTimeout time.Duration) middleware.TimeoutForRequestFunc {
+	return func(r *http.Request) time.Duration {
+		if isKnowledgeDocumentBatchUploadRequest(r) {
+			return s.uploadTimeout
+		}
+		if skipsFixedRequestTimeout(r) {
+			return 0
+		}
+		return defaultTimeout
+	}
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -300,5 +327,14 @@ func cloneHTTPClientWithoutTimeout(client *http.Client) *http.Client {
 	}
 	cloned := *client
 	cloned.Timeout = 0
+	return &cloned
+}
+
+func cloneHTTPClientWithTimeout(client *http.Client, timeout time.Duration) *http.Client {
+	if client == nil {
+		return &http.Client{Timeout: timeout}
+	}
+	cloned := *client
+	cloned.Timeout = timeout
 	return &cloned
 }

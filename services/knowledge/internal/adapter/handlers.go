@@ -252,6 +252,199 @@ func (s *Server) handleUploadDocument(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, documentFromVendor(uploaded), reqCtx.RequestID)
 }
 
+func (s *Server) handleUploadDocumentBatch(w http.ResponseWriter, r *http.Request) {
+	reqCtx, ok := s.gatewayContext(w, r)
+	if !ok {
+		return
+	}
+	if _, err := mutationScope(reqCtx); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	headers, tags, ok := parseDocumentBatchUpload(w, r, documentBatchMaxUploadBytes)
+	if !ok {
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+
+	ref, err := s.resolveKnowledgeBaseRuntimeRef(r.Context(), r.PathValue("knowledgeBaseId"))
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	if _, err := s.vendor.GetDataset(r.Context(), s.runtimeScopeID(), ref.ID); err != nil {
+		writeAppError(w, r, mapVendorError(err))
+		return
+	}
+
+	kbID := ref.ID
+	results := make([]documentBatchItem, 0, len(headers))
+	successCount := 0
+	for _, header := range headers {
+		result := s.uploadDocumentBatchItem(r.Context(), reqCtx.RequestID, kbID, header, tags)
+		if result.Status == "uploaded" {
+			successCount++
+		}
+		results = append(results, result)
+	}
+
+	summary := documentBatchSummary{
+		TotalCount:   len(results),
+		SuccessCount: successCount,
+		FailedCount:  len(results) - successCount,
+		Results:      results,
+	}
+	status := http.StatusCreated
+	if summary.FailedCount > 0 {
+		status = http.StatusMultiStatus
+	}
+	writeJSON(w, status, summary, reqCtx.RequestID)
+}
+
+func (s *Server) uploadDocumentBatchItem(ctx context.Context, requestID, kbID string, header *multipart.FileHeader, tags []string) documentBatchItem {
+	filename := ""
+	if header != nil {
+		filename = header.Filename
+	}
+	if header == nil {
+		return failedDocumentBatchItem(filename, service.ValidationError("request validation failed", map[string]string{"files": "file is required"}))
+	}
+	if strings.TrimSpace(header.Filename) == "" {
+		return failedDocumentBatchItem(filename, service.ValidationError("request validation failed", map[string]string{"files": "filename is required"}))
+	}
+	if header.Size == 0 {
+		return failedDocumentBatchItem(filename, service.ValidationError("request validation failed", map[string]string{"files": "file must not be empty"}))
+	}
+	if header.Size > defaultMaxUploadBytes {
+		return failedDocumentBatchItem(filename, service.ValidationError("request validation failed", map[string]string{"files": "file exceeds maximum upload size"}))
+	}
+
+	file, err := header.Open()
+	if err != nil {
+		return failedDocumentBatchItem(filename, service.NewError(service.CodeInternal, "uploaded file could not be read", err))
+	}
+	defer file.Close()
+
+	uploaded, err := s.vendor.UploadDocument(ctx, s.runtimeScopeID(), kbID, header.Filename, documentBatchContentType(header), file)
+	if err != nil {
+		return failedDocumentBatchItem(filename, mapVendorError(err))
+	}
+
+	docID := stringField(uploaded, "id")
+	if len(tags) > 0 && docID != "" {
+		payload, err := buildUpdateDocumentBody(tags)
+		if err != nil {
+			s.cleanupUploadedBatchDocument(ctx, requestID, kbID, docID, err, "apply_tags")
+			return failedDocumentBatchItem(filename, err)
+		}
+		updated, err := s.vendor.UpdateDocument(ctx, s.runtimeScopeID(), kbID, docID, payload)
+		if err != nil {
+			mapped := mapVendorError(err)
+			s.cleanupUploadedBatchDocument(ctx, requestID, kbID, docID, mapped, "apply_tags")
+			return failedDocumentBatchItem(filename, mapped)
+		}
+		uploaded = documentVendorWithTags(updated, tags)
+	}
+
+	if s.cfg.AutoStartIngestion && docID != "" {
+		if err := s.vendor.StartDocumentParse(ctx, s.runtimeScopeID(), kbID, []string{docID}); err != nil {
+			mapped := mapVendorError(err)
+			s.cleanupUploadedBatchDocument(ctx, requestID, kbID, docID, mapped, "start_parse")
+			return failedDocumentBatchItem(filename, mapped)
+		}
+		uploaded["run"] = "RUNNING"
+	}
+
+	document := documentFromVendor(uploaded)
+	return documentBatchItem{
+		Filename: header.Filename,
+		Status:   "uploaded",
+		Document: &document,
+	}
+}
+
+func (s *Server) cleanupUploadedBatchDocument(ctx context.Context, requestID, kbID, docID string, cause error, operation string) {
+	if strings.TrimSpace(docID) == "" {
+		return
+	}
+	if err := s.vendor.DeleteDocument(ctx, s.runtimeScopeID(), kbID, docID); err != nil {
+		s.logger.WarnContext(ctx, "batch upload cleanup failed",
+			"service", "knowledge-adapter",
+			"request_id", requestID,
+			"operation", operation,
+			"document_id", docID,
+			"cause", cause,
+			"delete_error", err,
+		)
+	}
+}
+
+func documentBatchContentType(header *multipart.FileHeader) string {
+	if header == nil {
+		return ""
+	}
+	contentType := strings.TrimSpace(header.Header.Get("Content-Type"))
+	mediaType := normalizeDocumentMediaType(contentType)
+	if inferred := documentContentTypeFromFilename(header.Filename); inferred != "" &&
+		(mediaType == "" || mediaType == genericDocumentContentType) {
+		return inferred
+	}
+	if mediaType != "" {
+		return mediaType
+	}
+	return contentType
+}
+
+func failedDocumentBatchItem(filename string, err error) documentBatchItem {
+	appErr, ok := service.Classify(err)
+	if !ok {
+		appErr = service.NewError(service.CodeInternal, "document upload failed", err)
+	}
+	return documentBatchItem{
+		Filename: filename,
+		Status:   "failed",
+		Error: &documentBatchItemError{
+			Code:    appErr.Code,
+			Message: documentBatchErrorMessage(appErr),
+		},
+	}
+}
+
+func documentBatchErrorMessage(appErr *service.AppError) string {
+	if appErr == nil {
+		return "document upload failed"
+	}
+	if appErr.Code == service.CodeValidation {
+		if appErr.Fields != nil {
+			if message := strings.TrimSpace(appErr.Fields["files"]); message != "" {
+				return message
+			}
+			if message := strings.TrimSpace(appErr.Fields["file"]); message != "" {
+				return message
+			}
+		}
+		return "document upload validation failed"
+	}
+	switch appErr.Code {
+	case service.CodeUnauthorized:
+		return "document upload is unauthorized"
+	case service.CodeForbidden:
+		return "document upload is forbidden"
+	case service.CodeNotFound:
+		return "related resource was not found"
+	case service.CodeConflict:
+		return "document upload conflicts with current state"
+	case service.CodeRateLimited:
+		return "document upload was rate limited"
+	case service.CodeDependency:
+		return "document upload dependency failed"
+	default:
+		return "document upload failed"
+	}
+}
+
 func (s *Server) handleGetDocument(w http.ResponseWriter, r *http.Request) {
 	reqCtx, ok := s.gatewayContext(w, r)
 	if !ok {
@@ -633,6 +826,63 @@ func parseDocumentUpload(w http.ResponseWriter, r *http.Request, maxUploadBytes 
 		return nil, nil, false
 	}
 	return file, header, true
+}
+
+func parseDocumentBatchUpload(w http.ResponseWriter, r *http.Request, maxUploadBytes int64) ([]*multipart.FileHeader, []string, bool) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadBytes)
+	if err := r.ParseMultipartForm(documentBatchMultipartMemoryBytes); err != nil {
+		fieldMessage := "multipart form is invalid"
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(err, &maxBytesErr) {
+			writeAppErrorStatus(w, r, http.StatusRequestEntityTooLarge, service.ValidationError("request validation failed", map[string]string{"files": "exceeds maximum upload size"}))
+			return nil, nil, false
+		}
+		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"files": fieldMessage}))
+		return nil, nil, false
+	}
+	if r.MultipartForm == nil {
+		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"files": "is required"}))
+		return nil, nil, false
+	}
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"files": "is required"}))
+		return nil, nil, false
+	}
+	if len(files) > documentBatchMaxFiles {
+		writeAppError(w, r, service.ValidationError("request validation failed", map[string]string{"files": "must include at most 10 files"}))
+		return nil, nil, false
+	}
+	tags, err := parseMultipartTags(r.MultipartForm.Value["tags"])
+	if err != nil {
+		writeAppError(w, r, err)
+		return nil, nil, false
+	}
+	return files, tags, true
+}
+
+func parseMultipartTags(values []string) ([]string, error) {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if strings.HasPrefix(value, "[") {
+			var decoded []string
+			if err := json.Unmarshal([]byte(value), &decoded); err != nil {
+				return nil, service.ValidationError("request validation failed", map[string]string{"tags": "must be repeated strings or a JSON string array"})
+			}
+			for _, tag := range decoded {
+				if tag = strings.TrimSpace(tag); tag != "" {
+					out = append(out, tag)
+				}
+			}
+			continue
+		}
+		out = append(out, value)
+	}
+	return out, nil
 }
 
 type statusRecorder struct {

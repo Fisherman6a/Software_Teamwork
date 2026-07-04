@@ -294,6 +294,151 @@ func TestKnowledgeWriteRouteRejectsReadOnlyUserBeforeProxy(t *testing.T) {
 	}
 }
 
+func TestKnowledgeDocumentBatchRouteProxiesToKnowledge(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_writer",
+		Username:    "writer",
+		Roles:       []string{"standard"},
+		Permissions: []string{"knowledge:write"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	var capturedMethod string
+	var capturedPath string
+	var capturedHeader http.Header
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedMethod = r.Method
+		capturedPath = r.URL.Path
+		capturedHeader = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMultiStatus)
+		_, _ = w.Write([]byte(`{"data":{"totalCount":2,"successCount":1,"failedCount":1,"results":[]},"requestId":"req_batch"}`))
+	}))
+	defer downstream.Close()
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		store:         store,
+		hasher:        hasher,
+		ownerBaseURLs: map[string]string{"knowledge": downstream.URL},
+		serviceToken:  "svc-token",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-bases/kb-1/document-batches", strings.NewReader("multipart-body"))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=batch")
+	req.Header.Set("X-Request-Id", "req_batch")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusMultiStatus {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if capturedMethod != http.MethodPost || capturedPath != "/internal/v1/knowledge-bases/kb-1/document-batches" {
+		t.Fatalf("downstream method/path = %s %s", capturedMethod, capturedPath)
+	}
+	if capturedHeader.Get("X-User-Id") != "usr_writer" ||
+		capturedHeader.Get("X-User-Permissions") != "knowledge:write" ||
+		capturedHeader.Get("X-Request-Id") != "req_batch" ||
+		capturedHeader.Get("X-Service-Token") != "svc-token" {
+		t.Fatalf("downstream headers = %#v", capturedHeader)
+	}
+}
+
+func TestKnowledgeDocumentBatchRouteUsesUploadTimeout(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_writer",
+		Username:    "writer",
+		Roles:       []string{"standard"},
+		Permissions: []string{"knowledge:write"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Context().Err() != nil {
+			t.Fatalf("downstream context already cancelled: %v", r.Context().Err())
+		}
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"data":{"totalCount":1,"successCount":1,"failedCount":0,"results":[]},"requestId":"req_batch_timeout"}`))
+	}))
+	defer downstream.Close()
+
+	server := gatewayhttp.NewServer(gatewayhttp.Config{
+		Logger:               slog.New(slog.NewTextHandler(io.Discard, nil)),
+		ServiceVersion:       "test",
+		Environment:          "test",
+		RequestTimeout:       10 * time.Millisecond,
+		MaxBodyBytes:         1024 * 1024,
+		CORSAllowedOrigins:   []string{"*"},
+		DownstreamTimeout:    10 * time.Millisecond,
+		UploadTimeout:        time.Second,
+		SessionStore:         store,
+		TokenHasher:          hasher,
+		OwnerBaseURLs:        map[string]string{"knowledge": downstream.URL},
+		InternalServiceToken: "svc-token",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-bases/kb-1/document-batches", strings.NewReader("multipart-body"))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=batch")
+	req.Header.Set("X-Request-Id", "req_batch_timeout")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestKnowledgeDocumentBatchRouteRejectsReadOnlyUserBeforeProxy(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_reader",
+		Username:    "reader",
+		Roles:       []string{"standard"},
+		Permissions: []string{"knowledge:read"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("downstream should not be called for a read-only knowledge user")
+	}))
+	defer downstream.Close()
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		store:         store,
+		hasher:        hasher,
+		ownerBaseURLs: map[string]string{"knowledge": downstream.URL},
+		serviceToken:  "svc-token",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-bases/kb-1/document-batches", strings.NewReader("multipart-body"))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=batch")
+	req.Header.Set("X-Request-Id", "req_batch_readonly")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestAdminUsersRouteProxiesToAuthWithActorContext(t *testing.T) {
 	hasher := testHasher(t)
 	store := newMemorySessionStore()

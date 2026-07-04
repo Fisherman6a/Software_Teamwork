@@ -66,6 +66,8 @@ func (s *Server) handleProxy(route routeSpec) http.HandlerFunc {
 		client := s.httpClient
 		if streaming && s.streamHTTPClient != nil {
 			client = s.streamHTTPClient
+		} else if route.LongUpload && s.uploadHTTPClient != nil {
+			client = s.uploadHTTPClient
 		}
 		res, err := client.Do(proxyReq)
 		if err != nil {
@@ -356,6 +358,19 @@ func skipsFixedRequestTimeout(r *http.Request) bool {
 		segments[2] == "qa-sessions" &&
 		segments[3] != "" &&
 		segments[4] == "messages"
+}
+
+func isKnowledgeDocumentBatchUploadRequest(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	segments := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	return len(segments) == 5 &&
+		segments[0] == "api" &&
+		segments[1] == "v1" &&
+		segments[2] == "knowledge-bases" &&
+		segments[3] != "" &&
+		segments[4] == "document-batches"
 }
 
 func acceptsEventStream(accept string) bool {

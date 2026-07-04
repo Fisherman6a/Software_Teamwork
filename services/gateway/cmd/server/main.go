@@ -79,6 +79,7 @@ func main() {
 		CORSAllowedHeaders:     cfg.CORSAllowedHeaders,
 		CORSAllowCredentials:   cfg.CORSAllowCredentials,
 		DownstreamTimeout:      cfg.DownstreamTimeout,
+		UploadTimeout:          cfg.UploadTimeout,
 		InternalServiceToken:   cfg.InternalServiceToken,
 		AuthAdminServiceToken:  cfg.AuthAdminServiceToken,
 		GitHubToken:            cfg.GitHubToken,

@@ -65,6 +65,9 @@ export type DocumentSummary = JsonResponseData<
 > &
   PaginatedResponseItem<'/api/v1/knowledge-bases/{knowledgeBaseId}/documents', 'get', 200>
 export type UpdateDocumentRequest = JsonRequestBody<'/api/v1/documents/{documentId}', 'patch'>
+export type DocumentBatchSummary =
+  | JsonResponseData<'/api/v1/knowledge-bases/{knowledgeBaseId}/document-batches', 'post', 201>
+  | JsonResponseData<'/api/v1/knowledge-bases/{knowledgeBaseId}/document-batches', 'post', 207>
 type DocumentQueryParams = QueryParams<'/api/v1/documents/{documentId}', 'get'>
 type DocumentChunkParams = QueryParams<'/api/v1/documents/{documentId}/chunks', 'get'>
 type DocumentContentParams = QueryParams<'/api/v1/documents/{documentId}/content', 'get'>
@@ -155,6 +158,22 @@ export function uploadDocument(
 
   return gatewayRequest<DocumentSummary>(
     `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/documents`,
+    { method: 'POST', body: formData },
+  )
+}
+
+/** POST /knowledge-bases/{knowledgeBaseId}/document-batches (multipart/form-data) */
+export function uploadDocumentBatch(
+  knowledgeBaseId: string,
+  files: readonly File[],
+  tags?: string[],
+): Promise<DocumentBatchSummary> {
+  const formData = new FormData()
+  files.forEach((file) => formData.append('files', file))
+  tags?.forEach((tag) => formData.append('tags', tag))
+
+  return gatewayRequest<DocumentBatchSummary>(
+    `/knowledge-bases/${encodeURIComponent(knowledgeBaseId)}/document-batches`,
     { method: 'POST', body: formData },
   )
 }

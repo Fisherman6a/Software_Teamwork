@@ -9,6 +9,7 @@ import {
   listKnowledgeBases,
   runKnowledgeQuery,
   uploadDocument,
+  uploadDocumentBatch,
 } from './knowledge'
 
 function jsonResponse(body: unknown, init?: ResponseInit) {
@@ -102,6 +103,62 @@ describe('knowledge gateway API', () => {
     expect(appendSpy).toHaveBeenNthCalledWith(1, 'file', file)
     expect(appendSpy).toHaveBeenNthCalledWith(2, 'tags', '规程')
     expect(appendSpy).toHaveBeenNthCalledWith(3, 'tags', '安全')
+  })
+
+  it('uploads document batches with repeated files and treats 207 as success', async () => {
+    const first = new File(['first'], 'first.pdf', { type: 'application/pdf' })
+    const second = new File(['id,name\n1,A'], 'records.csv', { type: 'text/csv' })
+    const appendSpy = vi.spyOn(FormData.prototype, 'append')
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonResponse(
+        {
+          data: {
+            failedCount: 1,
+            results: [
+              {
+                document: {
+                  chunkCount: 0,
+                  createdAt: '2026-07-01T00:00:00Z',
+                  id: 'doc-1',
+                  knowledgeBaseId: 'kb-1',
+                  name: 'first.pdf',
+                  status: 'uploaded',
+                },
+                filename: 'first.pdf',
+                status: 'uploaded',
+              },
+              {
+                error: { code: 'validation_error', message: 'file must not be empty' },
+                filename: 'records.csv',
+                status: 'failed',
+              },
+            ],
+            successCount: 1,
+            totalCount: 2,
+          },
+          requestId: 'req-batch',
+        },
+        { status: 207 },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(uploadDocumentBatch('kb-1', [first, second], ['规程'])).resolves.toMatchObject({
+      failedCount: 1,
+      successCount: 1,
+      totalCount: 2,
+    })
+
+    const request = fetchMock.mock.calls[0]?.[0]
+    expect(request).toBeInstanceOf(Request)
+    if (!(request instanceof Request)) throw new Error('expected Request')
+    expect(request.method).toBe('POST')
+    expect(request.url).toBe('http://gateway.test/api/v1/knowledge-bases/kb-1/document-batches')
+    expect(request.headers.get('Content-Type')).toContain('multipart/form-data')
+    expect(request.headers.get('Content-Type')).not.toContain('application/json')
+    expect(appendSpy).toHaveBeenNthCalledWith(1, 'files', first)
+    expect(appendSpy).toHaveBeenNthCalledWith(2, 'files', second)
+    expect(appendSpy).toHaveBeenNthCalledWith(3, 'tags', '规程')
   })
 
   it('preserves Gateway error details when document upload fails', async () => {

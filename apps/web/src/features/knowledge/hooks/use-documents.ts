@@ -16,6 +16,7 @@ import {
   runKnowledgeQuery,
   updateDocument,
   uploadDocument,
+  uploadDocumentBatch,
 } from '@/api/knowledge'
 import type { DocumentStatus } from '@/lib/types'
 
@@ -101,6 +102,32 @@ export function useUploadDocument() {
       tags?: string[]
     }) => uploadDocument(knowledgeBaseId, file, tags),
     onSuccess: (_data, _variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: documentKeys.lists(),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: ['knowledge-bases'],
+      })
+    },
+  })
+}
+
+/** Upload multiple documents to a knowledge base. */
+export function useUploadDocumentBatch() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({
+      knowledgeBaseId,
+      files,
+      tags,
+    }: {
+      knowledgeBaseId: string
+      files: readonly File[]
+      tags?: string[]
+    }) => uploadDocumentBatch(knowledgeBaseId, files, tags),
+    onSuccess: (data) => {
+      if (data.successCount <= 0) return
       void queryClient.invalidateQueries({
         queryKey: documentKeys.lists(),
       })

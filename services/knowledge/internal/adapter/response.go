@@ -60,7 +60,13 @@ func writeAppError(w http.ResponseWriter, r *http.Request, err error) {
 	if !ok {
 		appErr = service.NewError(service.CodeInternal, "internal server error", err)
 	}
-	status := statusForCode(appErr.Code)
+	writeAppErrorStatus(w, r, statusForCode(appErr.Code), appErr)
+}
+
+func writeAppErrorStatus(w http.ResponseWriter, r *http.Request, status int, appErr *service.AppError) {
+	if appErr == nil {
+		appErr = service.NewError(service.CodeInternal, "internal server error", nil)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(errorEnvelope{Error: errorBody{

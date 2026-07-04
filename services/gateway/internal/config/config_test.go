@@ -15,6 +15,7 @@ func TestLoadDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT", "")
 	t.Setenv("GATEWAY_REQUEST_TIMEOUT", "")
 	t.Setenv("GATEWAY_SHUTDOWN_TIMEOUT", "")
+	t.Setenv("GATEWAY_UPLOAD_TIMEOUT", "")
 	t.Setenv("GATEWAY_CORS_ALLOWED_ORIGINS", "")
 	t.Setenv("GATEWAY_CORS_ALLOWED_METHODS", "")
 	t.Setenv("GATEWAY_CORS_ALLOWED_HEADERS", "")
@@ -52,6 +53,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.RequestTimeout != DefaultRequestTimeout {
 		t.Fatalf("RequestTimeout = %s", cfg.RequestTimeout)
 	}
+	if cfg.UploadTimeout != DefaultUploadTimeout {
+		t.Fatalf("UploadTimeout = %s", cfg.UploadTimeout)
+	}
 	if len(cfg.CORSAllowedOrigins) != 1 || cfg.CORSAllowedOrigins[0] != "*" {
 		t.Fatalf("CORSAllowedOrigins = %#v", cfg.CORSAllowedOrigins)
 	}
@@ -72,6 +76,7 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	t.Setenv("GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT", "4")
 	t.Setenv("GATEWAY_REQUEST_TIMEOUT", "5s")
 	t.Setenv("GATEWAY_SHUTDOWN_TIMEOUT", "2s")
+	t.Setenv("GATEWAY_UPLOAD_TIMEOUT", "7m")
 	t.Setenv("GATEWAY_CORS_ALLOWED_ORIGINS", "http://localhost:5173, https://example.com")
 	t.Setenv("GATEWAY_CORS_ALLOWED_METHODS", "get,post")
 	t.Setenv("GATEWAY_CORS_ALLOWED_HEADERS", "Authorization, X-Request-Id")
@@ -101,7 +106,7 @@ func TestLoadParsesEnvironment(t *testing.T) {
 	if cfg.HTTPAddr != ":9090" || cfg.ServiceVersion != "1.2.3" || cfg.Environment != "test" {
 		t.Fatalf("basic config = %+v", cfg)
 	}
-	if cfg.MaxBodyBytes != 2048 || cfg.RequestTimeout != 5*time.Second || cfg.ShutdownTimeout != 2*time.Second {
+	if cfg.MaxBodyBytes != 2048 || cfg.RequestTimeout != 5*time.Second || cfg.ShutdownTimeout != 2*time.Second || cfg.UploadTimeout != 7*time.Minute {
 		t.Fatalf("numeric config = %+v", cfg)
 	}
 	if cfg.MaxInFlight != 8 || cfg.AuthRefreshMaxInFlight != 4 {
@@ -176,6 +181,7 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{name: "request timeout", key: "GATEWAY_REQUEST_TIMEOUT", val: "-1s"},
 		{name: "shutdown timeout", key: "GATEWAY_SHUTDOWN_TIMEOUT", val: "bad"},
 		{name: "downstream timeout", key: "GATEWAY_DOWNSTREAM_TIMEOUT", val: "0s"},
+		{name: "upload timeout", key: "GATEWAY_UPLOAD_TIMEOUT", val: "0s"},
 		{name: "redis db", key: "GATEWAY_REDIS_DB", val: "-1"},
 		{name: "cors credentials", key: "GATEWAY_CORS_ALLOW_CREDENTIALS", val: "maybe"},
 		{name: "app version current sha short", key: "GATEWAY_APP_VERSION_CURRENT_SHA", val: strings.Repeat("a", 39)},

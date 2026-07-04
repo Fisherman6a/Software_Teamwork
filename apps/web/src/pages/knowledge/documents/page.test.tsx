@@ -11,7 +11,7 @@ import {
   useDocuments,
   useKnowledgeBases,
   useUpdateDocument,
-  useUploadDocument,
+  useUploadDocumentBatch,
 } from '@/features/knowledge'
 import type { DocumentSummary, UserSummary } from '@/lib/types'
 import { useAuthStore } from '@/stores/auth-store'
@@ -31,7 +31,7 @@ vi.mock('@/features/knowledge', () => ({
   useDocuments: vi.fn(),
   useKnowledgeBases: vi.fn(),
   useUpdateDocument: vi.fn(),
-  useUploadDocument: vi.fn(),
+  useUploadDocumentBatch: vi.fn(),
 }))
 
 function createDocument(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
@@ -97,8 +97,12 @@ function selectFile(file: File) {
   fireEvent.change(getFileInput(), { target: { files: [file] } })
 }
 
+function selectFiles(files: File[]) {
+  fireEvent.change(getFileInput(), { target: { files } })
+}
+
 function renderDocumentsPage({
-  permissions = ['document:upload'],
+  permissions = ['knowledge:write'],
   uploadMutate = vi.fn(),
   uploadPending = false,
 }: {
@@ -114,10 +118,10 @@ function renderDocumentsPage({
     userName: 'kevin',
   })
 
-  vi.mocked(useUploadDocument).mockReturnValue({
+  vi.mocked(useUploadDocumentBatch).mockReturnValue({
     isPending: uploadPending,
     mutate: uploadMutate,
-  } as unknown as ReturnType<typeof useUploadDocument>)
+  } as unknown as ReturnType<typeof useUploadDocumentBatch>)
   vi.mocked(useUpdateDocument).mockReturnValue({
     isPending: false,
     mutate: vi.fn(),
@@ -258,6 +262,12 @@ describe('KnowledgeDocumentsPage upload interactions', () => {
     expect(screen.queryByRole('button', { name: /上传文档/ })).not.toBeInTheDocument()
   })
 
+  it('hides the upload entry when the user only has the legacy document upload permission', () => {
+    renderDocumentsPage({ permissions: ['document:upload'] })
+
+    expect(screen.queryByRole('button', { name: /上传文档/ })).not.toBeInTheDocument()
+  })
+
   it('opens the upload dialog, accepts a valid file, and submits trimmed tags', async () => {
     const { uploadMutate, user } = renderDocumentsPage()
 
@@ -281,7 +291,7 @@ describe('KnowledgeDocumentsPage upload interactions', () => {
 
     expect(uploadMutate).toHaveBeenCalledWith(
       {
-        file,
+        files: [file],
         knowledgeBaseId: 'kb-1',
         tags: ['规程', '安全', '2024'],
       },
@@ -292,8 +302,19 @@ describe('KnowledgeDocumentsPage upload interactions', () => {
     )
   })
 
-  it('uses only the first file when multiple files are dropped', async () => {
-    const { user } = renderDocumentsPage()
+  it('adds every valid dropped file and submits them in one batch', async () => {
+    const uploadMutate = vi.fn((_variables, options) => {
+      options.onSuccess({
+        failedCount: 0,
+        results: [
+          { document: { id: 'doc-1' }, filename: 'first.pdf', status: 'uploaded' },
+          { document: { id: 'doc-2' }, filename: 'second.pdf', status: 'uploaded' },
+        ],
+        successCount: 2,
+        totalCount: 2,
+      })
+    })
+    const { user } = renderDocumentsPage({ uploadMutate })
 
     await user.click(screen.getByRole('button', { name: /上传文档/ }))
     const dialog = getDialogContent()
@@ -308,7 +329,34 @@ describe('KnowledgeDocumentsPage upload interactions', () => {
     })
 
     expect(await within(dialog).findByText('first.pdf')).toBeInTheDocument()
-    expect(within(dialog).queryByText('second.pdf')).not.toBeInTheDocument()
+    expect(within(dialog).getByText('second.pdf')).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: /^上传 2 个文件$/ }))
+
+    expect(uploadMutate).toHaveBeenCalledWith(
+      {
+        files: [first, second],
+        knowledgeBaseId: 'kb-1',
+        tags: [],
+      },
+      expect.objectContaining({
+        onError: expect.any(Function),
+        onSuccess: expect.any(Function),
+      }),
+    )
+  })
+
+  it('accepts CSV files in a batch selection', async () => {
+    const { user } = renderDocumentsPage()
+
+    await user.click(screen.getByRole('button', { name: /上传文档/ }))
+    const dialog = getDialogContent()
+
+    const csvFile = new File(['id,name\n1,A'], 'records.csv', { type: 'text/csv' })
+    selectFiles([csvFile])
+
+    expect(await within(dialog).findByText('records.csv')).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /^上传$/ })).toBeEnabled()
   })
 
   it('shows an error for an unsupported extension and keeps the previous valid file selected', async () => {
@@ -326,6 +374,39 @@ describe('KnowledgeDocumentsPage upload interactions', () => {
     expect(within(dialog).getByText('safe.pdf')).toBeInTheDocument()
     expect(within(dialog).queryByText('virus.exe')).not.toBeInTheDocument()
     expect(uploadMutate).not.toHaveBeenCalled()
+  })
+
+  it('keeps failed batch items available for retry after a partial success', async () => {
+    const uploadMutate = vi.fn((_variables, options) => {
+      options.onSuccess({
+        failedCount: 1,
+        results: [
+          { document: { id: 'doc-1' }, filename: 'good.pdf', status: 'uploaded' },
+          {
+            error: { code: 'validation_error', message: 'file must not be empty' },
+            filename: 'empty.pdf',
+            status: 'failed',
+          },
+        ],
+        successCount: 1,
+        totalCount: 2,
+      })
+    })
+    const { user } = renderDocumentsPage({ uploadMutate })
+
+    await user.click(screen.getByRole('button', { name: /上传文档/ }))
+    const dialog = getDialogContent()
+    const good = new File(['good'], 'good.pdf', { type: 'application/pdf' })
+    const empty = new File([], 'empty.pdf', { type: 'application/pdf' })
+    selectFiles([good, empty])
+
+    await user.click(within(dialog).getByRole('button', { name: /^上传 2 个文件$/ }))
+
+    expect(await screen.findByText('部分文档上传失败，请检查失败项后重试')).toBeVisible()
+    expect(within(dialog).queryByText('good.pdf')).not.toBeInTheDocument()
+    expect(within(dialog).getByText('empty.pdf')).toBeInTheDocument()
+    expect(within(dialog).getByText(/file must not be empty/)).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /^上传$/ })).toBeEnabled()
   })
 
   it('keeps the dialog input state when upload mutation fails', async () => {

@@ -167,6 +167,39 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "502": { $ref: "#/components/responses/Error" }
+  /internal/v1/knowledge-bases/{knowledgeBaseId}/document-batches:
+    parameters:
+      - $ref: "#/components/parameters/KnowledgeBaseId"
+    post:
+      tags: [knowledge]
+      summary: Upload multiple knowledge-base documents
+      operationId: internalUploadKnowledgeBaseDocumentBatch
+      description: Requires knowledge:write, knowledge:admin, or system:admin. The Knowledge adapter uploads up to 10 files sequentially, starts ingestion for successful files, and returns per-file results.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/UploadDocumentBatchRequest"
+      responses:
+        "201":
+          description: All documents uploaded and ingestion jobs queued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentBatchResponse"
+        "207":
+          description: One or more files failed while per-file results are available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentBatchResponse"
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
   /internal/v1/documents/{documentId}:
     parameters:
       - $ref: "#/components/parameters/DocumentId"
@@ -398,6 +431,21 @@ components:
             - type: array
               items: { type: string }
             - type: string
+    UploadDocumentBatchRequest:
+      type: object
+      required: [files]
+      properties:
+        files:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { type: string, format: binary }
+        tags:
+          description: Optional repeated shared tag fields, or a JSON string array in one field, applied to every uploaded document.
+          oneOf:
+            - type: array
+              items: { type: string }
+            - type: string
     UpdateDocumentRequest:
       type: object
       additionalProperties: false
@@ -465,6 +513,41 @@ components:
       required: [data, requestId]
       properties:
         data: { $ref: "#/components/schemas/DocumentSummary" }
+        requestId: { type: string }
+    DocumentBatchResultStatus:
+      type: string
+      enum: [uploaded, failed]
+    DocumentBatchItemError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [validation_error, unauthorized, forbidden, not_found, conflict, rate_limited, dependency_error, internal_error]
+        message: { type: string }
+    DocumentBatchItem:
+      type: object
+      required: [filename, status]
+      properties:
+        filename: { type: string }
+        status: { $ref: "#/components/schemas/DocumentBatchResultStatus" }
+        document: { $ref: "#/components/schemas/DocumentSummary" }
+        error: { $ref: "#/components/schemas/DocumentBatchItemError" }
+    DocumentBatchSummary:
+      type: object
+      required: [totalCount, successCount, failedCount, results]
+      properties:
+        totalCount: { type: integer, minimum: 0 }
+        successCount: { type: integer, minimum: 0 }
+        failedCount: { type: integer, minimum: 0 }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/DocumentBatchItem" }
+    DocumentBatchResponse:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: { $ref: "#/components/schemas/DocumentBatchSummary" }
         requestId: { type: string }
     DocumentListResponse:
       type: object

@@ -15,6 +15,7 @@ export const ACTIVE_GATEWAY_PATHS = [
   '/api/v1/knowledge-bases',
   '/api/v1/knowledge-bases/{knowledgeBaseId}',
   '/api/v1/knowledge-bases/{knowledgeBaseId}/documents',
+  '/api/v1/knowledge-bases/{knowledgeBaseId}/document-batches',
   '/api/v1/documents/{documentId}',
   '/api/v1/documents/{documentId}/chunks',
   '/api/v1/documents/{documentId}/content',

@@ -109,6 +109,38 @@ async function mockGateway(page: Page) {
     })
   })
 
+  await page.route('**/api/v1/knowledge-bases/kb-1/document-batches', async (route) => {
+    await route.fulfill({
+      contentType: 'application/json',
+      json: {
+        data: {
+          failedCount: 0,
+          results: [
+            {
+              document: {
+                contentType: 'text/plain',
+                createdAt: '2026-06-30T00:00:00Z',
+                id: 'doc-1',
+                knowledgeBaseId: 'kb-1',
+                name: 'guide.txt',
+                sizeBytes: 12,
+                status: 'uploaded',
+                tags: ['smoke'],
+                updatedAt: '2026-06-30T00:00:00Z',
+              },
+              filename: 'guide.txt',
+              status: 'uploaded',
+            },
+          ],
+          successCount: 1,
+          totalCount: 1,
+        },
+        requestId: 'req-batch-upload',
+      },
+      status: 201,
+    })
+  })
+
   await page.route('**/api/v1/qa-sessions/*/attachments**', async (route) => {
     const method = route.request().method()
     if (method === 'GET') {

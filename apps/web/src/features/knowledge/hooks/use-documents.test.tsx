@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { DocumentSummary } from '@/api/knowledge'
 import { createTestQueryClient } from '@/test/render'
 
-import { documentKeys, useUploadDocument } from './use-documents'
+import { documentKeys, useUploadDocument, useUploadDocumentBatch } from './use-documents'
 
 function createDocument(overrides: Partial<DocumentSummary> = {}): DocumentSummary {
   return {
@@ -55,6 +55,99 @@ describe('useUploadDocument', () => {
         file: new File(['manual'], 'Manual.PDF', { type: 'application/pdf' }),
         knowledgeBaseId: 'kb-1',
         tags: ['规程'],
+      })
+    })
+
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.lists() })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['knowledge-bases'] })
+    })
+  })
+})
+
+describe('useUploadDocumentBatch', () => {
+  it('invalidates document lists and knowledge bases only when at least one file succeeds', async () => {
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries').mockResolvedValue()
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              data: {
+                failedCount: 1,
+                results: [
+                  {
+                    error: { code: 'validation_error', message: 'file must not be empty' },
+                    filename: 'empty.txt',
+                    status: 'failed',
+                  },
+                ],
+                successCount: 0,
+                totalCount: 1,
+              },
+              requestId: 'req-batch-failed',
+            }),
+            {
+              headers: { 'Content-Type': 'application/json' },
+              status: 207,
+            },
+          ),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              data: {
+                failedCount: 1,
+                results: [
+                  {
+                    document: createDocument({ id: 'doc-1', name: 'Manual.PDF' }),
+                    filename: 'Manual.PDF',
+                    status: 'uploaded',
+                  },
+                  {
+                    error: { code: 'validation_error', message: 'file must not be empty' },
+                    filename: 'empty.txt',
+                    status: 'failed',
+                  },
+                ],
+                successCount: 1,
+                totalCount: 2,
+              },
+              requestId: 'req-batch-partial',
+            }),
+            {
+              headers: { 'Content-Type': 'application/json' },
+              status: 207,
+            },
+          ),
+        ),
+    )
+
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+    const { result } = renderHook(() => useUploadDocumentBatch(), { wrapper })
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        files: [new File([], 'empty.txt', { type: 'text/plain' })],
+        knowledgeBaseId: 'kb-1',
+      })
+    })
+
+    expect(invalidateSpy).not.toHaveBeenCalled()
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        files: [
+          new File(['manual'], 'Manual.PDF', { type: 'application/pdf' }),
+          new File([], 'empty.txt', { type: 'text/plain' }),
+        ],
+        knowledgeBaseId: 'kb-1',
       })
     })
 

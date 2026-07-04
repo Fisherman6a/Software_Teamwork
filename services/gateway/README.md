@@ -76,6 +76,7 @@ development loopback host such as `localhost`, `127.0.0.1`, or `[::1]`.
 | `GATEWAY_REQUEST_TIMEOUT` | `30s` | Per-request context timeout. |
 | `GATEWAY_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown timeout. |
 | `GATEWAY_DOWNSTREAM_TIMEOUT` | `10s` | Timeout for auth and owner-service HTTP calls. |
+| `GATEWAY_UPLOAD_TIMEOUT` | `10m` | Request and downstream timeout for long multipart upload proxy routes such as Knowledge document batch upload. |
 | `GATEWAY_CORS_ALLOWED_ORIGINS` | `*` | Comma-separated allowed CORS origins. |
 | `GATEWAY_CORS_ALLOWED_METHODS` | `GET,POST,PATCH,DELETE,OPTIONS` | Comma-separated allowed CORS methods. |
 | `GATEWAY_CORS_ALLOWED_HEADERS` | `Authorization,Content-Type,X-Request-Id` | Comma-separated allowed CORS headers. |

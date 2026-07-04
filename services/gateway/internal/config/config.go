@@ -19,6 +19,7 @@ const (
 	DefaultRequestTimeout         = 30 * time.Second
 	DefaultShutdownTimeout        = 10 * time.Second
 	DefaultDownstreamTimeout      = 10 * time.Second
+	DefaultUploadTimeout          = 10 * time.Minute
 	DefaultRedisAddr              = "localhost:6379"
 	DefaultTokenHashSecret        = "local-dev-token-hash-secret"
 	DefaultTokenKeyVersion        = "v1"
@@ -35,6 +36,7 @@ type Config struct {
 	RequestTimeout         time.Duration
 	ShutdownTimeout        time.Duration
 	DownstreamTimeout      time.Duration
+	UploadTimeout          time.Duration
 	CORSAllowedOrigins     []string
 	CORSAllowedMethods     []string
 	CORSAllowedHeaders     []string
@@ -77,6 +79,7 @@ func Load() (Config, error) {
 		RequestTimeout:         DefaultRequestTimeout,
 		ShutdownTimeout:        DefaultShutdownTimeout,
 		DownstreamTimeout:      DefaultDownstreamTimeout,
+		UploadTimeout:          DefaultUploadTimeout,
 		CORSAllowedOrigins:     csvValue("GATEWAY_CORS_ALLOWED_ORIGINS", []string{"*"}),
 		CORSAllowedMethods:     csvValue("GATEWAY_CORS_ALLOWED_METHODS", []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"}),
 		CORSAllowedHeaders:     csvValue("GATEWAY_CORS_ALLOWED_HEADERS", []string{"Authorization", "Content-Type", "X-Request-Id"}),
@@ -142,6 +145,14 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("GATEWAY_DOWNSTREAM_TIMEOUT must be a positive duration")
 		}
 		cfg.DownstreamTimeout = value
+	}
+
+	if raw := os.Getenv("GATEWAY_UPLOAD_TIMEOUT"); raw != "" {
+		value, err := time.ParseDuration(strings.TrimSpace(raw))
+		if err != nil || value <= 0 {
+			return Config{}, fmt.Errorf("GATEWAY_UPLOAD_TIMEOUT must be a positive duration")
+		}
+		cfg.UploadTimeout = value
 	}
 
 	if raw := os.Getenv("GATEWAY_REDIS_DB"); raw != "" {

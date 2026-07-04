@@ -120,6 +120,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /internal/v1/knowledge-bases/{knowledgeBaseId}", s.handleDeleteKnowledgeBase)
 	s.mux.HandleFunc("GET /internal/v1/knowledge-bases/{knowledgeBaseId}/documents", s.handleListDocuments)
 	s.mux.HandleFunc("POST /internal/v1/knowledge-bases/{knowledgeBaseId}/documents", s.handleUploadDocument)
+	s.mux.HandleFunc("POST /internal/v1/knowledge-bases/{knowledgeBaseId}/document-batches", s.handleUploadDocumentBatch)
 	s.mux.HandleFunc("GET /internal/v1/documents/{documentId}", s.handleGetDocument)
 	s.mux.HandleFunc("PATCH /internal/v1/documents/{documentId}", s.handleUpdateDocument)
 	s.mux.HandleFunc("DELETE /internal/v1/documents/{documentId}", s.handleDeleteDocument)
