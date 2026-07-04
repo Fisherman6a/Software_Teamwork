@@ -598,12 +598,20 @@ func (s *ReportGenerationService) createChatCompletion(ctx context.Context, reqC
 		if err == nil {
 			return resp, nil
 		}
-		if errors.Is(err, ErrChatStreamingUnsupported) {
+		if isChatStreamingUnsupported(err) {
 			return s.chat.CreateChatCompletion(ctx, reqCtx, input)
 		}
 		return ChatCompletionResponse{}, err
 	}
 	return s.chat.CreateChatCompletion(ctx, reqCtx, input)
+}
+
+func isChatStreamingUnsupported(err error) bool {
+	if errors.Is(err, ErrChatStreamingUnsupported) {
+		return true
+	}
+	appErr, ok := Classify(err)
+	return ok && errors.Is(appErr.Err, ErrChatStreamingUnsupported)
 }
 
 func (s *ReportGenerationService) recordOutlineDelta(ctx context.Context, reportID, jobID, delta string) {

@@ -1498,6 +1498,9 @@ func TestReportGenerationServiceFallsBackWhenStreamingUnsupported(t *testing.T) 
 		},
 		createResponses: []ChatCompletionResponse{{Content: `{"sections":[{"title":"Fallback outline"}]}`}},
 	}
+	if !isChatStreamingUnsupported(chat.streamErrs[0]) {
+		t.Fatalf("stream error should be recognized as unsupported streaming: %#v", chat.streamErrs[0])
+	}
 	svc := NewReportGenerationService(repo, chat)
 
 	if _, err := svc.ExecuteReportGeneration(context.Background(), ReportGenerationExecutionPayload{
