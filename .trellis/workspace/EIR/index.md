@@ -30,7 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
-| 15 | 2026-07-04 | Consolidate local startup setup | `eddd03a4` | `EIR/fix/local-startup-downloads-opt-in` |
+| 15 | 2026-07-04 | Consolidate local startup setup | `5bff71ce` | `EIR/fix/local-startup-downloads-opt-in` |
 | 14 | 2026-07-04 | Local startup scripts check-first flow | `2edcbbbd`, `f1508c14` | `EIR/fix/local-startup-downloads-opt-in` |
 | 13 | 2026-07-04 | Local startup script cleanup | `bc6afe0c`, `707c0c8b` | `EIR/refactor/local-startup-script-overhaul` |
 | 12 | 2026-07-03 | Issue 550 local startup diagnostics acceptance | `bfa30a72` | `Test/test/local-startup-diagnostics` |
