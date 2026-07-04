@@ -11,6 +11,18 @@ import { persist } from 'zustand/middleware'
 
 import type { QAMessage, QASession, SessionAttachmentSummary } from '@/lib/types'
 
+export type ActiveChatStream = {
+  abort: () => void
+  assistantMessageId: string
+  sessionId: string
+}
+
+export type QaUnreadCompletion = {
+  completedAt: string
+  messageId?: string
+  sessionId: string
+}
+
 export interface ChatState {
   /** Full session metadata objects (in-memory, fetched from server or created locally). */
   sessions: QASession[]
@@ -20,6 +32,12 @@ export interface ChatState {
   activeId: string | null
   /** Whether an SSE stream is in progress. */
   streaming: boolean
+  /** Volatile abort controller for the currently running QA stream. */
+  activeStream: ActiveChatStream | null
+  /** Whether the QA chat route is currently visible to the user. */
+  qaChatVisible: boolean
+  /** Completed answer that finished while the QA chat route was not visible. */
+  qaUnreadCompletion: QaUnreadCompletion | null
   /** Last fatal error message for display. */
   error: string | null
   /** The user message that triggered a fatal error (for retry). */
@@ -46,6 +64,11 @@ export interface ChatState {
   /** Prepend a new message to a session's message list. */
   appendSessionMessages: (sessionId: string, messages: QAMessage[]) => void
   setStreaming: (streaming: boolean) => void
+  setActiveStream: (stream: ActiveChatStream | null) => void
+  abortActiveStream: () => void
+  setQaChatVisible: (visible: boolean) => void
+  markQaCompletionUnread: (completion: QaUnreadCompletion) => void
+  clearQaUnreadCompletion: () => void
   setError: (error: string | null) => void
   setLastFailedMsg: (msg: string | null) => void
   /** Reset all state and clear persisted sessionIds from localStorage. */
@@ -71,11 +94,14 @@ export interface ChatState {
 
 export const useChatStore = create<ChatState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       sessions: [],
       sessionIds: [],
       activeId: null,
       streaming: false,
+      activeStream: null,
+      qaChatVisible: false,
+      qaUnreadCompletion: null,
       error: null,
       lastFailedMsg: null,
       messagesBySession: {},
@@ -99,7 +125,9 @@ export const useChatStore = create<ChatState>()(
           }
         }),
 
-      removeSession: (sessionId) =>
+      removeSession: (sessionId) => {
+        const activeStream = get().activeStream
+        if (activeStream?.sessionId === sessionId) activeStream.abort()
         set((state) => {
           const { [sessionId]: _removedMessages, ...restMessages } = state.messagesBySession
           const { [sessionId]: _removedAttachments, ...restAttachments } =
@@ -109,11 +137,15 @@ export const useChatStore = create<ChatState>()(
             sessions: state.sessions.filter((s) => s.id !== sessionId),
             sessionIds: state.sessionIds.filter((sid) => sid !== sessionId),
             activeId: state.activeId === sessionId ? null : state.activeId,
+            activeStream: state.activeStream?.sessionId === sessionId ? null : state.activeStream,
             messagesBySession: restMessages,
             attachmentsBySession: restAttachments,
             excludedAttachmentIds: restExcluded,
+            qaUnreadCompletion:
+              state.qaUnreadCompletion?.sessionId === sessionId ? null : state.qaUnreadCompletion,
           }
-        }),
+        })
+      },
 
       updateSessionMessages: (sessionId, messages) =>
         set((state) => ({
@@ -133,16 +165,32 @@ export const useChatStore = create<ChatState>()(
 
       setStreaming: (streaming) => set({ streaming }),
 
+      setActiveStream: (activeStream) => set({ activeStream }),
+
+      abortActiveStream: () => {
+        get().activeStream?.abort()
+      },
+
+      setQaChatVisible: (qaChatVisible) => set({ qaChatVisible }),
+
+      markQaCompletionUnread: (qaUnreadCompletion) => set({ qaUnreadCompletion }),
+
+      clearQaUnreadCompletion: () => set({ qaUnreadCompletion: null }),
+
       setError: (error) => set({ error }),
 
       setLastFailedMsg: (msg) => set({ lastFailedMsg: msg }),
 
       reset: () => {
+        get().activeStream?.abort()
         set({
           sessions: [],
           sessionIds: [],
           activeId: null,
           streaming: false,
+          activeStream: null,
+          qaChatVisible: false,
+          qaUnreadCompletion: null,
           error: null,
           lastFailedMsg: null,
           messagesBySession: {},

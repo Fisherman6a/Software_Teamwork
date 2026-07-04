@@ -8,6 +8,7 @@ import { AppVersionBadge } from '@/components/common/app-version-badge'
 import { APP_UPDATE_COMMAND } from '@/lib/app-version'
 import type { UserSummary } from '@/lib/types'
 import { useAuthStore } from '@/stores/auth-store'
+import { useChatStore } from '@/stores/chat-store'
 import { renderWithProviders } from '@/test/render'
 
 import { AppLayout } from './app-layout'
@@ -74,6 +75,12 @@ const reportUser: UserSummary = {
   permissions: ['qa:use', 'knowledge:read', 'report:read'],
 }
 
+const noQaUser: UserSummary = {
+  ...standardUser,
+  id: 'user-no-qa',
+  permissions: ['knowledge:read'],
+}
+
 function jsonResponse(body: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json', ...init?.headers },
@@ -85,6 +92,7 @@ function jsonResponse(body: unknown, init?: ResponseInit) {
 describe('AppLayout accessibility smoke', () => {
   beforeEach(() => {
     resetAppVersionFreshnessCacheForTests()
+    useChatStore.getState().reset()
     routerMocks.navigate.mockReset()
     routerMocks.pathname = '/chat'
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
@@ -191,6 +199,39 @@ describe('AppLayout accessibility smoke', () => {
 
     const nav = screen.getByRole('navigation')
     expect(within(nav).getByRole('link', { name: '管理' })).toBeVisible()
+  })
+
+  it('shows the QA unread completion dot only when the QA nav item is visible', () => {
+    useChatStore.setState({
+      qaUnreadCompletion: {
+        completedAt: '2026-07-04T00:00:00.000Z',
+        messageId: 'assistant-1',
+        sessionId: 'session-1',
+      },
+    })
+
+    const { rerender } = renderWithProviders(
+      <AppLayout>
+        <section aria-label="workspace">Workspace</section>
+      </AppLayout>,
+    )
+
+    expect(screen.getByTestId('qa-unread-dot')).toBeVisible()
+
+    useAuthStore.setState({
+      accessToken: 'opaque-test-token',
+      error: null,
+      status: 'authenticated',
+      user: noQaUser,
+      userName: noQaUser.username,
+    })
+    rerender(
+      <AppLayout>
+        <section aria-label="workspace">Workspace</section>
+      </AppLayout>,
+    )
+
+    expect(screen.queryByTestId('qa-unread-dot')).not.toBeInTheDocument()
   })
 
   it('uses a stable fallback label when the version source is empty', () => {

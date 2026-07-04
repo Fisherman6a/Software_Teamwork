@@ -25,6 +25,7 @@ import type { PermissionRequirement } from '@/lib/permissions'
 import { canAccess } from '@/lib/permissions'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
+import { useChatStore } from '@/stores/chat-store'
 import { usePageTransitionStore } from '@/stores/page-transition-store'
 
 const pathLabels: Record<string, string> = {
@@ -84,11 +85,17 @@ export function AppLayout({ children }: PropsWithChildren) {
   const status = useAuthStore((state) => state.status)
   const error = useAuthStore((state) => state.error)
   const restoreSession = useAuthStore((state) => state.restoreSession)
+  const qaUnreadCompletion = useChatStore((state) => state.qaUnreadCompletion)
+  const setQaChatVisible = useChatStore((state) => state.setQaChatVisible)
 
   // Page transition entrance
   useEffect(() => {
     usePageTransitionStore.getState().reveal()
   }, [])
+
+  useEffect(() => {
+    setQaChatVisible(pathname.startsWith('/chat'))
+  }, [pathname, setQaChatVisible])
 
   // ── Nav slider position ──
   const visibleNavItems = useMemo(
@@ -206,6 +213,13 @@ export function AppLayout({ children }: PropsWithChildren) {
               inactiveProps={{ className: 'text-muted-foreground' }}
             >
               {item.label}
+              {item.to === '/chat' && qaUnreadCompletion && (
+                <span
+                  aria-hidden
+                  className="absolute right-1 top-1 h-2 w-2 rounded-full bg-destructive ring-2 ring-background"
+                  data-testid="qa-unread-dot"
+                />
+              )}
             </Link>
           ))}
         </nav>
