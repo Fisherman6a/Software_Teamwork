@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -410,6 +411,32 @@ func TestAttachmentServiceListValidatesAndForwardsStatus(t *testing.T) {
 	var appErr *AppError
 	if !errors.As(err, &appErr) || appErr.Code != CodeValidation {
 		t.Fatalf("List() invalid status error = %v, want validation error", err)
+	}
+}
+
+func TestSessionAttachmentJSONIncludesPublicFailureFields(t *testing.T) {
+	now := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	attachment := SessionAttachment{
+		ID: "att-1", SessionID: "sess-1", OwnerUserID: "user-1", FileRef: "private-file-ref",
+		Filename: "failed.pdf", ContentType: "application/pdf", SizeBytes: 42,
+		Status: AttachmentStatusFailed, ErrorSummary: "safe parse failure",
+		PageCount: 3, ChunkCount: 4, ExpiresAt: now.Add(time.Hour), CreatedAt: now, UpdatedAt: now,
+	}
+
+	payload, err := json.Marshal(attachment)
+	if err != nil {
+		t.Fatalf("MarshalJSON() error = %v", err)
+	}
+	body := string(payload)
+	for _, expected := range []string{`"errorCode":"attachment_parse_failed"`, `"errorMessage":"safe parse failure"`, `"status":"failed"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("payload missing %s: %s", expected, body)
+		}
+	}
+	for _, privateField := range []string{"private-file-ref", `"errorSummary"`, `"pageCount"`, `"chunkCount"`, `"updatedAt"`, `"deletedAt"`} {
+		if strings.Contains(body, privateField) {
+			t.Fatalf("payload exposed %s: %s", privateField, body)
+		}
 	}
 }
 

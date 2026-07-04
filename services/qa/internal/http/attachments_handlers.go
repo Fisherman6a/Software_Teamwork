@@ -14,8 +14,6 @@ import (
 
 const multipartUploadEnvelopeBytes = int64(1 << 20)
 
-const attachmentParseFailedCode = "attachment_parse_failed"
-
 type sessionAttachmentSummary struct {
 	ID           string     `json:"id"`
 	SessionID    string     `json:"sessionId"`
@@ -145,11 +143,7 @@ func publicSessionAttachment(attachment service.SessionAttachment) sessionAttach
 		ExpiresAt:   &expiresAt,
 	}
 	if attachment.Status == service.AttachmentStatusFailed {
-		code := attachmentParseFailedCode
-		result.ErrorCode = &code
-		if summary := strings.TrimSpace(attachment.ErrorSummary); summary != "" {
-			result.ErrorMessage = &summary
-		}
+		result.ErrorCode, result.ErrorMessage = attachment.PublicErrorFields()
 	}
 	return result
 }

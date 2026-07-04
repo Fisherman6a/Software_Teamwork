@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,8 @@ const (
 	AttachmentStatusFailed   = "failed"
 	AttachmentStatusPurged   = "purged"
 )
+
+const AttachmentErrorCodeParseFailed = "attachment_parse_failed"
 
 const maxSessionAttachmentBytes = int64(100 << 20)
 
@@ -45,6 +48,46 @@ type SessionAttachment struct {
 	DeletedAt    *time.Time `json:"-"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	UpdatedAt    time.Time  `json:"-"`
+}
+
+func (a SessionAttachment) PublicErrorFields() (*string, *string) {
+	if a.Status != AttachmentStatusFailed {
+		return nil, nil
+	}
+	code := AttachmentErrorCodeParseFailed
+	summary := strings.TrimSpace(a.ErrorSummary)
+	if summary == "" {
+		return &code, nil
+	}
+	return &code, &summary
+}
+
+func (a SessionAttachment) MarshalJSON() ([]byte, error) {
+	errorCode, errorMessage := a.PublicErrorFields()
+	type publicAttachment struct {
+		ID           string    `json:"id"`
+		SessionID    string    `json:"sessionId"`
+		Filename     string    `json:"filename"`
+		ContentType  string    `json:"contentType"`
+		SizeBytes    int64     `json:"sizeBytes"`
+		Status       string    `json:"status"`
+		ErrorCode    *string   `json:"errorCode"`
+		ErrorMessage *string   `json:"errorMessage"`
+		ExpiresAt    time.Time `json:"expiresAt"`
+		CreatedAt    time.Time `json:"createdAt"`
+	}
+	return json.Marshal(publicAttachment{
+		ID:           a.ID,
+		SessionID:    a.SessionID,
+		Filename:     a.Filename,
+		ContentType:  a.ContentType,
+		SizeBytes:    a.SizeBytes,
+		Status:       a.Status,
+		ErrorCode:    errorCode,
+		ErrorMessage: errorMessage,
+		ExpiresAt:    a.ExpiresAt,
+		CreatedAt:    a.CreatedAt,
+	})
 }
 
 type SessionAttachmentChunk struct {
