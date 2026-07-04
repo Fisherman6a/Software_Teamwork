@@ -5,6 +5,7 @@ import pytest
 
 from common.exceptions import ModelException
 from rag.llm.ai_gateway_utils import ai_gateway_profile_id, normalize_ai_gateway_endpoint, resolve_ai_gateway_service_token
+from rag.llm.chat_model import AIGatewayChat
 from rag.llm.embedding_model import AIGatewayEmbed
 from rag.llm.rerank_model import AIGatewayRerank
 
@@ -16,6 +17,7 @@ AI_GATEWAY_ENV_KEYS = [
     "AI_GATEWAY_SERVICE_TOKEN",
     "INTERNAL_SERVICE_TOKEN",
     "KNOWLEDGE_RUNTIME_AI_GATEWAY_CALLER_SERVICE",
+    "KNOWLEDGE_RUNTIME_AI_GATEWAY_CHAT_PROFILE_ID",
     "KNOWLEDGE_RUNTIME_AI_GATEWAY_EMBEDDING_PROFILE_ID",
     "KNOWLEDGE_RUNTIME_AI_GATEWAY_RERANK_PROFILE_ID",
     "KNOWLEDGE_RUNTIME_AI_GATEWAY_REQUEST_ID",
@@ -99,6 +101,83 @@ def test_ai_gateway_embedding_sends_internal_headers_and_preserves_batch_order(m
     assert headers["X-Caller-Service"] == "knowledge"
     assert headers["X-Request-Id"] == "req-embedding-test"
     assert post.call_args.kwargs["timeout"] == 30.0
+
+
+@pytest.mark.asyncio
+async def test_ai_gateway_chat_sends_internal_headers_and_profile(monkeypatch):
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN", "svc-token")
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_AI_GATEWAY_CALLER_SERVICE", "knowledge")
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_AI_GATEWAY_CHAT_PROFILE_ID", "default-chat")
+    monkeypatch.setenv("KNOWLEDGE_RUNTIME_AI_GATEWAY_REQUEST_ID", "req-chat-test")
+
+    response = _response(
+        {
+            "id": "chatcmpl-test",
+            "object": "chat.completion",
+            "model": "deepseek-ai/DeepSeek-V4-Flash",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "{\"sections\": []}"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"total_tokens": 13},
+        }
+    )
+    provider = AIGatewayChat("", "deepseek-ai/DeepSeek-V4-Flash", base_url="http://gateway/internal/v1")
+
+    with patch("rag.llm.chat_model.requests.post", return_value=response) as post:
+        text, tokens = await provider.async_chat("system", [{"role": "user", "content": "repair"}], {"temperature": 0})
+
+    assert text == "{\"sections\": []}"
+    assert tokens == 13
+    assert post.call_args.args[0] == "http://gateway/internal/v1/chat/completions"
+    payload = post.call_args.kwargs["json"]
+    assert payload == {
+        "profile_id": "default-chat",
+        "model": "deepseek-ai/DeepSeek-V4-Flash",
+        "messages": [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "repair"},
+        ],
+        "temperature": 0,
+    }
+    headers = post.call_args.kwargs["headers"]
+    assert headers["X-Service-Token"] == "svc-token"
+    assert headers["X-Caller-Service"] == "knowledge"
+    assert headers["X-Request-Id"] == "req-chat-test"
+    assert post.call_args.kwargs["timeout"] == 30.0
+
+
+def test_ai_gateway_chat_omits_model_when_configured_profile_only(monkeypatch):
+    monkeypatch.setenv("AI_GATEWAY_SERVICE_TOKEN", "svc-token")
+    response = _response(
+        {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"total_tokens": 1},
+        }
+    )
+    provider = AIGatewayChat("", "", base_url="http://gateway/internal/v1")
+
+    with patch("rag.llm.chat_model.requests.post", return_value=response) as post:
+        text, tokens = provider.chat("", [{"role": "user", "content": "hello"}])
+
+    assert text == "ok"
+    assert tokens == 1
+    assert "model" not in post.call_args.kwargs["json"]
+    assert post.call_args.kwargs["json"]["profile_id"] == "default-chat"
+
+
+def test_ai_gateway_chat_raises_model_exception_on_malformed_response(monkeypatch):
+    monkeypatch.setenv("INTERNAL_SERVICE_TOKEN", "svc-token")
+    response = _response({}, text="not-json")
+    response.json.side_effect = ValueError("not json")
+    provider = AIGatewayChat("", "deepseek-ai/DeepSeek-V4-Flash", base_url="http://gateway/internal/v1")
+
+    with patch("rag.llm.chat_model.requests.post", return_value=response):
+        with pytest.raises(ModelException, match="unexpected chat response"):
+            provider.chat("", [{"role": "user", "content": "hello"}])
 
 
 def test_ai_gateway_embedding_generates_request_id_when_missing(monkeypatch):

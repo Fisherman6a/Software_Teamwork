@@ -67,6 +67,7 @@ def require_ai_gateway_factory(model_type_val: str, provider_name: str) -> None:
 def default_model_id(model_type: str | enum.Enum) -> str:
     model_type_val = model_type_value(model_type)
     model, factory, _base_url, settings_cfg = _env_and_settings_for_type(model_type_val)
+    settings_cfg = settings_cfg if isinstance(settings_cfg, dict) else {}
     if model:
         model_ref = compose_model_reference(model, factory)
         _pure_model_name, _instance_name, provider_name = split_model_reference(model_ref)
@@ -84,6 +85,7 @@ def default_model_id(model_type: str | enum.Enum) -> str:
 def default_model_base_url(model_type: str | enum.Enum, provider_name: str = "") -> str:
     model_type_val = model_type_value(model_type)
     _model, factory, base_url, settings_cfg = _env_and_settings_for_type(model_type_val)
+    settings_cfg = settings_cfg if isinstance(settings_cfg, dict) else {}
     provider_name = provider_name or factory
     require_ai_gateway_factory(model_type_val, provider_name)
     if base_url:
@@ -107,6 +109,7 @@ def runtime_model_config(model_type: str | enum.Enum, model_name: str | None = N
         return None
 
     _env_model, env_factory, _env_base_url, settings_cfg = _env_and_settings_for_type(model_type_val)
+    settings_cfg = settings_cfg if isinstance(settings_cfg, dict) else {}
     if not provider_name:
         provider_name = env_factory or str(settings_cfg.get("factory") or "").strip()
     if not provider_name:

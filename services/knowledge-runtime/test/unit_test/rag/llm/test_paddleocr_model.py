@@ -7,6 +7,8 @@ class FakePaddleOCRParser:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
         self.outlines = [("Intro", 1)]
+        self.layout_chunks = [{"content_with_weight": "layout chunk", "section_path": "Intro"}]
+        self.post_parse_result = object()
         self.crop_calls = []
 
     def crop(self, text: str, *args, **kwargs):
@@ -25,6 +27,8 @@ def test_paddleocr_model_exposes_pdf_parser_chunking_interfaces(monkeypatch):
     chunks = tokenize_chunks(["@@1\t1\t2\t3\t4##hello world"], {"doc_id": "doc_1"}, True, model)
 
     assert model.outlines == [("Intro", 1)]
+    assert model.layout_chunks == [{"content_with_weight": "layout chunk", "section_path": "Intro"}]
+    assert model.post_parse_result is model._parser.post_parse_result
     assert model._parser.crop_calls == [
         ("@@1\t1\t2\t3\t4##hello world", (), {"need_position": True})
     ]
