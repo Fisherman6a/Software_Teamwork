@@ -46,6 +46,7 @@ from api.utils.api_utils import (
     get_result,
     server_error_response,
 )
+from api.utils.document_lock_utils import DocumentScheduleLockError, document_schedule_locks
 from api.utils.pagination_utils import validate_rest_api_page_size
 from api.utils.image_utils import store_chunk_image
 from api.utils.reference_metadata_utils import (
@@ -227,42 +228,46 @@ async def parse(scope_id, dataset_id):
 
     not_found = []
     success_count = 0
-    for id in doc_list:
-        doc = DocumentService.query(id=id, kb_id=dataset_id)
-        if not doc:
-            not_found.append(id)
-            continue
-        if not doc:
-            return get_error_data_result(message=f"You don't own the document {id}.")
-        info = {"run": "1", "progress": 0, "progress_msg": "", "chunk_num": 0, "token_num": 0}
-        if (
-            DocumentService.filter_update(
-                [
-                    Document.id == id,
-                    ((Document.run.is_null(True)) | (Document.run != TaskStatus.RUNNING.value)),
-                ],
-                info,
-            )
-            == 0
-        ):
-            return get_error_data_result("Can't parse document that is currently being processed")
-        index_name = search.index_name(dataset_scope_id)
-        if settings.docStoreConn.index_exist(index_name, doc[0].kb_id):
-            settings.docStoreConn.delete({"doc_id": id}, index_name, doc[0].kb_id)
-        else:
-            logging.info(
-                "Skipping chunk delete during parse for doc %s: index %s/%s does not exist",
-                id,
-                index_name,
-                doc[0].kb_id,
-            )
-        TaskService.filter_delete([Task.doc_id == id])
-        e, doc = DocumentService.get_by_id(id)
-        doc = doc.to_dict()
-        doc["scope_id"] = scope_id
-        bucket, name = File2DocumentService.get_storage_address(doc_id=doc["id"])
-        queue_tasks(doc, bucket, name, 0)
-        success_count += 1
+    try:
+        with document_schedule_locks(doc_list):
+            for id in doc_list:
+                doc = DocumentService.query(id=id, kb_id=dataset_id)
+                if not doc:
+                    not_found.append(id)
+                    continue
+                if not doc:
+                    return get_error_data_result(message=f"You don't own the document {id}.")
+                info = {"run": "1", "progress": 0, "progress_msg": "", "chunk_num": 0, "token_num": 0}
+                if (
+                    DocumentService.filter_update(
+                        [
+                            Document.id == id,
+                            ((Document.run.is_null(True)) | (Document.run != TaskStatus.RUNNING.value)),
+                        ],
+                        info,
+                    )
+                    == 0
+                ):
+                    return get_error_data_result("Can't parse document that is currently being processed")
+                index_name = search.index_name(dataset_scope_id)
+                if settings.docStoreConn.index_exist(index_name, doc[0].kb_id):
+                    settings.docStoreConn.delete({"doc_id": id}, index_name, doc[0].kb_id)
+                else:
+                    logging.info(
+                        "Skipping chunk delete during parse for doc %s: index %s/%s does not exist",
+                        id,
+                        index_name,
+                        doc[0].kb_id,
+                    )
+                TaskService.filter_delete([Task.doc_id == id])
+                e, doc = DocumentService.get_by_id(id)
+                doc = doc.to_dict()
+                doc["scope_id"] = scope_id
+                bucket, name = File2DocumentService.get_storage_address(doc_id=doc["id"])
+                queue_tasks(doc, bucket, name, 0)
+                success_count += 1
+    except DocumentScheduleLockError as e:
+        return get_error_data_result(message=str(e))
     if not_found:
         return get_result(message=f"Documents not found: {not_found}", code=RetCode.DATA_ERROR)
     if duplicate_messages:
@@ -295,30 +300,34 @@ async def stop_parsing(scope_id, dataset_id):
     doc_list = unique_doc_ids
 
     success_count = 0
-    for id in doc_list:
-        doc = DocumentService.query(id=id, kb_id=dataset_id)
-        if not doc:
-            return get_error_data_result(message=f"You don't own the document {id}.")
-        if doc[0].run != TaskStatus.RUNNING.value:
-            return construct_json_result(
-                code=RetCode.DATA_ERROR,
-                message=DOC_STOP_PARSING_INVALID_STATE_MESSAGE,
-                data={"error_code": DOC_STOP_PARSING_INVALID_STATE_ERROR_CODE},
-            )
-        cancel_all_task_of(id)
-        info = {"run": "2", "progress": 0, "chunk_num": 0}
-        DocumentService.update_by_id(id, info)
-        index_name = search.index_name(dataset_scope_id)
-        if settings.docStoreConn.index_exist(index_name, doc[0].kb_id):
-            settings.docStoreConn.delete({"doc_id": doc[0].id}, index_name, doc[0].kb_id)
-        else:
-            logging.info(
-                "Skipping chunk delete during stop_parsing for doc %s: index %s/%s does not exist",
-                doc[0].id,
-                index_name,
-                doc[0].kb_id,
-            )
-        success_count += 1
+    try:
+        with document_schedule_locks(doc_list):
+            for id in doc_list:
+                doc = DocumentService.query(id=id, kb_id=dataset_id)
+                if not doc:
+                    return get_error_data_result(message=f"You don't own the document {id}.")
+                if doc[0].run != TaskStatus.RUNNING.value:
+                    return construct_json_result(
+                        code=RetCode.DATA_ERROR,
+                        message=DOC_STOP_PARSING_INVALID_STATE_MESSAGE,
+                        data={"error_code": DOC_STOP_PARSING_INVALID_STATE_ERROR_CODE},
+                    )
+                cancel_all_task_of(id)
+                info = {"run": "2", "progress": 0, "chunk_num": 0}
+                DocumentService.update_by_id(id, info)
+                index_name = search.index_name(dataset_scope_id)
+                if settings.docStoreConn.index_exist(index_name, doc[0].kb_id):
+                    settings.docStoreConn.delete({"doc_id": doc[0].id}, index_name, doc[0].kb_id)
+                else:
+                    logging.info(
+                        "Skipping chunk delete during stop_parsing for doc %s: index %s/%s does not exist",
+                        doc[0].id,
+                        index_name,
+                        doc[0].kb_id,
+                    )
+                success_count += 1
+    except DocumentScheduleLockError as e:
+        return get_error_data_result(message=str(e))
     if duplicate_messages:
         if success_count > 0:
             return get_result(

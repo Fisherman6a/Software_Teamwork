@@ -148,6 +148,26 @@ cd services/knowledge-runtime
 ./deploy/worker/run-local.sh
 ```
 
+## Runtime Concurrency
+
+- API-side document scheduling operations (`parse`, `stop`, `ingest`, and
+  document deletion) acquire a Redis-backed per-document lock before they reset
+  task rows, document status, chunks, or linked files. Multi-document requests
+  acquire locks in sorted document-ID order to avoid deadlocks.
+- Every worker process must use a unique `KNOWLEDGE_RUNTIME_WORKER_ID`.
+  The default local value is only safe for a single worker process. Reusing the
+  same worker ID across processes makes Redis consumer-group recovery and
+  pending-message ownership ambiguous.
+- Worker concurrency limits are per process. Effective ingestion pressure is
+  roughly `worker_count * MAX_CONCURRENT_TASKS`, and lower-level limits such as
+  `MAX_CONCURRENT_CHUNK_BUILDERS`, `MAX_CONCURRENT_MINIO`, and
+  `THREAD_POOL_MAX_WORKERS` also multiply by process count.
+- The per-document scheduling lock defaults to a 600-second lease and waits up
+  to 30 seconds to acquire. Override with
+  `KNOWLEDGE_RUNTIME_DOCUMENT_SCHEDULE_LOCK_TIMEOUT_SECONDS` and
+  `KNOWLEDGE_RUNTIME_DOCUMENT_SCHEDULE_LOCK_BLOCKING_TIMEOUT_SECONDS` only when
+  the deployment has measured longer critical sections.
+
 ## Configuration
 
 - Runtime auth: protected routes require `X-Service-Token` matching

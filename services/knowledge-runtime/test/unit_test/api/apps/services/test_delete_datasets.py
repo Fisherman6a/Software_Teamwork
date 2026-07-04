@@ -39,17 +39,42 @@ def _stub(monkeypatch, name, **attrs):
     return mod
 
 
-def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
+def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete, lock_events=None, remove_document=None):
     f2d_delete = MagicMock()
     kb = SimpleNamespace(id="kb-1", scope_id="scope-1", name="test-kb")
     doc = SimpleNamespace(id="doc-1")
+
+    class FakeDocumentScheduleLockError(RuntimeError):
+        pass
+
+    class FakeDocumentScheduleLocks:
+        def __init__(self, doc_ids):
+            self.doc_ids = doc_ids
+
+        def __enter__(self):
+            if lock_events is not None:
+                lock_events.append(("lock_enter", tuple(self.doc_ids)))
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            if lock_events is not None:
+                lock_events.append(("lock_exit", tuple(self.doc_ids)))
+            return False
+
+    def fake_document_schedule_locks(doc_ids):
+        if lock_events is not None:
+            lock_events.append(("lock_create", tuple(doc_ids)))
+        return FakeDocumentScheduleLocks(doc_ids)
+
+    if remove_document is None:
+        remove_document = lambda doc, scope_id: True
 
     _stub(
         monkeypatch,
         "api.db.services.document_service",
         DocumentService=SimpleNamespace(
             query=lambda kb_id: [doc],
-            remove_document=lambda doc, scope_id: True,
+            remove_document=remove_document,
         ),
         queue_raptor_o_graphrag_tasks=MagicMock(),
     )
@@ -70,7 +95,7 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
         monkeypatch,
         "api.db.services.knowledgebase_service",
         KnowledgebaseService=SimpleNamespace(
-            get_or_none=lambda id, scope_id: kb,
+            get_or_none=lambda **_kwargs: kb,
             delete_by_id=lambda kb_id: True,
             query=lambda **kwargs: [],
         ),
@@ -90,6 +115,7 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
     _stub(
         monkeypatch,
         "api.db.joint_services.runtime_model_service",
+        ensure_paddleocr_from_config=MagicMock(),
         get_model_config_from_provider_instance=MagicMock(),
     )
     _stub(
@@ -99,6 +125,12 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
         get_parser_config=MagicMock(),
         remap_dictionary_keys=MagicMock(),
         verify_embedding_availability=MagicMock(),
+    )
+    _stub(
+        monkeypatch,
+        "api.utils.document_lock_utils",
+        DocumentScheduleLockError=FakeDocumentScheduleLockError,
+        document_schedule_locks=fake_document_schedule_locks,
     )
     _stub(
         monkeypatch,
@@ -115,8 +147,9 @@ def _load_delete_datasets_module(monkeypatch, *, f2d_rows, file_filter_delete):
         "common.constants",
         PAGERANK_FLD="pagerank",
         TAG_FLD="tag",
+        RetCode=SimpleNamespace(),
         FileSource=SimpleNamespace(KNOWLEDGEBASE="knowledgebase"),
-        StatusEnum=SimpleNamespace(),
+        StatusEnum=SimpleNamespace(VALID=SimpleNamespace(value="valid")),
         LLMType=SimpleNamespace(),
     )
     _stub(
@@ -167,3 +200,32 @@ async def test_delete_datasets_deletes_linked_file_when_file2document_exists(mon
     assert ok is True
     assert result == {"success_count": 1}
     assert file_filter_delete.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_delete_datasets_removes_documents_inside_document_schedule_lock(monkeypatch):
+    lock_events = []
+
+    def remove_document(doc, scope_id):
+        lock_events.append(("remove_document", doc.id, scope_id))
+        return True
+
+    file_filter_delete = MagicMock(return_value=0)
+    module, _f2d_delete = _load_delete_datasets_module(
+        monkeypatch,
+        f2d_rows=[],
+        file_filter_delete=file_filter_delete,
+        lock_events=lock_events,
+        remove_document=remove_document,
+    )
+
+    ok, result = await module.delete_datasets("scope-1", ids=["kb-1"])
+
+    assert ok is True
+    assert result == {"success_count": 1}
+    assert lock_events == [
+        ("lock_create", ("doc-1",)),
+        ("lock_enter", ("doc-1",)),
+        ("remove_document", "doc-1", "scope-1"),
+        ("lock_exit", ("doc-1",)),
+    ]

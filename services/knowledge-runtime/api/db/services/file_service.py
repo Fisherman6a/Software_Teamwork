@@ -39,6 +39,7 @@ from common.ssrf_guard import assert_url_is_safe
 from common.constants import TaskStatus, FileSource, ParserType, MAXIMUM_PAGE_NUMBER
 from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.task_service import TaskService
+from api.utils.document_lock_utils import DocumentScheduleLockError, document_schedule_locks
 from api.utils.file_utils import filename_type, read_potential_broken_pdf, thumbnail_img, sanitize_path
 from rag.llm.cv_model import GptV4
 from common import settings
@@ -604,40 +605,44 @@ class FileService(CommonService):
         FileService.init_knowledgebase_docs(pf_id, scope_id)
         errors = ""
         kb_table_num_map = {}
-        for doc_id in doc_ids:
-            try:
-                e, doc = DocumentService.get_by_id(doc_id)
-                if not e:
-                    raise Exception("Document not found!")
-                scope_id = DocumentService.get_scope_id(doc_id)
-                if not scope_id:
-                    raise Exception("Runtime scope not found!")
+        try:
+            with document_schedule_locks(doc_ids):
+                for doc_id in doc_ids:
+                    try:
+                        e, doc = DocumentService.get_by_id(doc_id)
+                        if not e:
+                            raise Exception("Document not found!")
+                        scope_id = DocumentService.get_scope_id(doc_id)
+                        if not scope_id:
+                            raise Exception("Runtime scope not found!")
 
-                b, n = File2DocumentService.get_storage_address(doc_id=doc_id)
+                        b, n = File2DocumentService.get_storage_address(doc_id=doc_id)
 
-                TaskService.filter_delete([Task.doc_id == doc_id])
-                if not DocumentService.remove_document(doc, scope_id):
-                    raise Exception("Database error (Document removal)!")
+                        TaskService.filter_delete([Task.doc_id == doc_id])
+                        if not DocumentService.remove_document(doc, scope_id):
+                            raise Exception("Database error (Document removal)!")
 
-                f2d = File2DocumentService.get_by_document_id(doc_id)
-                deleted_file_count = 0
-                if f2d:
-                    deleted_file_count = FileService.filter_delete([File.source_type == FileSource.KNOWLEDGEBASE, File.id == f2d[0].file_id])
-                File2DocumentService.delete_by_document_id(doc_id)
-                if deleted_file_count > 0:
-                    settings.STORAGE_IMPL.rm(b, n)
+                        f2d = File2DocumentService.get_by_document_id(doc_id)
+                        deleted_file_count = 0
+                        if f2d:
+                            deleted_file_count = FileService.filter_delete([File.source_type == FileSource.KNOWLEDGEBASE, File.id == f2d[0].file_id])
+                        File2DocumentService.delete_by_document_id(doc_id)
+                        if deleted_file_count > 0:
+                            settings.STORAGE_IMPL.rm(b, n)
 
-                doc_parser = doc.parser_id
-                if doc_parser == ParserType.TABLE:
-                    kb_id = doc.kb_id
-                    if kb_id not in kb_table_num_map:
-                        counts = DocumentService.count_by_kb_id(kb_id=kb_id, keywords="", run_status=[TaskStatus.DONE], types=[])
-                        kb_table_num_map[kb_id] = counts
-                    kb_table_num_map[kb_id] -= 1
-                    if kb_table_num_map[kb_id] <= 0:
-                        KnowledgebaseService.delete_field_map(kb_id)
-            except Exception as e:
-                errors += str(e)
+                        doc_parser = doc.parser_id
+                        if doc_parser == ParserType.TABLE:
+                            kb_id = doc.kb_id
+                            if kb_id not in kb_table_num_map:
+                                counts = DocumentService.count_by_kb_id(kb_id=kb_id, keywords="", run_status=[TaskStatus.DONE], types=[])
+                                kb_table_num_map[kb_id] = counts
+                            kb_table_num_map[kb_id] -= 1
+                            if kb_table_num_map[kb_id] <= 0:
+                                KnowledgebaseService.delete_field_map(kb_id)
+                    except Exception as e:
+                        errors += str(e)
+        except DocumentScheduleLockError as e:
+            errors += str(e)
 
         return errors
 

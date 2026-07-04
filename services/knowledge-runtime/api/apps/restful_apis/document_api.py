@@ -41,6 +41,11 @@ from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.task_service import TaskService, cancel_all_task_of
 from api.utils.api_utils import construct_json_result, get_data_error_result, get_error_data_result, get_result, get_json_result, \
     server_error_response, add_scope_id_to_kwargs, get_request_json, get_error_argument_result, check_duplicate_ids
+from api.utils.document_lock_utils import (
+    DocumentScheduleLockError,
+    document_schedule_lock_failed_without_success,
+    document_schedule_locks,
+)
 from api.utils.pagination_utils import validate_rest_api_page_size
 from api.utils.validation_utils import (
     UpdateDocumentReq, format_validation_error_message, validate_and_parse_json_request, DeleteDocumentReq,
@@ -1389,48 +1394,52 @@ def _run_sync(user_id:str, req):
             return RetCode.NOT_FOUND, f"Document '{doc_id}' not found"
 
     kb_table_num_map = {}
-    for doc_id in req["doc_ids"]:
-        info = {"run": str(req["run"]), "progress": 0}
-        rerun_with_delete = str(req["run"]) == TaskStatus.RUNNING.value and req.get("delete", False)
-        if rerun_with_delete:
-            info["progress_msg"] = ""
-            info["chunk_num"] = 0
-            info["token_num"] = 0
+    try:
+        with document_schedule_locks(req["doc_ids"]):
+            for doc_id in req["doc_ids"]:
+                info = {"run": str(req["run"]), "progress": 0}
+                rerun_with_delete = str(req["run"]) == TaskStatus.RUNNING.value and req.get("delete", False)
+                if rerun_with_delete:
+                    info["progress_msg"] = ""
+                    info["chunk_num"] = 0
+                    info["token_num"] = 0
 
-        doc_scope_id = DocumentService.get_scope_id(doc_id)
-        if not doc_scope_id:
-            return RetCode.DATA_ERROR, "Runtime scope not found!"
-        e, doc = DocumentService.get_by_id(doc_id)
-        if not e:
-            return RetCode.DATA_ERROR, "Document not found!"
-
-        if str(req["run"]) == TaskStatus.CANCEL.value:
-            tasks = list(TaskService.query(doc_id=doc_id))
-            has_unfinished_task = any((task.progress or 0) < 1 for task in tasks)
-            if str(doc.run) in [TaskStatus.RUNNING.value, TaskStatus.CANCEL.value] or has_unfinished_task:
-                cancel_all_task_of(doc_id)
-            else:
-                return RetCode.DATA_ERROR, "Cannot cancel a task that is not in RUNNING status"
-        if all([rerun_with_delete, str(doc.run) == TaskStatus.DONE.value]):
-            DocumentService.clear_chunk_num_when_rerun(doc_id)
-
-        DocumentService.update_by_id(doc_id, info)
-        if req.get("delete", False):
-            TaskService.filter_delete([Task.doc_id == doc_id])
-            if settings.docStoreConn.index_exist(search.index_name(doc_scope_id), doc.kb_id):
-                settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(doc_scope_id), doc.kb_id)
-
-        if str(req["run"]) == TaskStatus.RUNNING.value:
-            if req.get("apply_kb"):
-                e, kb = KnowledgebaseService.get_by_id(doc.kb_id)
+                doc_scope_id = DocumentService.get_scope_id(doc_id)
+                if not doc_scope_id:
+                    return RetCode.DATA_ERROR, "Runtime scope not found!"
+                e, doc = DocumentService.get_by_id(doc_id)
                 if not e:
-                    raise LookupError("Can't find this dataset!")
-                doc.parser_config["llm_id"] = kb.parser_config.get("llm_id")
-                doc.parser_config["enable_metadata"] = kb.parser_config.get("enable_metadata", False)
-                doc.parser_config["metadata"] = kb.parser_config.get("metadata", {})
-                DocumentService.update_parser_config(doc.id, doc.parser_config)
-            doc_dict = doc.to_dict()
-            DocumentService.run(doc_scope_id, doc_dict, kb_table_num_map)
+                    return RetCode.DATA_ERROR, "Document not found!"
+
+                if str(req["run"]) == TaskStatus.CANCEL.value:
+                    tasks = list(TaskService.query(doc_id=doc_id))
+                    has_unfinished_task = any((task.progress or 0) < 1 for task in tasks)
+                    if str(doc.run) in [TaskStatus.RUNNING.value, TaskStatus.CANCEL.value] or has_unfinished_task:
+                        cancel_all_task_of(doc_id)
+                    else:
+                        return RetCode.DATA_ERROR, "Cannot cancel a task that is not in RUNNING status"
+                if all([rerun_with_delete, str(doc.run) == TaskStatus.DONE.value]):
+                    DocumentService.clear_chunk_num_when_rerun(doc_id)
+
+                DocumentService.update_by_id(doc_id, info)
+                if req.get("delete", False):
+                    TaskService.filter_delete([Task.doc_id == doc_id])
+                    if settings.docStoreConn.index_exist(search.index_name(doc_scope_id), doc.kb_id):
+                        settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(doc_scope_id), doc.kb_id)
+
+                if str(req["run"]) == TaskStatus.RUNNING.value:
+                    if req.get("apply_kb"):
+                        e, kb = KnowledgebaseService.get_by_id(doc.kb_id)
+                        if not e:
+                            raise LookupError("Can't find this dataset!")
+                        doc.parser_config["llm_id"] = kb.parser_config.get("llm_id")
+                        doc.parser_config["enable_metadata"] = kb.parser_config.get("enable_metadata", False)
+                        doc.parser_config["metadata"] = kb.parser_config.get("metadata", {})
+                        DocumentService.update_parser_config(doc.id, doc.parser_config)
+                    doc_dict = doc.to_dict()
+                    DocumentService.run(doc_scope_id, doc_dict, kb_table_num_map)
+    except DocumentScheduleLockError as e:
+        return RetCode.DATA_ERROR, str(e)
 
     return None, None
 
@@ -1510,28 +1519,32 @@ async def parse_documents(scope_id, dataset_id):
         def _run_sync():
             kb_table_num_map = {}
             success_count = 0
-            for doc_id in valid_doc_ids:
-                e, doc = DocumentService.get_by_id(doc_id)
-                if not e:
-                    errors.append(f"Document not found: {doc_id}")
-                    continue
+            try:
+                with document_schedule_locks(valid_doc_ids):
+                    for doc_id in valid_doc_ids:
+                        e, doc = DocumentService.get_by_id(doc_id)
+                        if not e:
+                            errors.append(f"Document not found: {doc_id}")
+                            continue
 
-                info = {"run": str(TaskStatus.RUNNING.value), "progress": 0}
-                # If re-running a completed document, clear previous chunks
-                if str(doc.run) == TaskStatus.DONE.value:
-                    DocumentService.clear_chunk_num_when_rerun(doc.id)
-                    info["progress_msg"] = ""
-                    info["chunk_num"] = 0
-                    info["token_num"] = 0
+                        info = {"run": str(TaskStatus.RUNNING.value), "progress": 0}
+                        # If re-running a completed document, clear previous chunks
+                        if str(doc.run) == TaskStatus.DONE.value:
+                            DocumentService.clear_chunk_num_when_rerun(doc.id)
+                            info["progress_msg"] = ""
+                            info["chunk_num"] = 0
+                            info["token_num"] = 0
 
-                DocumentService.update_by_id(doc_id, info)
-                TaskService.filter_delete([Task.doc_id == doc_id])
-                if settings.docStoreConn.index_exist(search.index_name(scope_id), doc.kb_id):
-                    settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(scope_id), doc.kb_id)
+                        DocumentService.update_by_id(doc_id, info)
+                        TaskService.filter_delete([Task.doc_id == doc_id])
+                        if settings.docStoreConn.index_exist(search.index_name(scope_id), doc.kb_id):
+                            settings.docStoreConn.delete({"doc_id": doc_id}, search.index_name(scope_id), doc.kb_id)
 
-                doc_dict = doc.to_dict()
-                DocumentService.run(scope_id, doc_dict, kb_table_num_map)
-                success_count += 1
+                        doc_dict = doc.to_dict()
+                        DocumentService.run(scope_id, doc_dict, kb_table_num_map)
+                        success_count += 1
+            except DocumentScheduleLockError as e:
+                errors.append(str(e))
 
             result = {"success_count": success_count}
             if errors:
@@ -1541,6 +1554,8 @@ async def parse_documents(scope_id, dataset_id):
         result = await thread_pool_exec(_run_sync)
         if not_found_ids:
             return get_error_data_result(message=f"Documents not found: {not_found_ids}")
+        if document_schedule_lock_failed_without_success(result["success_count"], result.get("errors")):
+            return get_error_data_result(message="; ".join(result["errors"]))
         return get_result(data=result)
     except Exception as e:
         logging.exception(e)
@@ -1618,32 +1633,36 @@ async def stop_parse_documents(scope_id, dataset_id):
     try:
         def _run_sync():
             success_count = 0
-            for doc_id in valid_doc_ids:
-                e, doc = DocumentService.get_by_id(doc_id)
-                if not e:
-                    errors.append(f"Document not found: {doc_id}")
-                    continue
+            try:
+                with document_schedule_locks(valid_doc_ids):
+                    for doc_id in valid_doc_ids:
+                        e, doc = DocumentService.get_by_id(doc_id)
+                        if not e:
+                            errors.append(f"Document not found: {doc_id}")
+                            continue
 
-                # Check if the document is currently running
-                tasks = list(TaskService.query(doc_id=doc_id))
-                has_unfinished_task = any((task.progress or 0) < 1 for task in tasks)
-                if str(doc.run) not in [TaskStatus.RUNNING.value, TaskStatus.CANCEL.value] and not has_unfinished_task:
-                    errors.append("Can't stop parsing document that has not started or already completed")
-                    continue
+                        # Check if the document is currently running
+                        tasks = list(TaskService.query(doc_id=doc_id))
+                        has_unfinished_task = any((task.progress or 0) < 1 for task in tasks)
+                        if str(doc.run) not in [TaskStatus.RUNNING.value, TaskStatus.CANCEL.value] and not has_unfinished_task:
+                            errors.append("Can't stop parsing document that has not started or already completed")
+                            continue
 
-                cancel_all_task_of(doc_id)
-                DocumentService.update_by_id(
-                    doc_id,
-                    {
-                        "run": str(TaskStatus.CANCEL.value),
-                        "progress": 0,
-                        "chunk_num": 0,
-                    },
-                )
-                index_name = search.index_name(scope_id)
-                if settings.docStoreConn.index_exist(index_name, doc.kb_id):
-                    settings.docStoreConn.delete({"doc_id": doc.id}, index_name, doc.kb_id)
-                success_count += 1
+                        cancel_all_task_of(doc_id)
+                        DocumentService.update_by_id(
+                            doc_id,
+                            {
+                                "run": str(TaskStatus.CANCEL.value),
+                                "progress": 0,
+                                "chunk_num": 0,
+                            },
+                        )
+                        index_name = search.index_name(scope_id)
+                        if settings.docStoreConn.index_exist(index_name, doc.kb_id):
+                            settings.docStoreConn.delete({"doc_id": doc.id}, index_name, doc.kb_id)
+                        success_count += 1
+            except DocumentScheduleLockError as e:
+                errors.append(str(e))
 
             result = {"success_count": success_count}
             if errors:
@@ -1653,6 +1672,8 @@ async def stop_parse_documents(scope_id, dataset_id):
         result = await thread_pool_exec(_run_sync)
         if not_found_ids:
             return get_error_data_result(message=f"Documents not found: {not_found_ids}")
+        if document_schedule_lock_failed_without_success(result["success_count"], result.get("errors")):
+            return get_error_data_result(message="; ".join(result["errors"]))
         return get_result(data=result)
     except Exception as e:
         logging.exception(e)

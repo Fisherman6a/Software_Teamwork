@@ -29,6 +29,7 @@ from api.db.services.knowledgebase_service import KnowledgebaseService
 from api.db.services.task_service import DATASET_SCOPE_TASK_DOC_ID, TaskService
 from common.constants import FileSource, LLMType, StatusEnum
 from api.utils.api_utils import deep_merge, get_parser_config, remap_dictionary_keys, verify_embedding_availability
+from api.utils.document_lock_utils import DocumentScheduleLockError, document_schedule_locks
 from api.utils.runtime_model_config import default_model_id
 
 _VALID_INDEX_TYPES = {"graph", "raptor", "mindmap"}
@@ -194,29 +195,35 @@ async def delete_datasets(scope_id: str, ids: list = None, delete_all: bool = Fa
     errors = []
     success_count = 0
     for kb_id, kb in kb_id_instance_pairs:
-        for doc in DocumentService.query(kb_id=kb_id):
-            if not DocumentService.remove_document(doc, scope_id):
-                errors.append(f"Remove document '{doc.id}' error for dataset '{kb_id}'")
-                continue
-            f2d = File2DocumentService.get_by_document_id(doc.id)
-            if f2d:
-                FileService.filter_delete(
-                    [
-                        File.source_type == FileSource.KNOWLEDGEBASE,
-                        File.id == f2d[0].file_id,
-                    ]
-                )
-            else:
-                # Normal uploads create a File2Document row via FileService.add_file_from_kb.
-                # A missing row usually means stale/partial data (e.g. link removed earlier,
-                # failed post-insert file linkage, or legacy rows). Deletion still proceeds.
-                logging.warning(
-                    "delete_datasets: document %s in dataset %s has no File2Document row; "
-                    "skipping linked file delete",
-                    doc.id,
-                    kb_id,
-                )
-            File2DocumentService.delete_by_document_id(doc.id)
+        docs = list(DocumentService.query(kb_id=kb_id))
+        try:
+            with document_schedule_locks([doc.id for doc in docs]):
+                for doc in docs:
+                    if not DocumentService.remove_document(doc, scope_id):
+                        errors.append(f"Remove document '{doc.id}' error for dataset '{kb_id}'")
+                        continue
+                    f2d = File2DocumentService.get_by_document_id(doc.id)
+                    if f2d:
+                        FileService.filter_delete(
+                            [
+                                File.source_type == FileSource.KNOWLEDGEBASE,
+                                File.id == f2d[0].file_id,
+                            ]
+                        )
+                    else:
+                        # Normal uploads create a File2Document row via FileService.add_file_from_kb.
+                        # A missing row usually means stale/partial data (e.g. link removed earlier,
+                        # failed post-insert file linkage, or legacy rows). Deletion still proceeds.
+                        logging.warning(
+                            "delete_datasets: document %s in dataset %s has no File2Document row; "
+                            "skipping linked file delete",
+                            doc.id,
+                            kb_id,
+                        )
+                    File2DocumentService.delete_by_document_id(doc.id)
+        except DocumentScheduleLockError as e:
+            errors.append(str(e))
+            continue
         FileService.filter_delete([File.source_type == FileSource.KNOWLEDGEBASE, File.type == "folder", File.name == kb.name])
 
         # Drop index for this dataset
