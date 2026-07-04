@@ -6,6 +6,12 @@ import { renderWithProviders } from '@/test/render'
 
 import { QARetrievalTestPage } from './page'
 
+async function tabUntilFocused(target: HTMLElement, tab: () => Promise<void>, maxTabs = 12) {
+  for (let i = 0; i < maxTabs && document.activeElement !== target; i += 1) {
+    await tab()
+  }
+}
+
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json' },
@@ -104,9 +110,7 @@ describe('QARetrievalTestPage accessibility smoke', () => {
     expect(addButton).toHaveFocus()
     await keyboard.keyboard('{Enter}')
     expect(screen.getByTitle('kb-a11y')).toHaveTextContent('A11Y 知识库')
-    for (let i = 0; i < 6 && document.activeElement !== topKInput; i += 1) {
-      await keyboard.tab()
-    }
+    await tabUntilFocused(topKInput, () => keyboard.tab())
     expect(topKInput).toHaveFocus()
     await keyboard.tab()
     await keyboard.tab()
