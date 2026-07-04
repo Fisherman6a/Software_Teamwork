@@ -1,26 +1,29 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/Sakayori-Iroha-168/Software_Teamwork/services/document/internal/service"
 )
 
 type jobResponse struct {
-	ID           string            `json:"id"`
-	JobType      string            `json:"jobType"`
-	Status       string            `json:"status"`
-	ReportID     string            `json:"reportId"`
-	AttemptCount int               `json:"attemptCount"`
-	MaxAttempts  int               `json:"maxAttempts"`
-	Progress     map[string]any    `json:"progress"`
-	Error        *jobErrorResponse `json:"error,omitempty"`
-	ErrorCode    string            `json:"errorCode,omitempty"`
-	ErrorMessage string            `json:"errorMessage,omitempty"`
-	StartedAt    *string           `json:"startedAt,omitempty"`
-	FinishedAt   *string           `json:"finishedAt,omitempty"`
-	CreatedAt    string            `json:"createdAt"`
+	ID            string            `json:"id"`
+	ReportID      string            `json:"reportId"`
+	TemplateID    string            `json:"templateId,omitempty"`
+	JobType       string            `json:"jobType"`
+	TargetType    string            `json:"targetType,omitempty"`
+	TargetID      string            `json:"targetId,omitempty"`
+	Status        string            `json:"status"`
+	Progress      map[string]any    `json:"progress"`
+	ResultSummary string            `json:"resultSummary,omitempty"`
+	Error         *jobErrorResponse `json:"error,omitempty"`
+	StartedAt     *string           `json:"startedAt,omitempty"`
+	FinishedAt    *string           `json:"finishedAt,omitempty"`
+	CreatedAt     string            `json:"createdAt"`
 }
 
 type jobErrorResponse struct {
@@ -32,11 +35,8 @@ type attemptResponse struct {
 	ID            string            `json:"id"`
 	JobID         string            `json:"jobId"`
 	AttemptNumber int               `json:"attemptNumber"`
-	TriggerSource string            `json:"triggerSource"`
 	Status        string            `json:"status"`
 	Error         *jobErrorResponse `json:"error,omitempty"`
-	ErrorCode     string            `json:"errorCode,omitempty"`
-	ErrorMessage  string            `json:"errorMessage,omitempty"`
 	StartedAt     *string           `json:"startedAt,omitempty"`
 	FinishedAt    *string           `json:"finishedAt,omitempty"`
 	CreatedAt     string            `json:"createdAt"`
@@ -53,16 +53,16 @@ type eventResponse struct {
 
 func toJobResponse(j service.ReportJob) jobResponse {
 	r := jobResponse{
-		ID:           j.ID,
-		JobType:      string(j.JobType),
-		Status:       string(j.Status),
-		ReportID:     j.ReportID,
-		AttemptCount: j.RetryCount + 1,
-		MaxAttempts:  j.MaxAttempts,
-		Progress:     j.Progress,
-		ErrorCode:    j.ErrorCode,
-		ErrorMessage: j.ErrorMessage,
-		CreatedAt:    j.CreatedAt.UTC().Format(time.RFC3339),
+		ID:            j.ID,
+		ReportID:      j.ReportID,
+		TemplateID:    j.TemplateID,
+		JobType:       string(j.JobType),
+		TargetType:    j.TargetType,
+		TargetID:      j.TargetID,
+		Status:        string(j.Status),
+		Progress:      j.Progress,
+		ResultSummary: reportJobResultSummary(j),
+		CreatedAt:     j.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	if r.Progress == nil {
 		r.Progress = map[string]any{}
@@ -81,15 +81,122 @@ func toJobResponse(j service.ReportJob) jobResponse {
 	return r
 }
 
+func reportJobResultSummary(j service.ReportJob) string {
+	terminal := j.Status == service.JobStatusSucceeded || j.Status == service.JobStatusPartialSucceeded
+	inProgress := j.Status == service.JobStatusRunning
+	if !terminal && !inProgress {
+		return ""
+	}
+
+	completed, total, hasProgress := reportJobProgressCounts(j.Progress)
+	meaningfulProgress := hasProgress && total > 0 && (completed > 0 || total > 1 || terminal)
+
+	switch j.JobType {
+	case service.JobTypeOutlineGeneration, service.JobTypeOutlineRegeneration:
+		if meaningfulProgress {
+			if terminal && completed >= total {
+				return fmt.Sprintf("已生成 %d 个大纲节点", completed)
+			}
+			return fmt.Sprintf("已生成 %d / %d 个大纲节点", completed, total)
+		}
+		if terminal {
+			return "已生成大纲初稿"
+		}
+	case service.JobTypeContentGeneration, service.JobTypeContentRegeneration, service.JobTypeSectionRegeneration:
+		if meaningfulProgress {
+			return fmt.Sprintf("已生成 %d / %d 个章节", completed, total)
+		}
+		if j.Status == service.JobStatusPartialSucceeded {
+			return "已完成部分正文生成"
+		}
+		if terminal {
+			return "已完成正文生成"
+		}
+	case service.JobTypeReportFileCreation:
+		if terminal {
+			return "已生成报告文件"
+		}
+		if inProgress {
+			return "报告文件生成中"
+		}
+	}
+	return ""
+}
+
+func reportJobProgressCounts(progress map[string]any) (int, int, bool) {
+	completed, completedOK := reportJobProgressInt(progress, "completed", "completedSections")
+	total, totalOK := reportJobProgressInt(progress, "total", "totalSections")
+	if !completedOK || !totalOK {
+		return 0, 0, false
+	}
+	if completed < 0 {
+		completed = 0
+	}
+	if total < 0 {
+		total = 0
+	}
+	if completed > total && total > 0 {
+		completed = total
+	}
+	return completed, total, true
+}
+
+func reportJobProgressInt(progress map[string]any, keys ...string) (int, bool) {
+	if progress == nil {
+		return 0, false
+	}
+	for _, key := range keys {
+		value, ok := progress[key]
+		if !ok {
+			continue
+		}
+		switch v := value.(type) {
+		case int:
+			return v, true
+		case int8:
+			return int(v), true
+		case int16:
+			return int(v), true
+		case int32:
+			return int(v), true
+		case int64:
+			return int(v), true
+		case uint:
+			return int(v), true
+		case uint8:
+			return int(v), true
+		case uint16:
+			return int(v), true
+		case uint32:
+			return int(v), true
+		case uint64:
+			return int(v), true
+		case float32:
+			return int(v), true
+		case float64:
+			return int(v), true
+		case json.Number:
+			if i, err := v.Int64(); err == nil {
+				return int(i), true
+			}
+			if f, err := v.Float64(); err == nil {
+				return int(f), true
+			}
+		case string:
+			if i, err := strconv.Atoi(v); err == nil {
+				return i, true
+			}
+		}
+	}
+	return 0, false
+}
+
 func toAttemptResponse(a service.ReportJobAttempt) attemptResponse {
 	r := attemptResponse{
 		ID:            a.ID,
 		JobID:         a.JobID,
 		AttemptNumber: a.AttemptNumber,
-		TriggerSource: a.TriggerSource,
 		Status:        string(a.Status),
-		ErrorCode:     a.ErrorCode,
-		ErrorMessage:  a.ErrorMessage,
 		CreatedAt:     a.CreatedAt.UTC().Format(time.RFC3339),
 	}
 	if a.ErrorCode != "" || a.ErrorMessage != "" {

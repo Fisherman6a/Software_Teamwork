@@ -49,6 +49,48 @@ func TestDocumentOpenAPIReportBaseResourcesMatchImplementedEnvelope(t *testing.T
 
 	assertOpenAPIQueryParameter(t, document, "get", "/report-templates", "enabled", "boolean")
 
+	for _, route := range []struct {
+		method string
+		path   string
+		status string
+		ref    string
+	}{
+		{method: "get", path: "/reports/{reportId}/jobs", status: "200", ref: "#/components/schemas/ReportJobListResponse"},
+		{method: "post", path: "/reports/{reportId}/jobs", status: "202", ref: "#/components/schemas/ReportJobResponse"},
+		{method: "get", path: "/report-jobs/{jobId}", status: "200", ref: "#/components/schemas/ReportJobResponse"},
+		{method: "patch", path: "/report-jobs/{jobId}", status: "200", ref: "#/components/schemas/ReportJobResponse"},
+		{method: "get", path: "/report-jobs/{jobId}/attempts", status: "200", ref: "#/components/schemas/ReportJobAttemptListResponse"},
+		{method: "post", path: "/report-jobs/{jobId}/attempts", status: "202", ref: "#/components/schemas/ReportJobAttemptResponse"},
+	} {
+		assertOpenAPISuccessResponseRef(t, document, route.method, route.path, route.status, route.ref)
+	}
+	assertSchemaHasFields(t, spec, "ReportJobResponse", "data:", "requestId:")
+	assertSchemaHasFields(t, spec, "ReportJobListResponse", "data:", "requestId:")
+	assertSchemaHasFields(t, spec, "ReportJobAttemptResponse", "data:", "requestId:")
+	assertSchemaHasFields(t, spec, "ReportJobAttemptListResponse", "data:", "requestId:")
+	reportJobSchema := openAPISchemaBlock(t, spec, "ReportJob")
+	for _, field := range []string{"templateId:", "targetType:", "targetId:", "resultSummary:", "error:"} {
+		if !strings.Contains(reportJobSchema, field) {
+			t.Fatalf("ReportJob schema missing %s in:\n%s", field, reportJobSchema)
+		}
+	}
+	for _, staleField := range []string{"attemptCount:", "maxAttempts:", "errorCode:", "errorMessage:"} {
+		if containsYAMLField(reportJobSchema, staleField) {
+			t.Fatalf("ReportJob schema still contains stale field %s in:\n%s", staleField, reportJobSchema)
+		}
+	}
+	reportJobAttemptSchema := openAPISchemaBlock(t, spec, "ReportJobAttempt")
+	for _, field := range []string{"id:", "jobId:", "attemptNumber:", "status:", "error:", "createdAt:"} {
+		if !strings.Contains(reportJobAttemptSchema, field) {
+			t.Fatalf("ReportJobAttempt schema missing %s in:\n%s", field, reportJobAttemptSchema)
+		}
+	}
+	for _, staleField := range []string{"triggerSource:", "errorCode:", "errorMessage:"} {
+		if containsYAMLField(reportJobAttemptSchema, staleField) {
+			t.Fatalf("ReportJobAttempt schema still contains stale field %s in:\n%s", staleField, reportJobAttemptSchema)
+		}
+	}
+
 	templateSchema := openAPISchemaBlock(t, spec, "ReportTemplate")
 	for _, field := range []string{"templateName:", "version:", "enabled:"} {
 		if !strings.Contains(templateSchema, field) {

@@ -115,6 +115,7 @@ func (s *JobService) CreateJob(ctx context.Context, rctx RequestContext, input C
 		TargetID:       targetID,
 		QueueName:      "document",
 		ReportID:       input.ReportID,
+		TemplateID:     report.TemplateID,
 		RequestPayload: createJobRequestPayload(input, targetType, targetID),
 		Status:         JobStatusPending,
 		MaxAttempts:    3,

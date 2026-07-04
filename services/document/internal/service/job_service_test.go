@@ -12,8 +12,9 @@ func TestJobServiceCreateJobAcceptsDocumentJobTypes(t *testing.T) {
 	ctx := context.Background()
 	repo := &fakeJobRepository{
 		report: Report{
-			ID:        "report-1",
-			CreatorID: "user-1",
+			ID:         "report-1",
+			TemplateID: "template-1",
+			CreatorID:  "user-1",
 		},
 	}
 	enqueuer := &fakeTaskEnqueuer{}
@@ -33,6 +34,9 @@ func TestJobServiceCreateJobAcceptsDocumentJobTypes(t *testing.T) {
 	}
 	if enqueuer.jobType != JobTypeContentGeneration {
 		t.Fatalf("enqueued job type = %q, want %q", enqueuer.jobType, JobTypeContentGeneration)
+	}
+	if job.TemplateID != "template-1" || repo.createdJob.TemplateID != "template-1" {
+		t.Fatalf("job template ID = %q persisted %q, want template-1", job.TemplateID, repo.createdJob.TemplateID)
 	}
 	if repo.report.LatestJobID != job.ID || repo.report.Status != ReportStatusContentGenerating {
 		t.Fatalf("report generation metadata = %+v, want latest job and content_generating", repo.report)

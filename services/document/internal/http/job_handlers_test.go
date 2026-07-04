@@ -103,6 +103,65 @@ func TestCreateJobAcceptsGenerationPayload(t *testing.T) {
 	}
 }
 
+func TestGetJobResponseMatchesGatewayReportJobContract(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 0, 0, 0, time.UTC)
+	mock := &mockJobSvc{
+		getJobFn: func(ctx context.Context, rctx service.RequestContext, id string) (service.ReportJob, error) {
+			return service.ReportJob{
+				ID:         id,
+				ReportID:   "report-1",
+				TemplateID: "template-1",
+				JobType:    service.JobTypeContentGeneration,
+				TargetType: "report",
+				TargetID:   "report-1",
+				Status:     service.JobStatusSucceeded,
+				Progress: map[string]any{
+					"completed": 2,
+					"total":     4,
+				},
+				ErrorCode:    "execution_failed",
+				ErrorMessage: "report job execution failed",
+				StartedAt:    &now,
+				FinishedAt:   &now,
+				CreatedAt:    now,
+			}, nil
+		},
+	}
+	server := newTestServerWithJobSvc(mock)
+
+	req := httptest.NewRequest(http.MethodGet, "/report-jobs/job-1", nil)
+	req.Header.Set("X-User-Id", "usr_owner")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var body struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	for _, field := range []string{"id", "reportId", "templateId", "jobType", "targetType", "targetId", "status", "progress", "resultSummary", "error", "createdAt"} {
+		if _, ok := body.Data[field]; !ok {
+			t.Fatalf("response missing %s: %#v", field, body.Data)
+		}
+	}
+	for _, legacyField := range []string{"attemptCount", "maxAttempts", "errorCode", "errorMessage"} {
+		if _, ok := body.Data[legacyField]; ok {
+			t.Fatalf("response contains legacy field %s: %#v", legacyField, body.Data)
+		}
+	}
+	if body.Data["resultSummary"] != "已生成 2 / 4 个章节" {
+		t.Fatalf("resultSummary = %#v", body.Data["resultSummary"])
+	}
+	errObj, ok := body.Data["error"].(map[string]any)
+	if !ok || errObj["code"] != "execution_failed" || errObj["message"] != "report job execution failed" {
+		t.Fatalf("error = %#v", body.Data["error"])
+	}
+}
+
 func TestListJobsEmptyList(t *testing.T) {
 	mock := &mockJobSvc{
 		listJobsFn: func(ctx context.Context, rctx service.RequestContext, reportID string) ([]service.ReportJob, error) {
@@ -251,6 +310,44 @@ func TestRetryJobMaxAttemptsReached(t *testing.T) {
 	}
 }
 
+func TestRetryJobAttemptResponseMatchesGatewayContract(t *testing.T) {
+	now := time.Date(2026, 7, 4, 12, 30, 0, 0, time.UTC)
+	mock := &mockJobSvc{
+		retryJobFn: func(ctx context.Context, rctx service.RequestContext, id, reason string) (service.ReportJobAttempt, error) {
+			return service.ReportJobAttempt{
+				ID:            "attempt-2",
+				JobID:         id,
+				AttemptNumber: 2,
+				TriggerSource: "manual",
+				Status:        service.JobStatusFailed,
+				ErrorCode:     "execution_failed",
+				ErrorMessage:  "report job execution failed",
+				StartedAt:     &now,
+				FinishedAt:    &now,
+				CreatedAt:     now,
+			}, nil
+		},
+	}
+	server := newTestServerWithJobSvc(mock)
+
+	req := httptest.NewRequest(http.MethodPost, "/report-jobs/job-1/attempts", strings.NewReader(`{"reason":"retry"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_owner")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	var body struct {
+		Data map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	assertAttemptResponseMatchesGatewayContract(t, body.Data)
+}
+
 func TestListAttempts(t *testing.T) {
 	now := time.Now().UTC()
 	mock := &mockJobSvc{
@@ -262,6 +359,8 @@ func TestListAttempts(t *testing.T) {
 					AttemptNumber: 1,
 					TriggerSource: "system",
 					Status:        service.JobStatusSucceeded,
+					ErrorCode:     "execution_failed",
+					ErrorMessage:  "report job execution failed",
 					CreatedAt:     now,
 				},
 			}, nil
@@ -277,6 +376,16 @@ func TestListAttempts(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
+	var body struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(body.Data) != 1 {
+		t.Fatalf("attempt count = %d, want 1", len(body.Data))
+	}
+	assertAttemptResponseMatchesGatewayContract(t, body.Data[0])
 }
 
 func TestListEvents(t *testing.T) {
@@ -294,5 +403,24 @@ func TestListEvents(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func assertAttemptResponseMatchesGatewayContract(t *testing.T, data map[string]any) {
+	t.Helper()
+
+	for _, field := range []string{"id", "jobId", "attemptNumber", "status", "error", "createdAt"} {
+		if _, ok := data[field]; !ok {
+			t.Fatalf("attempt response missing %s: %#v", field, data)
+		}
+	}
+	for _, legacyField := range []string{"triggerSource", "errorCode", "errorMessage"} {
+		if _, ok := data[legacyField]; ok {
+			t.Fatalf("attempt response contains legacy field %s: %#v", legacyField, data)
+		}
+	}
+	errObj, ok := data["error"].(map[string]any)
+	if !ok || errObj["code"] != "execution_failed" || errObj["message"] != "report job execution failed" {
+		t.Fatalf("error = %#v", data["error"])
 	}
 }

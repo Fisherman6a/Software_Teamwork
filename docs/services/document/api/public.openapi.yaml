@@ -390,12 +390,7 @@ paths:
           description: Report job list
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: '#/components/schemas/ReportJob' }
+              schema: { $ref: '#/components/schemas/ReportJobListResponse' }
         default: { $ref: '#/components/responses/Error' }
     post:
       tags: [Jobs]
@@ -413,7 +408,7 @@ paths:
           description: Report job accepted
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReportJob' }
+              schema: { $ref: '#/components/schemas/ReportJobResponse' }
         default: { $ref: '#/components/responses/Error' }
   /report-jobs/{jobId}:
     get:
@@ -426,7 +421,7 @@ paths:
           description: Report job
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReportJob' }
+              schema: { $ref: '#/components/schemas/ReportJobResponse' }
         default: { $ref: '#/components/responses/Error' }
     patch:
       tags: [Jobs]
@@ -444,7 +439,7 @@ paths:
           description: Report job updated
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReportJob' }
+              schema: { $ref: '#/components/schemas/ReportJobResponse' }
         default: { $ref: '#/components/responses/Error' }
   /report-jobs/{jobId}/attempts:
     get:
@@ -457,12 +452,7 @@ paths:
           description: Report job attempts
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  items:
-                    type: array
-                    items: { $ref: '#/components/schemas/ReportJobAttempt' }
+              schema: { $ref: '#/components/schemas/ReportJobAttemptListResponse' }
         default: { $ref: '#/components/responses/Error' }
     post:
       tags: [Jobs]
@@ -480,7 +470,7 @@ paths:
           description: Report job attempt accepted
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReportJobAttempt' }
+              schema: { $ref: '#/components/schemas/ReportJobAttemptResponse' }
         default: { $ref: '#/components/responses/Error' }
   /reports/{reportId}/events:
     get:
@@ -1097,42 +1087,68 @@ components:
         createdAt: { type: string, format: date-time }
     ReportJob:
       type: object
+      required: [id, reportId, jobType, status, createdAt]
       properties:
         id: { type: string }
         reportId: { type: string }
+        templateId: { type: string }
         jobType: { type: string, enum: [outline_generation, outline_regeneration, content_generation, content_regeneration, section_regeneration, report_file_creation] }
+        targetType: { type: string }
+        targetId: { type: string }
         status: { type: string, enum: [pending, running, succeeded, partial_succeeded, failed, canceled] }
-        attemptCount:
-          type: integer
-          description: Current attempt count persisted in PostgreSQL.
-        maxAttempts:
-          type: integer
-          description: Automatic retry limit; fixed to 3 for MVP.
         progress:
           type: object
-          properties:
-            completed: { type: integer }
-            total: { type: integer }
-        currentSectionId: { type: string }
-        errorMessage: { type: string, nullable: true }
-        attempts:
-          type: array
-          description: Recent attempt summaries, capped at the latest 10 attempts.
-          items: { $ref: '#/components/schemas/ReportJobAttempt' }
+          additionalProperties: true
+        resultSummary: { type: string }
+        error: { $ref: '#/components/schemas/ReportJobError' }
+        startedAt: { type: string, format: date-time }
+        finishedAt: { type: string, format: date-time }
         createdAt: { type: string, format: date-time }
-        updatedAt: { type: string, format: date-time }
+    ReportJobError:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
     ReportJobAttempt:
       type: object
+      required: [id, jobId, status, createdAt]
       properties:
         id: { type: string }
         jobId: { type: string }
         attemptNumber: { type: integer }
-        stage: { type: string }
         status: { type: string }
-        errorCode: { type: string, nullable: true }
-        errorMessage: { type: string, nullable: true }
+        error: { $ref: '#/components/schemas/ReportJobError' }
         startedAt: { type: string, format: date-time }
-        finishedAt: { type: string, format: date-time, nullable: true }
+        finishedAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+    ReportJobResponse:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: { $ref: '#/components/schemas/ReportJob' }
+        requestId: { type: string }
+    ReportJobListResponse:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ReportJob' }
+        requestId: { type: string }
+    ReportJobAttemptResponse:
+      type: object
+      required: [data, requestId]
+      properties:
+        data: { $ref: '#/components/schemas/ReportJobAttempt' }
+        requestId: { type: string }
+    ReportJobAttemptListResponse:
+      type: object
+      required: [data, requestId]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ReportJobAttempt' }
+        requestId: { type: string }
     CreateReportJobAttemptRequest:
       type: object
       properties:

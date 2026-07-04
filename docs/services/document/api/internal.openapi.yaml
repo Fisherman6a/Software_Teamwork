@@ -318,39 +318,35 @@ components:
       type: object
       required:
         - id
+        - reportId
         - jobType
         - status
-        - reportId
-        - attemptCount
-        - maxAttempts
-        - progress
         - createdAt
       properties:
         id:
           type: string
           format: uuid
-        jobType:
-          $ref: "#/components/schemas/ReportJobType"
-        status:
-          $ref: "#/components/schemas/ReportJobStatus"
         reportId:
           type: string
           format: uuid
-        attemptCount:
-          type: integer
-          minimum: 1
-        maxAttempts:
-          type: integer
-          minimum: 1
+        templateId:
+          type: string
+          format: uuid
+        jobType:
+          $ref: "#/components/schemas/ReportJobType"
+        targetType:
+          type: string
+        targetId:
+          type: string
+        status:
+          $ref: "#/components/schemas/ReportJobStatus"
         progress:
           type: object
           additionalProperties: true
+        resultSummary:
+          type: string
         error:
           $ref: "#/components/schemas/ReportJobError"
-        errorCode:
-          type: string
-        errorMessage:
-          type: string
         startedAt:
           type: string
           format: date-time
@@ -365,8 +361,6 @@ components:
       required:
         - id
         - jobId
-        - attemptNumber
-        - triggerSource
         - status
         - createdAt
       properties:
@@ -379,16 +373,10 @@ components:
         attemptNumber:
           type: integer
           minimum: 1
-        triggerSource:
-          type: string
         status:
           $ref: "#/components/schemas/ReportJobStatus"
         error:
           $ref: "#/components/schemas/ReportJobError"
-        errorCode:
-          type: string
-        errorMessage:
-          type: string
         startedAt:
           type: string
           format: date-time
