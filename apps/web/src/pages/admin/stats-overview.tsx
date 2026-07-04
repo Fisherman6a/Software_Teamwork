@@ -100,7 +100,7 @@ function StatCard({
 }: {
   label: string
   value: string
-  icon: React.ComponentType<{ className?: string }>
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
   suffix?: string
   accent: string
 }) {
@@ -274,11 +274,12 @@ function TrendChart({ points }: { points: QAMetricsTrendPoint[] }) {
         backgroundColor: cardBg(),
         borderColor: bc,
         textStyle: { fontSize: 13 },
-        formatter: (params: { name: string; data: number; seriesName: string }[]) => {
-          const barSeries = params.find((p) => p.seriesName === '问答数量')
-          if (!barSeries) return ''
-          const idx = params[0].dataIndex
+        formatter: (params: unknown) => {
+          const items = params as { seriesName: string; dataIndex: number }[] | null
+          if (!items || items.length === 0 || !items[0]) return ''
+          const idx = items[0].dataIndex
           const real = realData[idx]
+          if (real === undefined) return ''
           return `${categories[idx]}<br/>问答数量: ${real.toLocaleString()}`
         },
       },

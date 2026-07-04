@@ -27,7 +27,7 @@ echarts.use([
 ])
 
 type EChartsWrapperProps = {
-  option: echarts.EChartsOption
+  option: echarts.EChartsCoreOption
   className?: string
   style?: React.CSSProperties
   theme?: string | object
