@@ -85,6 +85,7 @@ type SectionGenerationReset = {
   jobId: string
   requireFreshSectionTimestamp?: boolean
   reportId: string
+  sectionId?: string
   status: Extract<ReportJobStatus, 'pending' | 'running'>
 }
 
@@ -617,8 +618,17 @@ function getRetryAwareSections(
   job?: ReportJob | null,
 ): ReportSection[] {
   if (!shouldApplySectionGenerationReset(reset, job) || !isContentJob(job)) return sections
+  const resetSectionId =
+    reset.sectionId ??
+    (job?.jobType === 'section_regeneration' && job.targetType === 'section'
+      ? job.targetId
+      : undefined)
 
   return sections.map((section) => {
+    if (resetSectionId && section.id !== resetSectionId) {
+      return section
+    }
+
     if (section.lastJobId === reset.jobId) {
       if (!reset.requireFreshSectionTimestamp || sectionUpdatedAfterResetAttempt(section, reset)) {
         return section
@@ -1413,6 +1423,55 @@ export function ReportGeneratePage() {
     }
   }
 
+  const handleRegenerateActiveSection = async () => {
+    if (!currentReport || !activeSection) {
+      setNotice('暂无可重新生成的服务端章节。')
+      return
+    }
+    if (canCancelJob) {
+      setNotice('当前已有生成任务运行中，请先等待完成或取消任务。')
+      return
+    }
+    const targetSection = activeSection
+
+    const sectionOptions: Record<string, unknown> = {
+      preserveUserEdits: true,
+      saveResult: true,
+    }
+    if (shouldSubmitKnowledgeBaseIds) {
+      sectionOptions.knowledgeBaseIds = selectedKnowledgeBaseIds
+    }
+
+    try {
+      const job = await createJobMutation.mutateAsync({
+        reportId: currentReport.id,
+        payload: {
+          jobType: 'section_regeneration',
+          target: { scope: 'section', sectionId: targetSection.id },
+          materialIds: selectedMaterialIds,
+          options: sectionOptions,
+        },
+      })
+      setLastJob(job)
+      setActiveJobId(job.id)
+      if (job.status === 'pending' || job.status === 'running') {
+        setSectionGenerationReset({
+          attemptCreatedAtMs: parseTimestampMs(job.createdAt) ?? Date.now(),
+          jobId: job.id,
+          reportId: job.reportId,
+          sectionId: targetSection.id,
+          status: toActiveGenerationStatus(job.status),
+        })
+      } else {
+        setSectionGenerationReset(null)
+      }
+      setStep('content')
+      setNotice(`已提交“${targetSection.title}”章节重新生成任务。`)
+    } catch (error) {
+      setNotice(formatReportGatewayError(error, '章节重新生成任务创建失败'))
+    }
+  }
+
   const handleRetry = async () => {
     const retryJob = effectiveJob ?? lastJob
     if (retryJob?.id) {
@@ -1427,6 +1486,10 @@ export function ReportGeneratePage() {
           jobId: retryJob.id,
           requireFreshSectionTimestamp: true,
           reportId: retryJob.reportId,
+          sectionId:
+            retryJob.jobType === 'section_regeneration' && retryJob.targetType === 'section'
+              ? retryJob.targetId
+              : undefined,
           status: retryStatus,
         })
         setLastJob({
@@ -1519,6 +1582,7 @@ export function ReportGeneratePage() {
     effectiveJob?.status === 'partial_succeeded' ||
     effectiveJob?.status === 'canceled'
   const canCancelJob = effectiveJob?.status === 'pending' || effectiveJob?.status === 'running'
+  const canRegenerateActiveSection = Boolean(currentReport && activeSection && !canCancelJob)
 
   return (
     <div className="flex h-full flex-col overflow-auto bg-background">
@@ -2129,29 +2193,15 @@ export function ReportGeneratePage() {
                         </Button>
                         <Button
                           variant="outline"
-                          className="text-foreground"
-                          onClick={handleCancelJob}
-                          disabled={!canCancelJob || cancelJobMutation.isPending}
+                          onClick={handleRegenerateActiveSection}
+                          disabled={!canRegenerateActiveSection || createJobMutation.isPending}
                         >
-                          {cancelJobMutation.isPending ? (
+                          {createJobMutation.isPending ? (
                             <Loader2 className="size-4 animate-spin" />
                           ) : (
-                            <XCircle className="size-4" />
+                            <RotateCcw className="size-4" />
                           )}
-                          取消任务
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={handleRetry}
-                          disabled={
-                            effectiveJob?.status !== 'failed' &&
-                            effectiveJob?.status !== 'succeeded' &&
-                            effectiveJob?.status !== 'partial_succeeded' &&
-                            effectiveJob?.status !== 'canceled'
-                          }
-                        >
-                          <RefreshCw className="size-4" />
-                          重试任务
+                          重新生成本章
                         </Button>
                         <Button variant="outline" onClick={handleSaveSection}>
                           <PencilLine className="size-4" />

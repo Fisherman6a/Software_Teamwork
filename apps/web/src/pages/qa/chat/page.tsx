@@ -19,6 +19,7 @@ import {
   useAttachmentUpload,
 } from '@/components/chat'
 import { ConfirmDialog } from '@/components/common'
+import { KnowledgeBaseMultiSelect } from '@/features/knowledge'
 import {
   useCreateSession,
   useDeleteSession,
@@ -554,6 +555,24 @@ export function ChatPage() {
 
   // ── Local input text ──
   const [inputText, setInputText] = useState('')
+  const [selectedKnowledgeBaseIds, setSelectedKnowledgeBaseIds] = useState<string[]>([])
+  const previousActiveIdRef = useRef(activeId)
+
+  useEffect(() => {
+    if (previousActiveIdRef.current === activeId) return
+    previousActiveIdRef.current = activeId
+    setSelectedKnowledgeBaseIds([])
+  }, [activeId])
+
+  const handleSelectSession = useCallback(
+    (sessionId: string) => {
+      if (sessionId !== activeId) {
+        setSelectedKnowledgeBaseIds([])
+      }
+      setActiveId(sessionId)
+    },
+    [activeId, setActiveId],
+  )
 
   // ── Three-phase state machine: empty → transitioning → active ──
   const [chatPhase, setChatPhase] = useState<'empty' | 'active'>('empty')
@@ -870,6 +889,7 @@ export function ChatPage() {
     try {
       const newSession = await createSessionMut.mutateAsync(NEW_QA_SESSION_TITLE)
       addSession(newSession)
+      setSelectedKnowledgeBaseIds([])
       setActiveId(newSession.id)
     } catch {
       setError('创建会话失败，请检查网络连接')
@@ -897,11 +917,14 @@ export function ChatPage() {
       try {
         await deleteSessionMut.mutateAsync(sessionId)
         removeSession(sessionId)
+        if (sessionId === activeId) {
+          setSelectedKnowledgeBaseIds([])
+        }
       } catch {
         setError('删除会话失败，请检查网络连接')
       }
     },
-    [deleteSessionMut, removeSession, setError],
+    [activeId, deleteSessionMut, removeSession, setError],
   )
 
   const handlePrepareClearAll = useCallback(async () => {
@@ -929,6 +952,7 @@ export function ChatPage() {
     }
 
     clearAllSessionIdsRef.current = null
+    setSelectedKnowledgeBaseIds([])
     if (failed > 0) setError(`${failed} 个对话删除失败，请稍后重试`)
   }, [deleteSessionMut, removeSession, setError])
 
@@ -1481,6 +1505,7 @@ export function ChatPage() {
         streamHandlers,
         undefined,
         attachmentIds.length > 0 ? attachmentIds : undefined,
+        selectedKnowledgeBaseIds.length > 0 ? selectedKnowledgeBaseIds : undefined,
       )
 
       abortRef.current = abort
@@ -1493,6 +1518,7 @@ export function ChatPage() {
       clearQaUnreadCompletion,
       createSessionMut,
       markQaCompletionUnread,
+      selectedKnowledgeBaseIds,
       setActiveId,
       setActiveStream,
       setError,
@@ -1608,7 +1634,7 @@ export function ChatPage() {
           isLoading={sessionsLoading}
           fetchError={sessionsError ? '加载会话列表失败，请检查网络连接' : null}
           onRetryFetch={() => refetchSessions()}
-          onSelect={setActiveId}
+          onSelect={handleSelectSession}
           onCreate={handleCreate}
           onDelete={handleDelete}
           onRename={handleRename}
@@ -1666,6 +1692,16 @@ export function ChatPage() {
                 onDelete={handleDeleteAttachment}
                 sessionId={activeId}
               />
+
+              <div className="mb-2">
+                <KnowledgeBaseMultiSelect
+                  value={selectedKnowledgeBaseIds}
+                  onChange={setSelectedKnowledgeBaseIds}
+                  label="知识库范围"
+                  description="未选择时使用当前 QA 配置或项目默认知识库范围。"
+                  disabled={streaming}
+                />
+              </div>
 
               <ChatInput
                 onSend={sendMessage}

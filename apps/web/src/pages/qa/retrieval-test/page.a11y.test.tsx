@@ -6,6 +6,12 @@ import { renderWithProviders } from '@/test/render'
 
 import { QARetrievalTestPage } from './page'
 
+async function tabUntilFocused(target: HTMLElement, tab: () => Promise<void>, maxTabs = 12) {
+  for (let i = 0; i < maxTabs && document.activeElement !== target; i += 1) {
+    await tab()
+  }
+}
+
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
     headers: { 'Content-Type': 'application/json' },
@@ -19,6 +25,25 @@ describe('QARetrievalTestPage accessibility smoke', () => {
     const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
       const request = input instanceof Request ? input.clone() : new Request(input, init)
       const url = new URL(request.url)
+
+      if (request.method === 'GET' && url.pathname.endsWith('/knowledge-bases')) {
+        return jsonResponse({
+          data: [
+            {
+              createdAt: '2026-07-02T08:00:00Z',
+              description: 'A11Y test knowledge base',
+              documentCount: 1,
+              id: 'kb-a11y',
+              name: 'A11Y 知识库',
+              retrievalStrategy: { mode: 'semantic' },
+              status: 'ready',
+              updatedAt: '2026-07-02T08:00:00Z',
+            },
+          ],
+          page: { page: 1, pageSize: 100, total: 1 },
+          requestId: 'req-knowledge-bases',
+        })
+      }
 
       if (request.method === 'POST' && url.pathname.endsWith('/retrieval-test-runs')) {
         submittedPayloads.push(await request.json())
@@ -59,12 +84,15 @@ describe('QARetrievalTestPage accessibility smoke', () => {
 
     renderWithProviders(<QARetrievalTestPage />)
 
-    const textboxes = screen.getAllByRole('textbox')
     const queryInput = screen.getByLabelText('Query')
+    const knowledgeSearchInput = await screen.findByLabelText('知识库范围搜索')
+    const knowledgeSelect = screen.getByRole('combobox', { name: '知识库范围选择' })
     const topKInput = screen.getByLabelText('Top K')
     const rerankCheckbox = screen.getByRole('checkbox', { name: /rerank/i })
 
     expect(queryInput).toHaveAccessibleName('Query')
+    expect(knowledgeSearchInput).toHaveAccessibleName('知识库范围搜索')
+    expect(knowledgeSelect).toHaveAccessibleName('知识库范围选择')
     expect(topKInput).toHaveAccessibleName('Top K')
     expect(rerankCheckbox).toHaveAccessibleName(/rerank/i)
 
@@ -72,9 +100,17 @@ describe('QARetrievalTestPage accessibility smoke', () => {
     expect(queryInput).toHaveFocus()
     await keyboard.keyboard('transformer oil temperature')
     await keyboard.tab()
-    expect(textboxes[1]).toHaveFocus()
-    await keyboard.keyboard('kb-a11y')
+    expect(knowledgeSearchInput).toHaveFocus()
+    await keyboard.keyboard('a11y')
     await keyboard.tab()
+    expect(knowledgeSelect).toHaveFocus()
+    await keyboard.keyboard('{Enter}{ArrowDown}{Enter}')
+    await keyboard.tab()
+    const addButton = screen.getByRole('button', { name: '添加' })
+    expect(addButton).toHaveFocus()
+    await keyboard.keyboard('{Enter}')
+    expect(screen.getByTitle('kb-a11y')).toHaveTextContent('A11Y 知识库')
+    await tabUntilFocused(topKInput, () => keyboard.tab())
     expect(topKInput).toHaveFocus()
     await keyboard.tab()
     await keyboard.tab()

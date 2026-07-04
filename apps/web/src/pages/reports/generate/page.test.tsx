@@ -158,12 +158,14 @@ async function createReportAndReachOutlineStep() {
 }
 
 function createKnowledgeSelectionFetchMock(options: {
+  contentJobStatus?: 'running' | 'succeeded'
   contentBodies: Record<string, unknown>[]
   events?: unknown[]
   knowledgeBases?: unknown[]
   knowledgeError?: boolean
   outlineJobStatus?: 'running' | 'succeeded'
   outlines?: unknown[]
+  sectionBodies?: Record<string, unknown>[]
   sections?: unknown[]
   streamFrames?: string[]
 }) {
@@ -204,16 +206,37 @@ function createKnowledgeSelectionFetchMock(options: {
       url.pathname.endsWith('/reports/rpt-knowledge-selection/jobs')
     ) {
       const body = (await request.clone().json()) as Record<string, unknown>
+      if (body.jobType === 'section_regeneration') {
+        options.sectionBodies?.push(body)
+        return jsonResponse({
+          data: {
+            createdAt: '2026-07-03T00:03:00Z',
+            id: 'job-section-knowledge',
+            jobType: 'section_regeneration',
+            progress: { completed: 0, total: 1 },
+            reportId: 'rpt-knowledge-selection',
+            status: 'running',
+            targetId: (body.target as { sectionId?: string } | undefined)?.sectionId,
+            targetType: 'section',
+          },
+          requestId: 'req-section-job',
+        })
+      }
       if (body.jobType === 'content_generation') {
+        const contentJobStatus = options.contentJobStatus ?? 'running'
         options.contentBodies.push(body)
         return jsonResponse({
           data: {
             createdAt: '2026-07-03T00:02:00Z',
+            finishedAt: contentJobStatus === 'succeeded' ? '2026-07-03T00:02:30Z' : undefined,
             id: 'job-content-knowledge',
             jobType: 'content_generation',
-            progress: { completed: 0, total: 1 },
+            progress:
+              contentJobStatus === 'succeeded'
+                ? { completed: 1, total: 1 }
+                : { completed: 0, total: 1 },
             reportId: 'rpt-knowledge-selection',
-            status: 'running',
+            status: contentJobStatus,
           },
           requestId: 'req-content-job',
         })
@@ -252,16 +275,36 @@ function createKnowledgeSelectionFetchMock(options: {
       })
     }
     if (url.pathname.endsWith('/report-jobs/job-content-knowledge')) {
+      const contentJobStatus = options.contentJobStatus ?? 'running'
       return jsonResponse({
         data: {
           createdAt: '2026-07-03T00:02:00Z',
+          finishedAt: contentJobStatus === 'succeeded' ? '2026-07-03T00:02:30Z' : undefined,
           id: 'job-content-knowledge',
           jobType: 'content_generation',
+          progress:
+            contentJobStatus === 'succeeded'
+              ? { completed: 1, total: 1 }
+              : { completed: 0, total: 1 },
+          reportId: 'rpt-knowledge-selection',
+          status: contentJobStatus,
+        },
+        requestId: 'req-content-status',
+      })
+    }
+    if (url.pathname.endsWith('/report-jobs/job-section-knowledge')) {
+      return jsonResponse({
+        data: {
+          createdAt: '2026-07-03T00:03:00Z',
+          id: 'job-section-knowledge',
+          jobType: 'section_regeneration',
           progress: { completed: 0, total: 1 },
           reportId: 'rpt-knowledge-selection',
           status: 'running',
+          targetId: 'section-knowledge',
+          targetType: 'section',
         },
-        requestId: 'req-content-status',
+        requestId: 'req-section-status',
       })
     }
     if (url.pathname.endsWith('/reports/rpt-knowledge-selection/outlines')) {
@@ -847,6 +890,61 @@ describe('ReportGeneratePage', () => {
     expect(contentBodies[0]?.options).not.toHaveProperty('knowledgeBaseIds')
   })
 
+  it('creates a section regeneration job from the active section action', async () => {
+    const contentBodies: Record<string, unknown>[] = []
+    const sectionBodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      createKnowledgeSelectionFetchMock({
+        contentBodies,
+        contentJobStatus: 'succeeded',
+        sectionBodies,
+        sections: [
+          {
+            content: '已生成正文',
+            generatedAt: '2026-07-03T00:02:30Z',
+            generationStatus: 'succeeded',
+            id: 'section-knowledge',
+            numbering: '1',
+            reportId: 'rpt-knowledge-selection',
+            sortOrder: 1,
+            title: 'Knowledge section',
+          },
+          {
+            content: '其他章节正文',
+            generatedAt: '2026-07-03T00:02:30Z',
+            generationStatus: 'succeeded',
+            id: 'section-stable',
+            numbering: '2',
+            reportId: 'rpt-knowledge-selection',
+            sortOrder: 2,
+            title: 'Stable section',
+          },
+        ],
+      }),
+    )
+
+    renderWithProviders(<ReportGeneratePage />)
+
+    await createReportAndReachOutlineStep()
+    fireEvent.click(screen.getByRole('button', { name: /^生成正文$/ }))
+
+    const regenerateButton = await screen.findByRole('button', { name: /重新生成本章/ })
+    await waitFor(() => expect(regenerateButton).toBeEnabled())
+    fireEvent.click(regenerateButton)
+
+    await waitFor(() => expect(sectionBodies).toHaveLength(1))
+    expect(sectionBodies[0]).toMatchObject({
+      jobType: 'section_regeneration',
+      target: { scope: 'section', sectionId: 'section-knowledge' },
+    })
+    const sectionList = screen.getByLabelText('章节列表')
+    await within(sectionList).findByRole('button', { name: /Knowledge section.*生成中/ })
+    expect(
+      within(sectionList).getByRole('button', { name: /Stable section.*已完成/ }),
+    ).toBeVisible()
+  })
+
   it('keeps content generation available when knowledge bases fail to load', async () => {
     const contentBodies: Record<string, unknown>[] = []
     vi.stubGlobal(
@@ -1255,7 +1353,7 @@ describe('ReportGeneratePage', () => {
 
     expect(await screen.findByText(/restore progress 1 \/ 2/)).toBeVisible()
     expect((await screen.findAllByText('restore-section-1')).length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('button', { name: /取消任务/ }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: /取消任务/ })).toHaveLength(1)
   })
 
   it('allows retrying a succeeded content generation job', async () => {
