@@ -906,10 +906,11 @@ Required local sequence:
 
 1. Copy local secret placeholders with `cp .env.example .env.local`.
 2. Run `./scripts/local/start.sh` or `./scripts/local/start.sh --china` to
-   preflight host commands, prepare missing local artifacts/images for the
-   selected source mode, wait for infra health, run one-shot `minio-init`, apply
-   host migrations, apply local seed, and start Auth, File, Knowledge, AI
-   Gateway, QA, Document, and Gateway as host processes.
+   verify `.env.local` exists without creating or modifying it, preflight host
+   commands, prepare missing local artifacts/images for the selected source
+   mode, wait for infra health, run one-shot `minio-init`, apply host
+   migrations, apply local seed, and start Auth, File, Knowledge, AI Gateway,
+   QA, Document, and Gateway as host processes.
 3. For Knowledge ingestion/retrieval scenarios, `start.sh` defaults to runtime
    API + worker, `--runtime api` starts only the API, and `--runtime none` skips
    runtime.
@@ -922,6 +923,9 @@ Runtime rules:
   non-sensitive defaults and profile overrides. Root `.env.example` is the
   local secret template, and startup scripts render runtime env through
   `scripts/config/load-profile.sh`.
+- `start.sh` must check that `.env.local` exists before prepare/start work, but
+  must never create, overwrite, or edit it. Missing `.env.local` is a preflight
+  failure with a `cp .env.example .env.local` hint.
 - Treat missing active third-party Docker registry/TUNA/goproxy.cn entries in committed profiles as
   intentional under the current source policy, not as a mainland registry
   regression. `scripts/check_docker_policy.py` should reject active committed

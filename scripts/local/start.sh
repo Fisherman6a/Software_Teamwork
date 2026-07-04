@@ -92,6 +92,8 @@ Prepares missing local tools, host-run binaries, Docker infrastructure images,
 and Knowledge runtime dependencies, then starts the local stack. By default it
 starts infrastructure, applies migrations and seed data, starts Knowledge
 runtime API plus worker, and starts backend host-run services.
+Requires an existing .env.local created by the user; the script never creates
+or overwrites it.
 
 Options:
   --china             Use mainland China Docker image rewrites and runtime
@@ -246,7 +248,23 @@ require_command_local() {
 }
 
 preflight_command() {
-  require_command_local "$1" "$2"
+  local command_name="$1"
+  local hint="$2"
+  local command_path
+  require_command_local "$command_name" "$hint" || return 1
+  command_path="$(command -v "$command_name")"
+  log_ok "$command_name: $command_path"
+}
+
+check_local_env_file() {
+  if [[ -f "$ROOT_DIR/.env.local" ]]; then
+    log_ok ".env.local present"
+    return 0
+  fi
+  log_error "missing $ROOT_DIR/.env.local"
+  log_hint "Create it once: cp .env.example .env.local"
+  log_hint "Edit .env.local for local secrets/provider settings, then rerun $(start_command_hint)."
+  return 1
 }
 
 version_number_from_go() {
@@ -286,6 +304,7 @@ check_python_version() {
 }
 
 preflight_host_environment() {
+  check_local_env_file || return 1
   preflight_command go "Install Go 1.25.x and ensure go is on PATH." || return 1
   check_go_version || return 1
   if (( ! SKIP_INFRA )); then
@@ -339,15 +358,6 @@ run_go_install() {
     env_args+=("$arg")
   done < <(go_env_args)
   run_with_heartbeat "installing goose $GOOSE_VERSION" env "${env_args[@]}" GOBIN="$TOOLS_DIR" go install "$@"
-}
-
-ensure_local_env() {
-  if [[ -f "$ROOT_DIR/.env.local" ]]; then
-    log_ok ".env.local already present"
-    return 0
-  fi
-  cp "$ROOT_DIR/.env.example" "$ROOT_DIR/.env.local"
-  log_ok "created .env.local from .env.example"
 }
 
 prepare_config_renderer() {
@@ -877,7 +887,6 @@ trap on_exit EXIT
 log_info "starting local stack; missing local artifacts will be prepared"
 run_step "preflighting host environment" preflight_host_environment
 if (( ! SKIP_PREPARE )); then
-  run_step "ensuring local env file" ensure_local_env
   run_step "preparing local Go tools" prepare_local_tools
 fi
 run_step "loading local config" load_config

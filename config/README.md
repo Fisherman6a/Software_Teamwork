@@ -59,8 +59,9 @@ cd apps/web && bun install && bun run dev
 ./scripts/local/start.sh --china
 ```
 
-`start.sh` 会先做宿主机 preflight，再按需准备本机工具、镜像、二进制和 runtime `.venv` /
-artifact；`--china` 只影响本次运行，不会改写 `config/` 或 `.env.local`。
+`start.sh` 会先做宿主机 preflight，确认 `.env.local` 已存在但不会创建或覆盖它；之后再按需
+准备本机工具、镜像、二进制和 runtime `.venv` / artifact。`--china` 只影响本次运行，
+不会改写 `config/` 或 `.env.local`。
 
 手动渲染当前本地配置：
 

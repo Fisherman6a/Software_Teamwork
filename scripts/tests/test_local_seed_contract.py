@@ -165,6 +165,8 @@ class LocalSeedContractTests(unittest.TestCase):
                 "[start]\n"
                 "Prepares missing local tools\n"
                 "preflighting host environment\n"
+                "check_local_env_file\n"
+                "cp .env.example .env.local\n"
                 "preparing local Go tools\n"
                 "preparing Docker infrastructure images\n"
                 "preparing Knowledge runtime dependencies\n"

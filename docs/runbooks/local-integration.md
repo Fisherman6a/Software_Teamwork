@@ -30,8 +30,9 @@ go env GOPROXY
 
 默认使用官方源。中国大陆网络如果访问 GitHub、Docker Hub、PyPI、HuggingFace 或
 Go modules 不稳定，运行 `./scripts/local/start.sh --china`；不要改写 `config/` 或
-`.env.local`。`start.sh` 会先做 preflight，再按需准备缺失的本机工具、镜像、服务二进制、
-runtime `.venv` 和 artifact，长耗时下载/构建会持续输出进度或心跳。
+`.env.local`。`start.sh` 会先做 preflight，确认 `.env.local` 已存在但不会创建或覆盖它；
+之后再按需准备缺失的本机工具、镜像、服务二进制、runtime `.venv` 和 artifact，长耗时
+下载/构建会持续输出进度或心跳。
 
 ```bash
 cp .env.example .env.local
@@ -191,9 +192,9 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
 ## 谁负责什么
 
 - `start.sh`：标准本地入口。它先检查 Docker、Go、Python、uv、psql、curl 等宿主机环境
-  和 Go 版本，再按需准备 `.env.local`、`.local/tools`、`.local/bin`、Docker infra images、
-  Knowledge runtime `.venv` 和 runtime artifact。已存在的产物会跳过；Go 构建/安装、
-  Docker pull、uv sync 和模型/artifact 下载都会输出原生命令进度或周期性心跳。
+  和 Go 版本，并确认 `.env.local` 已由用户创建但不改写；再按需准备 `.local/tools`、
+  `.local/bin`、Docker infra images、Knowledge runtime `.venv` 和 runtime artifact。已存在的产物会
+  跳过；Go 构建/安装、Docker pull、uv sync 和模型/artifact 下载都会输出原生命令进度或周期性心跳。
 - `start.sh` 会渲染 `.local/config/<profile>.env`，等待 `postgres` / `redis` / `minio` /
   `elasticsearch` health checks，单独运行一次性 `minio-init`，执行 migration 和 demo seed，
   再启动 host-run 后端进程组。Compose 启动仍使用 `--pull never`，镜像拉取只发生在

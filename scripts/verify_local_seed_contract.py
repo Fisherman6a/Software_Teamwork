@@ -158,6 +158,8 @@ REQUIRED_START_TOKENS = [
     "[start]",
     "Prepares missing local tools",
     "preflighting host environment",
+    "check_local_env_file",
+    "cp .env.example .env.local",
     "preparing local Go tools",
     "preparing Docker infrastructure images",
     "preparing Knowledge runtime dependencies",

@@ -288,6 +288,9 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.0 -dir migrations postgres "$
 - Startup scripts must use `config/ctl` through `scripts/config/load-profile.sh`
   to render `.local/config/<profile>.env` and `.env.sh` from the selected
   profile and untracked local secret file.
+- `start.sh` must check that `.env.local` exists before prepare/start work, but
+  must never create, overwrite, or edit it. Missing `.env.local` is a preflight
+  failure with a `cp .env.example .env.local` hint.
 - Knowledge runtime worker timeout decorators must stay active in the default
   host-run profile with `ENABLE_TIMEOUT_ASSERTION=1` in `config/base.yaml`.
   Do not remove this default unless the worker timeout mechanism is replaced

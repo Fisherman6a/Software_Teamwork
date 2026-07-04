@@ -12,6 +12,20 @@ from typing import Optional
 
 
 class LocalStartupScriptTests(unittest.TestCase):
+    def test_start_requires_existing_env_local_without_creating_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            (root / ".env.local").unlink()
+
+            result = self.run_start(root, args=["--infra-only"])
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("missing", result.stderr)
+            self.assertIn("cp .env.example .env.local", result.stderr)
+            self.assertFalse((root / ".env.local").exists())
+            self.assertFalse((root / "go-calls.log").exists())
+            self.assertFalse((root / "docker-calls.log").exists())
+
     def test_start_infra_only_skips_pull_when_images_exist_and_requires_no_uv(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self.prepare_runtime(Path(directory))
@@ -29,6 +43,22 @@ class LocalStartupScriptTests(unittest.TestCase):
             self.assertNotIn(" pull ", f" {docker_calls} ")
             self.assertFalse((root / "uv-calls.log").exists())
             self.assertFalse((root / "go-calls.log").exists())
+
+    def test_start_default_runtime_requires_uv_before_loading_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            (root / "fake-bin" / "uv").unlink()
+
+            result = self.run_start(root, extra_env={"PATH": str(root / "fake-bin")})
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("uv is required", result.stderr)
+            self.assertFalse((root / ".local" / "config" / "dev.env").exists())
+            self.assertFalse((root / "uv-calls.log").exists())
+            docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
+            self.assertIn("info", docker_calls)
+            self.assertNotIn("pull", docker_calls)
+            self.assertNotIn("up", docker_calls)
 
     def test_start_infra_only_pulls_missing_images(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
