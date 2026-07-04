@@ -35,6 +35,11 @@ class AIGatewayLocalSeedRendererTests(unittest.TestCase):
         self.assertIn("decode(", result.stdout)
         self.assertIn("'ests'", result.stdout)
         self.assertNotIn(api_key, result.stdout)
+        self.assertIn(
+            "version_no, provider, profile_id, model_name, timeout_seconds, temperature,\n"
+            "    max_tokens, is_active, created_by_user_id",
+            result.stdout,
+        )
         self.assertNotIn("api_endpoint", result.stdout)
         self.assertNotIn("api_key_encrypted", result.stdout)
         self.assertNotIn("api_key_last4", result.stdout)
