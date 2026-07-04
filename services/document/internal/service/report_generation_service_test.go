@@ -1481,6 +1481,54 @@ func TestReportGenerationServiceRecordsOutlineStreamingDeltas(t *testing.T) {
 	}
 }
 
+func TestReportGenerationServiceFallsBackWhenStreamingUnsupported(t *testing.T) {
+	repo := newFakeReportGenerationRepository()
+	repo.reports["report-1"] = Report{
+		ID:         "report-1",
+		Name:       "Summer report",
+		ReportType: "summer_peak_inspection",
+		Topic:      "summer peak inspection",
+		CreatorID:  "user-1",
+		Status:     ReportStatusDraft,
+	}
+	repo.jobs["job-1"] = ReportJob{ID: "job-1", JobType: JobTypeOutlineGeneration, ReportID: "report-1"}
+	chat := &fakeStreamingGenerationChatClient{
+		streamErrs: []error{
+			NewError(CodeValidation, "ai gateway profile does not support streaming", ErrChatStreamingUnsupported),
+		},
+		createResponses: []ChatCompletionResponse{{Content: `{"sections":[{"title":"Fallback outline"}]}`}},
+	}
+	svc := NewReportGenerationService(repo, chat)
+
+	if _, err := svc.ExecuteReportGeneration(context.Background(), ReportGenerationExecutionPayload{
+		RequestID: "req-outline",
+		JobType:   JobTypeOutlineGeneration,
+		JobID:     "job-1",
+		UserID:    "user-1",
+	}); err != nil {
+		t.Fatalf("ExecuteReportGeneration() error = %v", err)
+	}
+	if chat.streamCalls != 1 || chat.createCalls != 1 {
+		t.Fatalf("streamCalls/createCalls = %d/%d, want 1/1", chat.streamCalls, chat.createCalls)
+	}
+	if hasReportEvent(repo.events, "outline.delta") {
+		t.Fatalf("fallback should not record streaming deltas: %+v", repo.events)
+	}
+	if !hasReportEvent(repo.events, "outline.succeeded") {
+		t.Fatalf("expected outline.succeeded event, got %+v", repo.events)
+	}
+	if len(repo.outlines) != 1 {
+		t.Fatalf("outline count = %d, want 1", len(repo.outlines))
+	}
+	var createdOutline ReportOutline
+	for _, outline := range repo.outlines {
+		createdOutline = outline
+	}
+	if got := createdOutline.Sections[0].Title; got != "Fallback outline" {
+		t.Fatalf("outline title = %q, want fallback response", got)
+	}
+}
+
 func TestReportGenerationServiceRecordsSectionStreamingDeltas(t *testing.T) {
 	repo := newFakeReportGenerationRepository()
 	repo.reports["report-1"] = Report{
@@ -1796,9 +1844,13 @@ type fakeGenerationChatClient struct {
 }
 
 type fakeStreamingGenerationChatClient struct {
-	requests     []ChatCompletionRequest
-	streamDeltas [][]string
-	streamErrs   []error
+	requests        []ChatCompletionRequest
+	createResponses []ChatCompletionResponse
+	createErrs      []error
+	createCalls     int
+	streamDeltas    [][]string
+	streamErrs      []error
+	streamCalls     int
 }
 
 type fakeReportKnowledgeRetriever struct {
@@ -1829,9 +1881,13 @@ func (f *fakeGenerationChatClient) CreateChatCompletion(_ context.Context, _ Req
 
 func (f *fakeStreamingGenerationChatClient) CreateChatCompletion(_ context.Context, _ RequestContext, input ChatCompletionRequest) (ChatCompletionResponse, error) {
 	f.requests = append(f.requests, input)
-	index := len(f.requests) - 1
-	if index < len(f.streamErrs) && f.streamErrs[index] != nil {
-		return ChatCompletionResponse{}, f.streamErrs[index]
+	index := f.createCalls
+	f.createCalls++
+	if index < len(f.createErrs) && f.createErrs[index] != nil {
+		return ChatCompletionResponse{}, f.createErrs[index]
+	}
+	if index < len(f.createResponses) {
+		return f.createResponses[index], nil
 	}
 	if index < len(f.streamDeltas) {
 		return ChatCompletionResponse{Content: strings.Join(f.streamDeltas[index], "")}, nil
@@ -1841,7 +1897,8 @@ func (f *fakeStreamingGenerationChatClient) CreateChatCompletion(_ context.Conte
 
 func (f *fakeStreamingGenerationChatClient) StreamChatCompletion(_ context.Context, _ RequestContext, input ChatCompletionRequest, onDelta func(string)) (ChatCompletionResponse, error) {
 	f.requests = append(f.requests, input)
-	index := len(f.requests) - 1
+	index := f.streamCalls
+	f.streamCalls++
 	if index < len(f.streamErrs) && f.streamErrs[index] != nil {
 		return ChatCompletionResponse{}, f.streamErrs[index]
 	}

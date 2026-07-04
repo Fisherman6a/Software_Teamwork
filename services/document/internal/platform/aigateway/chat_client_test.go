@@ -3,6 +3,7 @@ package aigateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -469,5 +470,22 @@ func TestChatClientStreamsCompletionDeltas(t *testing.T) {
 	}
 	if strings.Join(deltas, "") != resp.Content {
 		t.Fatalf("deltas = %#v, want content %q", deltas, resp.Content)
+	}
+}
+
+func TestChatClientMapsUnsupportedStreamingToSentinel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"profile does not support streaming","type":"invalid_request_error","param":"stream","code":"validation_error"}}`))
+	}))
+	defer server.Close()
+
+	client := newChatTestClient(t, server)
+	_, err := client.StreamChatCompletion(context.Background(), service.RequestContext{}, service.ChatCompletionRequest{
+		Messages: []service.ChatMessage{{Role: "user", Content: "outline"}},
+	}, nil)
+	if !errors.Is(err, service.ErrChatStreamingUnsupported) {
+		t.Fatalf("error = %#v, want ErrChatStreamingUnsupported", err)
 	}
 }

@@ -400,43 +400,44 @@ export function useReportEventStream({
     controllersRef.current = controllers
     setState({ ...emptyStreamState, status: 'connecting' })
 
-    const { abort: stopStream } = streamGateway(
-      `/reports/${encodeURIComponent(reportId)}/events/stream`,
-      {
-        method: 'GET',
-        onDone: () => {
-          if (!active || canceledRef.current) return
-          controllers.finish()
-          setState((prev) => ({ ...prev, status: 'done' }))
-          abortRef.current = null
-        },
-        onError: (error) => {
-          if (!active || canceledRef.current) return
-          controllers.commitVisible()
-          controllers.cancel()
-          setState((prev) => ({ ...prev, error, status: 'error' }))
-          abortRef.current = null
-        },
-        onEvent: (event: SseEvent) => {
-          if (!active || canceledRef.current) return
-          if (event.event !== 'report.event') return
-          const reportEvent = parseReportEvent(event.data)
-          if (!reportEvent) return
-          if (jobId && reportEvent.jobId && reportEvent.jobId !== jobId) return
+    const streamPath = jobId
+      ? `/reports/${encodeURIComponent(reportId)}/events/stream?jobId=${encodeURIComponent(jobId)}`
+      : `/reports/${encodeURIComponent(reportId)}/events/stream`
 
-          if (reportEvent.eventType === 'outline.delta') {
-            controllers.feedOutline(reportEvent.message ?? '')
-            return
-          }
-
-          if (reportEvent.eventType === 'section.delta') {
-            const delta = parseSectionDeltaMessage(reportEvent.message)
-            if (!delta) return
-            controllers.feedSection(delta.sectionId, delta.text)
-          }
-        },
+    const { abort: stopStream } = streamGateway(streamPath, {
+      method: 'GET',
+      onDone: () => {
+        if (!active || canceledRef.current) return
+        controllers.finish()
+        setState((prev) => ({ ...prev, status: 'done' }))
+        abortRef.current = null
       },
-    )
+      onError: (error) => {
+        if (!active || canceledRef.current) return
+        controllers.commitVisible()
+        controllers.cancel()
+        setState((prev) => ({ ...prev, error, status: 'error' }))
+        abortRef.current = null
+      },
+      onEvent: (event: SseEvent) => {
+        if (!active || canceledRef.current) return
+        if (event.event !== 'report.event') return
+        const reportEvent = parseReportEvent(event.data)
+        if (!reportEvent) return
+        if (jobId && reportEvent.jobId && reportEvent.jobId !== jobId) return
+
+        if (reportEvent.eventType === 'outline.delta') {
+          controllers.feedOutline(reportEvent.message ?? '')
+          return
+        }
+
+        if (reportEvent.eventType === 'section.delta') {
+          const delta = parseSectionDeltaMessage(reportEvent.message)
+          if (!delta) return
+          controllers.feedSection(delta.sectionId, delta.text)
+        }
+      },
+    })
 
     abortRef.current = stopStream
     return () => {

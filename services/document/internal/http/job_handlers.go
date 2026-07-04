@@ -415,6 +415,7 @@ func (s *Server) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	rctx := s.requestContext(r)
 	reportID := r.PathValue("reportId")
+	jobID := strings.TrimSpace(r.URL.Query().Get("jobId"))
 
 	header := w.Header()
 	header.Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -436,8 +437,12 @@ func (s *Server) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sortReportEventsChronologically(events)
+		closeAfterFlush := false
 		for _, event := range events {
 			if _, exists := seen[event.ID]; exists {
+				continue
+			}
+			if jobID != "" && event.JobID != jobID {
 				continue
 			}
 			if err := writeReportEventSSE(w, event); err != nil {
@@ -445,6 +450,10 @@ func (s *Server) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			seen[event.ID] = struct{}{}
 			flusher.Flush()
+			closeAfterFlush = isTerminalReportEvent(event.EventType)
+		}
+		if closeAfterFlush {
+			return
 		}
 
 		select {
@@ -465,6 +474,23 @@ func sortReportEventsChronologically(events []service.ReportEvent) {
 		}
 		return events[i].CreatedAt.Before(events[j].CreatedAt)
 	})
+}
+
+func isTerminalReportEvent(eventType string) bool {
+	switch eventType {
+	case "outline.succeeded",
+		"outline.failed",
+		"outline.canceled",
+		"content.succeeded",
+		"content.partial_succeeded",
+		"content.canceled",
+		"job.succeeded",
+		"job.partial_succeeded",
+		"job.failed":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeReportEventSSE(w http.ResponseWriter, event service.ReportEvent) error {

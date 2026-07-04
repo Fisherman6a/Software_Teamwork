@@ -2,6 +2,8 @@ package service
 
 import "errors"
 
+var ErrChatStreamingUnsupported = errors.New("chat streaming is not supported")
+
 type Code string
 
 const (

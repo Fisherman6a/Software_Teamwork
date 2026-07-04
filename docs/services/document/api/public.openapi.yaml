@@ -498,6 +498,7 @@ paths:
       description: Streams persisted report workflow events as Server-Sent Events. Frames use event name `report.event`; each data payload is a sanitized `ReportEvent` JSON object. Streaming generation deltas use `outline.delta` and `section.delta`.
       parameters:
         - $ref: '#/components/parameters/ReportId'
+        - $ref: '#/components/parameters/ReportJobIdQuery'
       responses:
         '200':
           description: Report event stream
@@ -759,6 +760,12 @@ components:
       name: jobId
       in: path
       required: true
+      schema: { type: string }
+    ReportJobIdQuery:
+      name: jobId
+      in: query
+      required: false
+      description: Optional report job id used to scope the SSE stream and close the response after that job reaches a terminal event.
       schema: { type: string }
     ReportFileId:
       name: reportFileId

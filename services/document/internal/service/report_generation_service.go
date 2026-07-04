@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -593,7 +594,14 @@ func (s *ReportGenerationService) recordEvent(ctx context.Context, reportID, job
 
 func (s *ReportGenerationService) createChatCompletion(ctx context.Context, reqCtx RequestContext, input ChatCompletionRequest, onDelta func(string)) (ChatCompletionResponse, error) {
 	if streamer, ok := s.chat.(ReportGenerationStreamingChatClient); ok {
-		return streamer.StreamChatCompletion(ctx, reqCtx, input, onDelta)
+		resp, err := streamer.StreamChatCompletion(ctx, reqCtx, input, onDelta)
+		if err == nil {
+			return resp, nil
+		}
+		if errors.Is(err, ErrChatStreamingUnsupported) {
+			return s.chat.CreateChatCompletion(ctx, reqCtx, input)
+		}
+		return ChatCompletionResponse{}, err
 	}
 	return s.chat.CreateChatCompletion(ctx, reqCtx, input)
 }

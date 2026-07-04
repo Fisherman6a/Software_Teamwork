@@ -180,8 +180,11 @@ func (c *ChatClient) StreamChatCompletion(ctx context.Context, reqCtx service.Re
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if resp.StatusCode == http.StatusBadRequest {
+			if isStreamingUnsupportedError(body) {
+				return service.ChatCompletionResponse{}, service.NewError(service.CodeValidation, "ai gateway profile does not support streaming", service.ErrChatStreamingUnsupported)
+			}
 			return service.ChatCompletionResponse{}, service.NewError(service.CodeValidation, "ai gateway rejected chat request", fmt.Errorf("status %d", resp.StatusCode))
 		}
 		return service.ChatCompletionResponse{}, service.NewError(service.CodeDependency, "ai gateway chat stream request failed", fmt.Errorf("status %d", resp.StatusCode))
@@ -297,4 +300,26 @@ type chatCompletionStreamChunk struct {
 		CompletionTokens int `json:"completion_tokens"`
 		TotalTokens      int `json:"total_tokens"`
 	} `json:"usage"`
+}
+
+type openAIErrorEnvelope struct {
+	Error struct {
+		Message string `json:"message"`
+		Param   string `json:"param"`
+		Code    string `json:"code"`
+	} `json:"error"`
+}
+
+func isStreamingUnsupportedError(body []byte) bool {
+	var decoded openAIErrorEnvelope
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return false
+	}
+	errBody := decoded.Error
+	if strings.TrimSpace(errBody.Code) != string(service.CodeValidation) {
+		return false
+	}
+	param := strings.TrimSpace(errBody.Param)
+	message := strings.ToLower(strings.TrimSpace(errBody.Message))
+	return param == "stream" || strings.Contains(message, "does not support streaming")
 }

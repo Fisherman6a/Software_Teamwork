@@ -85,6 +85,10 @@ describe('useReportEventStream', () => {
 
     const streamOptions = mockedStreamGateway.mock.calls[0]?.[1] as StreamOptions
 
+    expect(mockedStreamGateway.mock.calls[0]?.[0]).toBe(
+      '/reports/report-1/events/stream?jobId=job-1',
+    )
+
     act(() => {
       streamOptions.onEvent(
         reportEventFrame({

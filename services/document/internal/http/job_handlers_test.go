@@ -476,3 +476,67 @@ func TestStreamEventsEmitsPersistedReportEventsAsSSE(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamEventsClosesAfterTerminalEventForJob(t *testing.T) {
+	now := time.Date(2026, 7, 4, 7, 0, 0, 0, time.UTC)
+	calls := 0
+	mock := &mockJobSvc{
+		listEventsFn: func(ctx context.Context, rctx service.RequestContext, reportID string) ([]service.ReportEvent, error) {
+			calls++
+			if reportID != "550e8400-e29b-41d4-a716-446655440000" {
+				t.Fatalf("reportID = %q", reportID)
+			}
+			return []service.ReportEvent{
+				{
+					ID:        "evt-old-terminal",
+					ReportID:  reportID,
+					JobID:     "job-old",
+					EventType: "content.succeeded",
+					Message:   "old content succeeded",
+					CreatedAt: now.Add(-time.Minute),
+				},
+				{
+					ID:        "evt-current-delta",
+					ReportID:  reportID,
+					JobID:     "job-1",
+					EventType: "section.delta",
+					Message:   "{\"sectionId\":\"section-1\",\"text\":\"draft\"}",
+					CreatedAt: now,
+				},
+				{
+					ID:        "evt-current-terminal",
+					ReportID:  reportID,
+					JobID:     "job-1",
+					EventType: "content.succeeded",
+					Message:   "content generation succeeded",
+					CreatedAt: now.Add(time.Second),
+				},
+			}, nil
+		},
+	}
+	server := newTestServerWithJobSvc(mock)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/reports/550e8400-e29b-41d4-a716-446655440000/events/stream?jobId=job-1", nil).WithContext(ctx)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-User-Id", "usr_owner")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if calls != 1 {
+		t.Fatalf("ListEvents calls = %d, want 1 terminal poll", calls)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{`"eventType":"section.delta"`, `"eventType":"content.succeeded"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("SSE body missing %q in:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "job-old") || strings.Contains(body, "old content succeeded") {
+		t.Fatalf("SSE body should be scoped to current job:\n%s", body)
+	}
+}

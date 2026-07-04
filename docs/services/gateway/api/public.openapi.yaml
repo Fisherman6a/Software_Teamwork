@@ -1910,6 +1910,7 @@ paths:
   /api/v1/reports/{reportId}/events/stream:
     parameters:
     - $ref: '#/components/parameters/ReportId'
+    - $ref: '#/components/parameters/ReportJobIdQuery'
     get:
       tags:
       - report-generation
@@ -3071,6 +3072,13 @@ components:
       name: jobId
       in: path
       required: true
+      schema:
+        type: string
+    ReportJobIdQuery:
+      name: jobId
+      in: query
+      required: false
+      description: Optional report job id used to scope the SSE stream and close the response after that job reaches a terminal event.
       schema:
         type: string
     ReportFileId:

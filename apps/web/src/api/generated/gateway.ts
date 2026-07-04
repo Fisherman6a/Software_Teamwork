@@ -954,7 +954,10 @@ export interface paths {
     };
     "/api/v1/reports/{reportId}/events/stream": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional report job id used to scope the SSE stream and close the response after that job reaches a terminal event. */
+                jobId?: components["parameters"]["ReportJobIdQuery"];
+            };
             header?: never;
             path: {
                 reportId: components["parameters"]["ReportId"];
@@ -3494,6 +3497,8 @@ export interface components {
         OutlineId: string;
         SectionId: string;
         JobId: string;
+        /** @description Optional report job id used to scope the SSE stream and close the response after that job reaches a terminal event. */
+        ReportJobIdQuery: string;
         ReportFileId: string;
         ProfileId: string;
         ParserConfigId: string;
@@ -5459,7 +5464,10 @@ export interface operations {
     };
     streamReportEvents: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional report job id used to scope the SSE stream and close the response after that job reaches a terminal event. */
+                jobId?: components["parameters"]["ReportJobIdQuery"];
+            };
             header?: never;
             path: {
                 reportId: components["parameters"]["ReportId"];
