@@ -37,23 +37,7 @@ def test_dependency_check_reports_missing_es_and_builtin_embedding(tmp_path):
     assert any("Default Builtin embedding is not usable" in issue for issue in issues)
 
 
-def test_dependency_check_accepts_configured_external_embedding(tmp_path):
-    path = write_config(tmp_path)
-
-    issues = deps.validate(
-        path,
-        environ={
-            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "SILICONFLOW",
-            "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
-            "KNOWLEDGE_RUNTIME_MODEL_API_KEY": "sk-test",
-        },
-        http_checker=lambda _url: None,
-    )
-
-    assert issues == []
-
-
-def test_dependency_check_requires_key_for_external_embedding(tmp_path):
+def test_dependency_check_rejects_direct_embedding_factory(tmp_path):
     path = write_config(tmp_path)
 
     issues = deps.validate(
@@ -65,7 +49,22 @@ def test_dependency_check_requires_key_for_external_embedding(tmp_path):
         http_checker=lambda _url: None,
     )
 
-    assert any("KNOWLEDGE_RUNTIME_MODEL_API_KEY is empty" in issue for issue in issues)
+    assert any("KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=SILICONFLOW is not supported" in issue for issue in issues)
+
+
+def test_dependency_check_rejects_direct_embedding_without_direct_key_fallback(tmp_path):
+    path = write_config(tmp_path)
+
+    issues = deps.validate(
+        path,
+        environ={
+            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "SILICONFLOW",
+            "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
+        },
+        http_checker=lambda _url: None,
+    )
+
+    assert any("Use AI_GATEWAY" in issue for issue in issues)
 
 
 def test_worker_dependency_check_requires_nltk_data(tmp_path):
@@ -76,9 +75,9 @@ def test_worker_dependency_check_requires_nltk_data(tmp_path):
         environ={
             "KNOWLEDGE_RUNTIME_REQUIRE_NLTK_DATA": "1",
             "NLTK_DATA": str(tmp_path / "missing-nltk"),
-            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "SILICONFLOW",
+            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "AI_GATEWAY",
             "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
-            "KNOWLEDGE_RUNTIME_MODEL_API_KEY": "sk-test",
+            "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN": "local-service-token",
         },
         http_checker=lambda _url: None,
     )
@@ -97,9 +96,9 @@ def test_worker_dependency_check_accepts_provisioned_nltk_data(tmp_path):
         environ={
             "KNOWLEDGE_RUNTIME_REQUIRE_NLTK_DATA": "1",
             "NLTK_DATA": str(nltk_data),
-            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "SILICONFLOW",
+            "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY": "AI_GATEWAY",
             "KNOWLEDGE_RUNTIME_EMBEDDING_MODEL": "BAAI/bge-m3",
-            "KNOWLEDGE_RUNTIME_MODEL_API_KEY": "sk-test",
+            "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN": "local-service-token",
         },
         http_checker=lambda _url: None,
     )
@@ -138,7 +137,7 @@ def test_dependency_check_requires_ai_gateway_service_token(tmp_path):
     assert any("KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY requires" in issue for issue in issues)
 
 
-def test_dependency_check_validates_configured_rerank_credentials(tmp_path):
+def test_dependency_check_rejects_direct_rerank_factory(tmp_path):
     path = write_config(tmp_path)
 
     issues = deps.validate(
@@ -153,4 +152,4 @@ def test_dependency_check_validates_configured_rerank_credentials(tmp_path):
         http_checker=lambda _url: None,
     )
 
-    assert any("KNOWLEDGE_RUNTIME_RERANK_FACTORY/MODEL are set" in issue for issue in issues)
+    assert any("KNOWLEDGE_RUNTIME_RERANK_FACTORY=SILICONFLOW is not supported" in issue for issue in issues)

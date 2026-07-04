@@ -68,30 +68,22 @@ func (s RetrievalSettings) WithScoreThresholdConfigured() RetrievalSettings {
 }
 
 type StoredLLMConfig struct {
-	ID              string
-	Provider        string
-	ProfileID       string
-	APIEndpoint     string
-	APIKeyEncrypted []byte
-	APIKeyLast4     string
-	TokenHeader     string
-	Model           string
-	TimeoutSeconds  int
-	Temperature     float64
-	MaxTokens       int
+	ID             string
+	Provider       string
+	ProfileID      string
+	Model          string
+	TimeoutSeconds int
+	Temperature    float64
+	MaxTokens      int
 }
 
 type LLMSettings struct {
-	Provider         string  `json:"provider"`
-	ProfileID        string  `json:"profileId,omitempty"`
-	APIEndpoint      string  `json:"apiEndpoint,omitempty"`
-	Model            string  `json:"model"`
-	TimeoutSeconds   int     `json:"timeoutSeconds"`
-	Temperature      float64 `json:"temperature"`
-	MaxTokens        int     `json:"maxTokens"`
-	TokenHeader      string  `json:"tokenHeader,omitempty"`
-	APIKeyConfigured bool    `json:"apiKeyConfigured,omitempty"`
-	APIKeyLast4      string  `json:"apiKeyLast4,omitempty"`
+	Provider       string  `json:"provider"`
+	ProfileID      string  `json:"profileId,omitempty"`
+	Model          string  `json:"model"`
+	TimeoutSeconds int     `json:"timeoutSeconds"`
+	Temperature    float64 `json:"temperature"`
+	MaxTokens      int     `json:"maxTokens"`
 }
 
 type QASettings struct {
@@ -103,13 +95,10 @@ type QASettings struct {
 
 type LLMUpdate struct {
 	ProfileID      string  `json:"profileId,omitempty"`
-	APIEndpoint    string  `json:"apiEndpoint,omitempty"`
-	APIKey         *string `json:"apiKey,omitempty"`
 	Model          string  `json:"model"`
 	TimeoutSeconds int     `json:"timeoutSeconds"`
 	Temperature    float64 `json:"temperature"`
 	MaxTokens      int     `json:"maxTokens"`
-	TokenHeader    string  `json:"tokenHeader"`
 }
 
 type UpdateQASettingsInput struct {
@@ -198,14 +187,6 @@ type MCPConnectionTestInput struct {
 	Token              *string  `json:"token,omitempty"`
 	TokenHeader        string   `json:"tokenHeader,omitempty"`
 	ToolTimeoutSeconds int      `json:"toolTimeoutSeconds,omitempty"`
-}
-
-type LLMConnectionTestInput struct {
-	APIEndpoint    string  `json:"apiEndpoint"`
-	APIKey         *string `json:"apiKey,omitempty"`
-	Model          string  `json:"model"`
-	TimeoutSeconds int     `json:"timeoutSeconds"`
-	TokenHeader    string  `json:"tokenHeader,omitempty"`
 }
 
 type ToolSummary struct {

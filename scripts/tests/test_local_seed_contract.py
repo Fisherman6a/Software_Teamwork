@@ -209,8 +209,12 @@ class LocalSeedContractTests(unittest.TestCase):
                 'start_service "knowledge-runtime-worker"\n'
                 "For local Elasticsearch, rerun ./scripts/local/dev-up.sh\n"
                 ".local/knowledge-runtime/service_conf.yaml\n"
-                "KNOWLEDGE_RUNTIME_MODEL_API_KEY=<your SiliconFlow key>\n"
-                "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@SILICONFLOW\n"
+                "Preferred AI Gateway local parsing uses default-embedding/default-rerank profiles\n"
+                "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN=local-dev-internal-service-token-change-me\n"
+                "KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY=AI_GATEWAY\n"
+                "KNOWLEDGE_RUNTIME_RERANK_FACTORY=AI_GATEWAY\n"
+                "KNOWLEDGE_VENDOR_EMBEDDING_ID=BAAI/bge-m3@default@AI_GATEWAY\n"
+                "KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY\n"
                 "KNOWLEDGE_AUTO_START_INGESTION=true\n",
                 encoding="utf-8",
             )

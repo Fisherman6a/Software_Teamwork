@@ -36,7 +36,7 @@ class AIGatewayProviderPolicyTests(unittest.TestCase):
         self.assertIssueContains(issues, "OpenAI Python SDK import")
         self.assertIssueContains(issues, "direct OpenAI provider base URL")
 
-    def test_knowledge_runtime_fallback_is_allowlisted(self) -> None:
+    def test_knowledge_runtime_vendored_catalog_file_is_exactly_allowlisted(self) -> None:
         issues = self.verify(
             files={
                 "services/knowledge-runtime/rag/llm/chat_model.py": textwrap.dedent(
@@ -49,6 +49,21 @@ class AIGatewayProviderPolicyTests(unittest.TestCase):
         )
 
         self.assertEqual([], issues)
+
+    def test_new_knowledge_runtime_direct_provider_file_is_reported(self) -> None:
+        issues = self.verify(
+            files={
+                "services/knowledge-runtime/rag/llm/new_provider.py": textwrap.dedent(
+                    """
+                    from openai import OpenAI
+                    client = OpenAI(api_key=key, base_url="https://api.openai.com/v1")
+                    """
+                )
+            }
+        )
+
+        self.assertIssueContains(issues, "OpenAI Python SDK import")
+        self.assertIssueContains(issues, "direct OpenAI provider base URL")
 
     def test_ai_gateway_seed_renderer_is_allowlisted(self) -> None:
         issues = self.verify(

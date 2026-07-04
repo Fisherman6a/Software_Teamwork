@@ -914,3 +914,36 @@ Default Knowledge parser configs to PaddleOCR cloud PP-StructureV3, preserve par
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: Remove AI provider compatibility
+
+**Date**: 2026-07-04
+**Task**: Remove AI provider compatibility
+**Branch**: `L1nggTeam/refactor/remove-ai-provider-compat`
+
+### Summary
+
+Removed legacy direct-provider compatibility so QA aggregate LLM settings and Knowledge runtime product model paths use AI Gateway only; tightened provider policy, config/docs, and validation coverage.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bec238cb` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

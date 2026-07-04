@@ -22,6 +22,7 @@ from common.constants import LLMType
 
 AI_GATEWAY_FACTORY = "AI_GATEWAY"
 DEFAULT_AI_GATEWAY_BASE_URL = "http://127.0.0.1:8086/internal/v1"
+AI_GATEWAY_ONLY_MODEL_TYPES = {LLMType.EMBEDDING.value, LLMType.RERANK.value}
 
 
 def model_type_value(model_type: str | enum.Enum) -> str:
@@ -51,21 +52,40 @@ def compose_model_reference(model_name: str, factory: str, instance_name: str = 
     return f"{model_name}@{instance_name}@{factory}"
 
 
+def require_ai_gateway_factory(model_type_val: str, provider_name: str) -> None:
+    provider_name = str(provider_name or "").strip()
+    if model_type_val not in AI_GATEWAY_ONLY_MODEL_TYPES or not provider_name:
+        return
+    if provider_name == AI_GATEWAY_FACTORY:
+        return
+    raise LookupError(
+        f"Knowledge runtime {model_type_val} models must use AI_GATEWAY. "
+        "Configure provider base URLs and credentials in services/ai-gateway model profiles."
+    )
+
+
 def default_model_id(model_type: str | enum.Enum) -> str:
     model_type_val = model_type_value(model_type)
     model, factory, _base_url, settings_cfg = _env_and_settings_for_type(model_type_val)
     if model:
-        return compose_model_reference(model, factory)
+        model_ref = compose_model_reference(model, factory)
+        _pure_model_name, _instance_name, provider_name = split_model_reference(model_ref)
+        require_ai_gateway_factory(model_type_val, provider_name)
+        return model_ref
 
     settings_model = str(settings_cfg.get("model") or "").strip()
     settings_factory = str(settings_cfg.get("factory") or "").strip()
-    return compose_model_reference(settings_model, settings_factory)
+    model_ref = compose_model_reference(settings_model, settings_factory)
+    _pure_model_name, _instance_name, provider_name = split_model_reference(model_ref)
+    require_ai_gateway_factory(model_type_val, provider_name)
+    return model_ref
 
 
 def default_model_base_url(model_type: str | enum.Enum, provider_name: str = "") -> str:
     model_type_val = model_type_value(model_type)
     _model, factory, base_url, settings_cfg = _env_and_settings_for_type(model_type_val)
     provider_name = provider_name or factory
+    require_ai_gateway_factory(model_type_val, provider_name)
     if base_url:
         return base_url
     settings_base_url = str(settings_cfg.get("base_url") or "").strip()
@@ -91,14 +111,9 @@ def runtime_model_config(model_type: str | enum.Enum, model_name: str | None = N
         provider_name = env_factory or str(settings_cfg.get("factory") or "").strip()
     if not provider_name:
         return None
+    require_ai_gateway_factory(model_type_val, provider_name)
 
     api_key = ""
-    if provider_name != AI_GATEWAY_FACTORY:
-        api_key = (
-            os.getenv("KNOWLEDGE_RUNTIME_MODEL_API_KEY", "").strip()
-            or str(settings_cfg.get("api_key") or "").strip()
-        )
-
     llm_info = _factory_llm_info(provider_name, pure_model_name)
     return {
         "llm_factory": provider_name,
@@ -151,7 +166,7 @@ def _env_and_settings_for_type(model_type_val: str):
 
 
 def _factory_llm_info(provider_name: str, model_name: str) -> dict | None:
-    for factory in settings.FACTORY_LLM_INFOS:
+    for factory in settings.FACTORY_LLM_INFOS or []:
         if factory.get("name") != provider_name:
             continue
         for llm in factory.get("llm", []):

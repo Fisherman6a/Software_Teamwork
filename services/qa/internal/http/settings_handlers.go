@@ -101,23 +101,6 @@ func (s *Server) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *Server) handleTestLLMConnection(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requireSettingsPermission(w, r, "qa:settings:write"); !ok {
-		return
-	}
-	var input service.LLMConnectionTestInput
-	if err := s.decodeJSON(w, r, &input); err != nil {
-		writeError(w, r, err)
-		return
-	}
-	result, err := s.settings.TestLLMConnection(r.Context(), input)
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
 func (s *Server) handleTestMCPConnection(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireSettingsPermission(w, r, "qa:settings:write"); !ok {
 		return

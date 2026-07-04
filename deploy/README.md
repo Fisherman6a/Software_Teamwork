@@ -127,17 +127,19 @@ kill <pid>
 清空本地 infra 数据：
 
 ```bash
-./scripts/local/stop-backend.sh
-CONFIG_SECRET_FILE=.env.local ./scripts/config/load-profile.sh --print-compose-env
-docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env down -v
+./scripts/local/reset-dev-data.sh
 ```
+
+脚本会先停止 `.local/run/` 下记录的宿主机后端进程、渲染本地配置并校验 Compose，
+再删除根级 infra Compose 的数据卷。默认需要输入 `reset` 确认；自动化场景可使用
+`./scripts/local/reset-dev-data.sh --yes`。脚本底层执行
+`docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env down -v --remove-orphans`；
+不删除 Docker 镜像。
 
 彻底冷启动时，如果还要删除本项目本地容器、卷和镜像，先确认没有其他项目依赖这些镜像：
 
 ```bash
-./scripts/local/stop-backend.sh
-CONFIG_SECRET_FILE=.env.local ./scripts/config/load-profile.sh --print-compose-env
-docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env down -v --remove-orphans
+./scripts/local/reset-dev-data.sh --yes
 
 set -a
 source .local/config/dev.env.sh
@@ -482,8 +484,7 @@ psql "$POSTGRES_ADMIN_URL" -v ON_ERROR_STOP=1 -f deploy/seeds/099-local-demo-cle
 完整重置本地 infra 数据：
 
 ```bash
-./scripts/local/stop-backend.sh
-docker compose -f deploy/docker-compose.yml --env-file .local/config/dev.env down -v
+./scripts/local/reset-dev-data.sh --yes
 ./scripts/local/dev-up.sh
 ```
 

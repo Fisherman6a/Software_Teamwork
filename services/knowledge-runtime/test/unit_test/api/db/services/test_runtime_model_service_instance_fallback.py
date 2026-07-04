@@ -21,7 +21,7 @@ from api.db.joint_services import runtime_model_service as module
 
 
 def test_resolve_instance_for_model_falls_back_from_default_to_single_active_instance(monkeypatch):
-    provider = SimpleNamespace(id="provider-1", provider_name="SILICONFLOW")
+    provider = SimpleNamespace(id="provider-1", provider_name="AI_GATEWAY")
     resolved = SimpleNamespace(
         id="instance-1",
         instance_name="yy2",
@@ -42,7 +42,7 @@ def test_resolve_instance_for_model_falls_back_from_default_to_single_active_ins
     got = module._resolve_instance_for_model(
         provider,
         "default",
-        "Qwen/Qwen3-8B@default@SILICONFLOW",
+        "Qwen/Qwen3-8B@default@AI_GATEWAY",
     )
 
     assert got is resolved

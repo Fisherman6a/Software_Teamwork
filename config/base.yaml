@@ -361,9 +361,6 @@ env:
     value: BAAI/bge-m3@default@AI_GATEWAY
   KNOWLEDGE_VENDOR_RERANK_ID:
     value: BAAI/bge-reranker-v2-m3@default@AI_GATEWAY
-  KNOWLEDGE_RUNTIME_MODEL_API_KEY:
-    fromEnv: KNOWLEDGE_RUNTIME_MODEL_API_KEY
-    sensitive: true
   PADDLEOCR_BASE_URL:
     fromEnv: PADDLEOCR_BASE_URL
   PADDLEOCR_API_URL:

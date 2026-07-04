@@ -114,12 +114,16 @@ func (r *Postgres) CreateLLMConfigVersion(ctx context.Context, userID string, co
 	if err != nil {
 		return err
 	}
-	// Keep this insert inline until the QA sqlc package is regenerated as a
-	// separate migration; the generated InsertLLMConfigVersion query still
-	// reflects the retired direct-provider compatibility write path.
-	_, err = tx.Exec(ctx, `INSERT INTO llm_config_versions(version_no,provider,profile_id,api_endpoint,api_key_encrypted,api_key_last4,token_header,model_name,timeout_seconds,temperature,max_tokens,is_active,created_by_user_id) VALUES($1,$2,NULLIF($3,''),NULL,NULL,NULL,$4,$5,$6,$7,$8,true,$9)`,
-		version, config.Provider, config.ProfileID, config.TokenHeader, config.Model, config.TimeoutSeconds, temperature, config.MaxTokens, userID)
-	if err != nil {
+	if err := q.InsertLLMConfigVersion(ctx, sqlc.InsertLLMConfigVersionParams{
+		VersionNo:       version,
+		Provider:        config.Provider,
+		ProfileID:       config.ProfileID,
+		ModelName:       config.Model,
+		TimeoutSeconds:  int32(config.TimeoutSeconds),
+		Temperature:     temperature,
+		MaxTokens:       int32(config.MaxTokens),
+		CreatedByUserID: userID,
+	}); err != nil {
 		return fmt.Errorf("insert LLM config version: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

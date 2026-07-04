@@ -12,7 +12,6 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 
-LOCAL_KEYLESS_FACTORIES = {"Builtin", "LocalAI", "Ollama", "VLLM"}
 AI_GATEWAY_FACTORY = "AI_GATEWAY"
 
 
@@ -38,13 +37,9 @@ def validate_env_model_credentials(env: Mapping[str, str], factory: str, model: 
             f"KNOWLEDGE_RUNTIME_{label}_FACTORY=AI_GATEWAY requires "
             "KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN, AI_GATEWAY_SERVICE_TOKEN, or INTERNAL_SERVICE_TOKEN."
         ]
-    if factory in LOCAL_KEYLESS_FACTORIES:
-        return []
-    if env.get("KNOWLEDGE_RUNTIME_MODEL_API_KEY", "").strip() or env.get("KNOWLEDGE_RUNTIME_ALLOW_EMPTY_MODEL_API_KEY") == "1":
-        return []
     return [
-        f"KNOWLEDGE_RUNTIME_{label}_FACTORY/MODEL are set, but KNOWLEDGE_RUNTIME_MODEL_API_KEY is empty. "
-        "Set a real provider key or KNOWLEDGE_RUNTIME_ALLOW_EMPTY_MODEL_API_KEY=1 for a trusted local provider."
+        f"KNOWLEDGE_RUNTIME_{label}_FACTORY={factory} is not supported for product runtime. "
+        "Use AI_GATEWAY and configure provider base URLs and credentials in services/ai-gateway model profiles."
     ]
 
 

@@ -54,8 +54,9 @@ KNOWLEDGE_RUNTIME_ES_URL=http://127.0.0.1:9200
 RAGFlow runtime 兼容标签。它们应与 AI Gateway profile 中的模型名保持一致；
 provider、base URL、credential 和调用审计的权威仍是 AI Gateway profile。
 
-`SILICONFLOW` 等直接 provider factory 只作为显式本地/应急选择保留。它们需要
-`KNOWLEDGE_RUNTIME_MODEL_API_KEY`，且绕过 AI Gateway 的调用审计和用量聚合。
+`SILICONFLOW` 等直接 provider factory 不再是本项目的产品运行路径。真实
+provider 的 base URL、credential 和模型配置必须写入 AI Gateway profile，再由
+runtime 使用 `AI_GATEWAY` factory 调用。
 
 ### PaddleOCR Cloud 解析
 

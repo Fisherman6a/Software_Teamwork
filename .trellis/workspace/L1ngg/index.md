@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 26
+- **Total Sessions**: 27
 - **Last Active**: 2026-07-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~916 | Active |
+| `journal-1.md` | ~949 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 27 | 2026-07-04 | Remove AI provider compatibility | `bec238cb` | `L1nggTeam/refactor/remove-ai-provider-compat` |
 | 26 | 2026-07-04 | PaddleOCR cloud parser default and parsing fixes | `e64d2150` | `L1nggTeam/chore/paddleocr-cloud-default` |
 | 25 | 2026-07-04 | Fix knowledge document content type display | `1ee28159` | `L1nggTeam/fix/frontend-bug` |
 | 24 | 2026-07-04 | AI Gateway unified model provider exit | `1674ccb3`, `4f214828` | `L1nggTeam/refactor/ai-gateway-unified-exit` |

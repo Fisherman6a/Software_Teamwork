@@ -98,7 +98,7 @@
 | 真实 provider smoke | `AI_GATEWAY_REAL_PROVIDER_SMOKE=1 ... go test ./internal/http -run TestRealProviderSmoke_ExplicitEnvOnly -count=1 -v` | available / not run by default | 需要真实 provider base URL、API key 和至少一个模型环境变量。 |
 | 集成测试 | goose apply + profile CRUD against DB | missing | 需要 PostgreSQL。 |
 | 契约测试 | HTTP tests for profile、chat completion、streaming、embedding、rerank routes | partial | 未从 OpenAPI 自动校验完整 schema。 |
-| 统一出口 policy | `python3 scripts/check_ai_gateway_provider_policy.py` | pass（2026-07-04） | Knowledge runtime direct provider factories 仍是显式 local/emergency fallback allowlist。 |
+| 统一出口 policy | `python3 scripts/check_ai_gateway_provider_policy.py` | pass（2026-07-04） | Knowledge runtime embedding/rerank 产品配置只允许 `AI_GATEWAY`；vendored provider catalog 仅精确 allowlist，不作为 fallback。 |
 | 手工 smoke | Gateway admin model profile CRUD + chat/embedding/rerank model calls | not run | 需要 gateway/auth/Redis/ai-gateway/provider。 |
 
 ## 9. 建议任务

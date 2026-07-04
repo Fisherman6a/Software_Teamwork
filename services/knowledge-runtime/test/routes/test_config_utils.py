@@ -8,7 +8,7 @@ def test_sanitize_for_logging_masks_nested_model_api_keys():
         "user_default_llm": {
             "default_models": {
                 "embedding_model": {
-                    "factory": "SILICONFLOW",
+                    "factory": "AI_GATEWAY",
                     "api_key": "sk-secret",
                     "base_url": "https://api.example/v1",
                 }

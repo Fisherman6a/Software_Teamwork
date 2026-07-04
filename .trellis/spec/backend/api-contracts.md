@@ -913,13 +913,13 @@ profile_id = <AI Gateway model profile id>
   `/v1/chat/completions`, `/v1/embeddings`, and `/v1/rerank*` paths outside
   `services/ai-gateway` are forbidden unless the path is explicitly allowlisted
   in `scripts/check_ai_gateway_provider_policy.py` with a narrow rationale.
-- Knowledge runtime direct provider factories are allowed only as explicit
-  local/emergency fallbacks. They are non-default, bypass AI Gateway invocation
-  audit and usage aggregation, and require cleanup criteria in the inventory.
-- Legacy QA aggregate LLM settings may read old `provider=direct` rows only
-  when they target a trusted AI Gateway chat completions endpoint. New writes
-  must store `provider=ai-gateway` plus `profile_id` semantics and must not
-  persist endpoint/API-key material as the normal path.
+- Knowledge runtime embedding and rerank product configuration must resolve to
+  `AI_GATEWAY` only. Direct provider factories under the vendored runtime may
+  remain as inert catalog code, but they are not a supported local/emergency
+  product fallback and must not be selectable by project config.
+- QA aggregate LLM settings must store and expose only
+  `provider=ai-gateway` plus `profile_id` semantics. Legacy
+  `provider=direct`, endpoint, or API-key settings are unsupported.
 
 ### 4. Validation & Error Matrix
 
@@ -929,8 +929,8 @@ profile_id = <AI Gateway model profile id>
 | New direct provider base URL or non-internal OpenAI-compatible endpoint outside `services/ai-gateway` | Policy check fails unless removed or narrowly allowlisted. |
 | Domain service needs chat, embedding, or rerank | Call AI Gateway internal routes with service token, caller service, request id, user context when available, and `profile_id`. |
 | Gateway public route needs model-profile administration | Proxy/normalize the AI Gateway-owned profile API; do not invoke the provider or persist API keys in gateway. |
-| Knowledge runtime fallback is selected explicitly | Document as local/emergency, non-default, outside AI Gateway audit/usage, with cleanup criteria. |
-| Legacy QA direct row points to an untrusted provider endpoint | Reject validation or connection testing; do not use it as a model call path. |
+| Knowledge runtime embedding/rerank selects a non-`AI_GATEWAY` factory | Fail startup/runtime configuration; do not fall back to a direct provider key. |
+| Legacy QA direct row is active | Reject configuration; rebuild development data or create an AI Gateway profile-backed config. |
 | Provider returns raw error bodies, prompts, vectors, object keys, internal URLs, or credentials | Normalize and redact before returning or logging. |
 
 ### 5. Good/Base/Bad Cases
@@ -939,9 +939,9 @@ profile_id = <AI Gateway model profile id>
   client, passes `profile_id`, and stores only QA message/tool/citation state.
 - Good: Knowledge runtime embedding/rerank defaults use AI Gateway profiles and
   provider invocation summaries are recorded by AI Gateway.
-- Base: an explicit Knowledge runtime local/emergency provider fallback remains
-  allowlisted with a cleanup note while AI Gateway runtime smoke coverage is
-  still incomplete.
+- Base: vendored Knowledge runtime provider catalog files remain in place, but
+  project config guards reject non-`AI_GATEWAY` embedding/rerank factories and
+  the policy checker does not allow new direct provider files.
 - Bad: adding `from openai import OpenAI` in QA, a SiliconFlow base URL in
   Document, a provider SDK in Gateway, or an endpoint setting that lets domain
   services bypass AI Gateway.
@@ -957,8 +957,8 @@ profile_id = <AI Gateway model profile id>
   or docs/contracts tied to implementation change.
 - Run the touched owner service checks. For QA settings/profile changes, run
   `cd services/qa && go test ./... && go build ./cmd/server && go build ./cmd/agent`.
-- Run targeted Knowledge runtime tests only when runtime code, route
-  registration, provider factories, or fallback behavior changes; docs-only
+- Run targeted Knowledge runtime tests when runtime code, route registration,
+  provider factory guards, or AI Gateway adapter behavior changes; docs-only
   inventory updates must state the remaining runtime smoke risk instead.
 - Run `git diff --check` before commit.
 
@@ -1329,7 +1329,8 @@ METADATA_FILTER_IN_MEMORY_FALLBACK_LIMIT=10000
   routes as project runtime APIs.
 - Adapter dataset creation sends the embedding choice with vendor field
   `embedding_model`. The project env value uses the composite
-  `<model>@<provider>` shape, for example `BAAI/bge-m3@SILICONFLOW`.
+  `<model>@<profile>@AI_GATEWAY` shape, for example
+  `BAAI/bge-m3@default@AI_GATEWAY`.
 - Adapter retrieval rerank config sends `rerank_id`. The runtime expects the
   composite `<model>@<profile>@<provider>` shape, for example
   `BAAI/bge-reranker-v2-m3@default@AI_GATEWAY`; a bare model name can resolve
@@ -1459,7 +1460,7 @@ Entrypoint: #!/usr/bin/env bash in an Alpine image without bash
 #### Correct
 
 ```text
-Compose env: KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@SILICONFLOW
+Compose env: KNOWLEDGE_VENDOR_RERANK_ID=BAAI/bge-reranker-v2-m3@default@AI_GATEWAY
 Adapter: DELETE /internal/v1/documents/{doc}?knowledgeBaseId={kb} -> dataset-scoped delete
 Trace: embeddingModel from config or runtime-managed, embeddingDimension=-1 when unavailable
 Runtime auth: route declaration must include GATEWAY before token is trusted

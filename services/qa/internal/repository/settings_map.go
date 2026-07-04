@@ -83,17 +83,13 @@ func storedLLMFromRow(row sqlc.GetActiveLLMConfigRow) (service.StoredLLMConfig, 
 		return service.StoredLLMConfig{}, fmt.Errorf("decode LLM temperature: %w", err)
 	}
 	return service.StoredLLMConfig{
-		ID:              row.ID,
-		Provider:        row.Provider,
-		ProfileID:       row.ProfileID,
-		APIEndpoint:     row.ApiEndpoint,
-		APIKeyEncrypted: row.ApiKeyEncrypted,
-		APIKeyLast4:     row.ApiKeyLast4,
-		TokenHeader:     row.TokenHeader,
-		Model:           row.ModelName,
-		TimeoutSeconds:  int(row.TimeoutSeconds),
-		Temperature:     temperature,
-		MaxTokens:       int(row.MaxTokens),
+		ID:             row.ID,
+		Provider:       row.Provider,
+		ProfileID:      row.ProfileID,
+		Model:          row.ModelName,
+		TimeoutSeconds: int(row.TimeoutSeconds),
+		Temperature:    temperature,
+		MaxTokens:      int(row.MaxTokens),
 	}, nil
 }
 

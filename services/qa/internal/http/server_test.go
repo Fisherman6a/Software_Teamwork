@@ -83,9 +83,6 @@ func (fakeSettingsService) UpdateMCPServer(context.Context, string, string, stri
 func (fakeSettingsService) DeleteMCPServer(context.Context, string, string, string) error {
 	return nil
 }
-func (fakeSettingsService) TestLLMConnection(context.Context, service.LLMConnectionTestInput) (service.LLMConnectionTestResult, error) {
-	return service.LLMConnectionTestResult{Success: true}, nil
-}
 func (fakeSettingsService) TestMCPConnection(context.Context, service.MCPConnectionTestInput) (service.MCPConnectionTestResult, error) {
 	return service.MCPConnectionTestResult{Success: true}, nil
 }

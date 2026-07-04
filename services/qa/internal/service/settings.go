@@ -16,8 +16,7 @@ import (
 var mcpAliasPattern = regexp.MustCompile(`^[a-z0-9_]{2,32}$`)
 
 const (
-	llmProviderAIGateway    = "ai-gateway"
-	llmProviderLegacyDirect = "direct"
+	llmProviderAIGateway = "ai-gateway"
 )
 
 type ConfigService struct {
@@ -261,36 +260,6 @@ func (s *ConfigService) DeleteMCPServer(ctx context.Context, userID, requestID, 
 	return nil
 }
 
-func (s *ConfigService) TestLLMConnection(ctx context.Context, input LLMConnectionTestInput) (LLMConnectionTestResult, error) {
-	active, err := s.runtimeLLM(ctx)
-	if err != nil {
-		return LLMConnectionTestResult{}, err
-	}
-	if strings.TrimSpace(input.APIEndpoint) != "" {
-		active.Endpoint = strings.TrimSpace(input.APIEndpoint)
-	}
-	if strings.TrimSpace(input.Model) != "" {
-		active.Model = strings.TrimSpace(input.Model)
-	}
-	if input.TimeoutSeconds > 0 {
-		active.Timeout = time.Duration(input.TimeoutSeconds) * time.Second
-	}
-	if strings.TrimSpace(input.TokenHeader) != "" {
-		active.TokenHeader = strings.TrimSpace(input.TokenHeader)
-	}
-	if input.APIKey != nil {
-		active.Token = *input.APIKey
-	}
-	if err := validateRuntimeLLM(active); err != nil {
-		return LLMConnectionTestResult{}, err
-	}
-	result, err := s.llmTester.TestLLM(ctx, active)
-	if err != nil {
-		return LLMConnectionTestResult{}, NewError(CodeDependency, "LLM connection test failed", err)
-	}
-	return result, nil
-}
-
 func (s *ConfigService) TestMCPConnection(ctx context.Context, input MCPConnectionTestInput) (MCPConnectionTestResult, error) {
 	var runtime RuntimeMCPConfig
 	if input.ID != "" {
@@ -419,8 +388,8 @@ func (s *ConfigService) activeLLM(ctx context.Context) (StoredLLMConfig, error) 
 	if err == nil && stored.Provider == llmProviderAIGateway {
 		return stored, nil
 	}
-	if err == nil && stored.Provider == llmProviderLegacyDirect && stored.APIEndpoint != "" {
-		return stored, nil
+	if err == nil {
+		return StoredLLMConfig{}, ValidationError(map[string]string{"llm.provider": "must be ai-gateway"})
 	}
 	if err != nil {
 		if appErr, ok := Classify(err); !ok || appErr.Code != CodeNotFound {
@@ -436,20 +405,6 @@ func (s *ConfigService) activeLLM(ctx context.Context) (StoredLLMConfig, error) 
 
 func (s *ConfigService) runtimeLLM(ctx context.Context) (RuntimeLLMConfig, error) {
 	stored, err := s.repository.GetActiveLLMConfig(ctx)
-	if err == nil && stored.Provider == llmProviderLegacyDirect && stored.APIEndpoint != "" {
-		token := ""
-		if len(stored.APIKeyEncrypted) > 0 {
-			token, err = s.secrets.Decrypt(stored.APIKeyEncrypted)
-			if err != nil {
-				return RuntimeLLMConfig{}, err
-			}
-		}
-		return RuntimeLLMConfig{
-			Endpoint: stored.APIEndpoint, Token: token, TokenHeader: stored.TokenHeader,
-			Model: stored.Model, Timeout: time.Duration(stored.TimeoutSeconds) * time.Second,
-			MaxTokens: stored.MaxTokens,
-		}, nil
-	}
 	if err == nil && stored.Provider == llmProviderAIGateway {
 		runtime := s.bootstrap.LLM
 		runtime.ProfileID = stored.ProfileID
@@ -457,6 +412,9 @@ func (s *ConfigService) runtimeLLM(ctx context.Context) (RuntimeLLMConfig, error
 		runtime.Timeout = time.Duration(stored.TimeoutSeconds) * time.Second
 		runtime.MaxTokens = stored.MaxTokens
 		return runtime, nil
+	}
+	if err == nil {
+		return RuntimeLLMConfig{}, ValidationError(map[string]string{"llm.provider": "must be ai-gateway"})
 	}
 	if err != nil {
 		if appErr, ok := Classify(err); !ok || appErr.Code != CodeNotFound {
@@ -480,48 +438,37 @@ func (s *ConfigService) runtimePrompt(ctx context.Context) (string, error) {
 }
 
 func (s *ConfigService) buildStoredLLM(ctx context.Context, update LLMUpdate) (StoredLLMConfig, error) {
-	runtime, err := s.runtimeLLM(ctx)
+	active, err := s.activeLLM(ctx)
 	if err != nil {
 		return StoredLLMConfig{}, err
 	}
 	if strings.TrimSpace(update.ProfileID) != "" {
-		runtime.ProfileID = strings.TrimSpace(update.ProfileID)
-	}
-	if strings.TrimSpace(update.APIEndpoint) != "" {
-		runtime.Endpoint = strings.TrimSpace(update.APIEndpoint)
-	}
-	if strings.TrimSpace(update.TokenHeader) != "" {
-		runtime.TokenHeader = strings.TrimSpace(update.TokenHeader)
+		active.ProfileID = strings.TrimSpace(update.ProfileID)
 	}
 	if strings.TrimSpace(update.Model) != "" {
-		runtime.Model = strings.TrimSpace(update.Model)
+		active.Model = strings.TrimSpace(update.Model)
 	}
 	if update.TimeoutSeconds > 0 {
-		runtime.Timeout = time.Duration(update.TimeoutSeconds) * time.Second
+		active.TimeoutSeconds = update.TimeoutSeconds
 	}
 	if update.MaxTokens > 0 {
-		runtime.MaxTokens = update.MaxTokens
-	}
-	if runtime.TokenHeader == "" {
-		runtime.TokenHeader = http.CanonicalHeaderKey("Authorization")
-	}
-	if update.APIKey != nil {
-		runtime.Token = *update.APIKey
-	}
-	if err := validateRuntimeLLM(runtime); err != nil {
-		return StoredLLMConfig{}, err
+		active.MaxTokens = update.MaxTokens
 	}
 	if update.Temperature < 0 || update.Temperature > 2 {
 		return StoredLLMConfig{}, ValidationError(map[string]string{"llm.temperature": "must be between 0 and 2"})
 	}
-	timeoutSeconds := update.TimeoutSeconds
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = int(runtime.Timeout.Seconds())
+	if active.ProfileID == "" {
+		return StoredLLMConfig{}, ValidationError(map[string]string{"llm.profileId": "is required"})
+	}
+	if active.TimeoutSeconds <= 0 || active.TimeoutSeconds > 600 {
+		return StoredLLMConfig{}, ValidationError(map[string]string{"llm.timeoutSeconds": "must be between 1 and 600"})
+	}
+	if active.MaxTokens <= 0 || active.MaxTokens > 1_000_000 {
+		return StoredLLMConfig{}, ValidationError(map[string]string{"llm.maxTokens": "must be between 1 and 1000000"})
 	}
 	return StoredLLMConfig{
-		Provider: llmProviderAIGateway, ProfileID: runtime.ProfileID,
-		TokenHeader: runtime.TokenHeader, Model: runtime.Model,
-		TimeoutSeconds: timeoutSeconds, Temperature: update.Temperature, MaxTokens: runtime.MaxTokens,
+		Provider: llmProviderAIGateway, ProfileID: active.ProfileID, Model: active.Model,
+		TimeoutSeconds: active.TimeoutSeconds, Temperature: update.Temperature, MaxTokens: active.MaxTokens,
 	}, nil
 }
 
@@ -653,10 +600,10 @@ func validateRuntimeMCP(config RuntimeMCPConfig) error {
 func validateRuntimeLLM(config RuntimeLLMConfig) error {
 	fields := map[string]string{}
 	if _, err := modelendpoint.NormalizeAIGatewayChatEndpoint(config.Endpoint); err != nil {
-		fields["llm.apiEndpoint"] = "must target trusted AI Gateway chat completions endpoint"
+		fields["llm.endpoint"] = "must target trusted AI Gateway chat completions endpoint"
 	}
 	if config.Token == "" {
-		fields["llm.apiKey"] = "is required"
+		fields["llm.serviceToken"] = "is required"
 	}
 	if !validHeader(config.TokenHeader) {
 		fields["llm.tokenHeader"] = "is invalid"
@@ -706,7 +653,7 @@ func publicLLM(config StoredLLMConfig) LLMSettings {
 	return LLMSettings{
 		Provider: llmProviderAIGateway, ProfileID: config.ProfileID, Model: config.Model,
 		TimeoutSeconds: config.TimeoutSeconds, Temperature: config.Temperature,
-		MaxTokens: config.MaxTokens, TokenHeader: config.TokenHeader,
+		MaxTokens: config.MaxTokens,
 	}
 }
 
@@ -730,7 +677,6 @@ func settingsAuditData(settings QASettings) map[string]any {
 			"provider": settings.LLM.Provider, "profileId": settings.LLM.ProfileID,
 			"model": settings.LLM.Model, "timeoutSeconds": settings.LLM.TimeoutSeconds,
 			"temperature": settings.LLM.Temperature, "maxTokens": settings.LLM.MaxTokens,
-			"tokenHeader": settings.LLM.TokenHeader,
 		},
 		"systemPromptLength": len(settings.SystemPrompt),
 	}

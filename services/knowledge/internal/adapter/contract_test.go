@@ -328,7 +328,7 @@ func TestAdapterCreateKnowledgeBaseAppliesDefaultParserConfig(t *testing.T) {
 		ServiceVersion:    "test",
 		VendorRuntimeURL:  vendor.URL,
 		ServiceToken:      testServiceToken,
-		VendorEmbeddingID: "BAAI/bge-m3@SILICONFLOW",
+		VendorEmbeddingID: "BAAI/bge-m3@default@AI_GATEWAY",
 	}, nil, WithParserConfigService(service.New(repo)))
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases", strings.NewReader(`{"name":"Manuals"}`))
@@ -352,7 +352,7 @@ func TestAdapterCreateKnowledgeBaseAppliesDefaultParserConfig(t *testing.T) {
 	if cfg["layout_recognize"] != ragflowLayoutPaddleOCR {
 		t.Fatalf("layout_recognize=%v", cfg["layout_recognize"])
 	}
-	if createBody["embedding_model"] != "BAAI/bge-m3@SILICONFLOW" {
+	if createBody["embedding_model"] != "BAAI/bge-m3@default@AI_GATEWAY" {
 		t.Fatalf("embedding_model=%v", createBody["embedding_model"])
 	}
 	if _, ok := cfg[parserConfigTraceKey]; ok {
@@ -429,7 +429,7 @@ func TestAdapterCreateKnowledgeBaseUsesInternalDatasetPathForPaddleOCRCredential
 		ServiceVersion:    "test",
 		VendorRuntimeURL:  vendor.URL,
 		ServiceToken:      testServiceToken,
-		VendorEmbeddingID: "BAAI/bge-m3@SILICONFLOW",
+		VendorEmbeddingID: "BAAI/bge-m3@default@AI_GATEWAY",
 	}, nil, WithParserConfigService(service.New(repo)))
 
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases", strings.NewReader(`{"name":"Manuals"}`))

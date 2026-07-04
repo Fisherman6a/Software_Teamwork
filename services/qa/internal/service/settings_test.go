@@ -55,7 +55,7 @@ func (r *settingsRepositoryStub) GetActiveLLMConfig(context.Context) (StoredLLMC
 		return r.activeLLM, nil
 	}
 	return StoredLLMConfig{
-		Provider: "ai-gateway", ProfileID: "default-chat", TokenHeader: "X-Service-Token",
+		Provider: "ai-gateway", ProfileID: "default-chat",
 		Model: "model", TimeoutSeconds: 30, Temperature: .7, MaxTokens: 1024,
 	}, nil
 }
@@ -353,7 +353,7 @@ func TestValidateRuntimeLLMRejectsDirectProviderEscape(t *testing.T) {
 		MaxTokens:   100,
 	})
 	var appErr *AppError
-	if !errors.As(err, &appErr) || appErr.Code != CodeValidation || appErr.Fields["llm.apiEndpoint"] == "" {
+	if !errors.As(err, &appErr) || appErr.Code != CodeValidation || appErr.Fields["llm.endpoint"] == "" {
 		t.Fatalf("expected endpoint validation error, got %v", err)
 	}
 }
@@ -371,33 +371,20 @@ func TestValidateRuntimeLLMAllowsProfileOnlyModel(t *testing.T) {
 	}
 }
 
-func TestGetSettingsPresentsLegacyDirectLLMAsAIGatewayProfile(t *testing.T) {
+func TestGetSettingsRejectsLegacyDirectLLMConfig(t *testing.T) {
 	svc, err := NewConfigService(&settingsRepositoryStub{
 		activeLLM: StoredLLMConfig{
-			Provider:        "direct",
-			ProfileID:       "legacy-chat",
-			APIEndpoint:     "http://ai-gateway:8086/internal/v1/chat/completions",
-			APIKeyEncrypted: []byte("token"),
-			APIKeyLast4:     "oken",
-			TokenHeader:     "X-Service-Token",
-			Model:           "deepseek-chat",
-			TimeoutSeconds:  30,
-			Temperature:     .7,
-			MaxTokens:       100,
+			Provider: "direct",
+			Model:    "deepseek-chat",
 		},
 	}, settingsCipherStub{}, BootstrapSettings{}, &settingsLLMTesterStub{}, settingsMCPTesterStub{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings, err := svc.GetSettings(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if settings.LLM.Provider != "ai-gateway" || settings.LLM.ProfileID != "legacy-chat" {
-		t.Fatalf("llm provider/profile = %q/%q, want ai-gateway/legacy-chat", settings.LLM.Provider, settings.LLM.ProfileID)
-	}
-	if settings.LLM.APIEndpoint != "" || settings.LLM.APIKeyConfigured || settings.LLM.APIKeyLast4 != "" {
-		t.Fatalf("legacy endpoint/key fields must not be exposed in normal settings response: %+v", settings.LLM)
+	_, err = svc.GetSettings(context.Background())
+	var appErr *AppError
+	if !errors.As(err, &appErr) || appErr.Code != CodeValidation || appErr.Fields["llm.provider"] == "" {
+		t.Fatalf("expected provider validation error, got %v", err)
 	}
 }
 
@@ -431,35 +418,6 @@ func TestUpdateSettingsStoresAIGatewayProfileReference(t *testing.T) {
 	}
 	if repository.createdLLM.Provider != "ai-gateway" || repository.createdLLM.ProfileID != "profile-chat" {
 		t.Fatalf("stored llm provider/profile = %q/%q, want ai-gateway/profile-chat", repository.createdLLM.Provider, repository.createdLLM.ProfileID)
-	}
-	if repository.createdLLM.APIEndpoint != "" || len(repository.createdLLM.APIKeyEncrypted) != 0 || repository.createdLLM.APIKeyLast4 != "" {
-		t.Fatalf("stored llm must not keep endpoint/key fields: %+v", repository.createdLLM)
-	}
-}
-
-func TestTestLLMConnectionRejectsStoredDirectProviderEscape(t *testing.T) {
-	tester := &settingsLLMTesterStub{}
-	svc, err := NewConfigService(&settingsRepositoryStub{
-		activeLLM: StoredLLMConfig{
-			Provider:        "direct",
-			APIEndpoint:     "http://169.254.169.254/latest/meta-data",
-			APIKeyEncrypted: []byte("token"),
-			TokenHeader:     "Authorization",
-			Model:           "deepseek-chat",
-			TimeoutSeconds:  30,
-			MaxTokens:       100,
-		},
-	}, settingsCipherStub{}, BootstrapSettings{}, tester, settingsMCPTesterStub{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = svc.TestLLMConnection(context.Background(), LLMConnectionTestInput{})
-	var appErr *AppError
-	if !errors.As(err, &appErr) || appErr.Code != CodeValidation || appErr.Fields["llm.apiEndpoint"] == "" {
-		t.Fatalf("expected endpoint validation error, got %v", err)
-	}
-	if tester.called {
-		t.Fatal("LLM tester was called for unsafe stored endpoint")
 	}
 }
 
@@ -623,8 +581,7 @@ func TestSettingsAuditDataDoesNotLeakFullPrompt(t *testing.T) {
 	settings := QASettings{
 		SystemPrompt: "This is a secret system prompt that must not appear in audit logs.",
 		LLM: LLMSettings{
-			Provider: "ai-gateway", ProfileID: "profile-chat", APIEndpoint: "http://ai-gateway:8086/internal/v1/chat/completions",
-			APIKeyConfigured: true, APIKeyLast4: "1234",
+			Provider: "ai-gateway", ProfileID: "profile-chat",
 		},
 	}
 	data := settingsAuditData(settings)
@@ -639,35 +596,10 @@ func TestSettingsAuditDataDoesNotLeakFullPrompt(t *testing.T) {
 	if !ok {
 		t.Fatalf("audit llm=%T, want map[string]any", data["llm"])
 	}
-	if _, ok := llm["apiEndpoint"]; ok {
-		t.Fatal("audit data must not contain llm apiEndpoint")
+	if _, ok := llm["endpoint"]; ok {
+		t.Fatal("audit data must not contain llm endpoint")
 	}
-	if _, ok := llm["apiKey"]; ok {
-		t.Fatal("audit data must not contain llm apiKey")
-	}
-}
-
-func TestTestLLMConnectionUsesTrustedStoredEndpoint(t *testing.T) {
-	tester := &settingsLLMTesterStub{}
-	svc, err := NewConfigService(&settingsRepositoryStub{
-		activeLLM: StoredLLMConfig{
-			Provider:        "direct",
-			APIEndpoint:     "http://ai-gateway:8086/internal/v1/chat/completions",
-			APIKeyEncrypted: []byte("token"),
-			TokenHeader:     "X-Service-Token",
-			Model:           "deepseek-chat",
-			TimeoutSeconds:  30,
-			MaxTokens:       100,
-		},
-	}, settingsCipherStub{}, BootstrapSettings{}, tester, settingsMCPTesterStub{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := svc.TestLLMConnection(context.Background(), LLMConnectionTestInput{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !tester.called || result.Model != "deepseek-chat" || tester.seen.Endpoint != "http://ai-gateway:8086/internal/v1/chat/completions" {
-		t.Fatalf("unexpected tester state result=%+v seen=%+v called=%v", result, tester.seen, tester.called)
+	if _, ok := llm["serviceToken"]; ok {
+		t.Fatal("audit data must not contain llm serviceToken")
 	}
 }

@@ -46,15 +46,18 @@ DIRECT_PROVIDER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 
 ALLOWLIST_PREFIXES: tuple[tuple[str, str], ...] = (
     ("services/ai-gateway/", "AI Gateway is the only normal provider exit"),
-    (
-        "services/knowledge-runtime/rag/llm/",
-        "vendored Knowledge runtime local/emergency provider fallbacks",
-    ),
     ("services/knowledge-runtime/conf/", "vendored provider/model catalog"),
-    ("services/knowledge-runtime/test/", "runtime fallback and AI Gateway adapter tests"),
+    ("services/knowledge-runtime/test/", "runtime rejection and AI Gateway adapter tests"),
 )
 
 ALLOWLIST_FILES: dict[str, str] = {
+    "services/knowledge-runtime/rag/llm/__init__.py": "vendored provider catalog; project product config rejects non-AI_GATEWAY embedding/rerank factories",
+    "services/knowledge-runtime/rag/llm/chat_model.py": "vendored provider catalog; project product config rejects non-AI_GATEWAY embedding/rerank factories",
+    "services/knowledge-runtime/rag/llm/cv_model.py": "vendored provider catalog; project product config rejects non-AI_GATEWAY embedding/rerank factories",
+    "services/knowledge-runtime/rag/llm/embedding_model.py": "vendored provider catalog; project product config rejects non-AI_GATEWAY embedding factories",
+    "services/knowledge-runtime/rag/llm/rerank_model.py": "vendored provider catalog; project product config rejects non-AI_GATEWAY rerank factories",
+    "services/knowledge-runtime/rag/llm/sequence2txt_model.py": "vendored provider catalog; not a product embedding/rerank exit",
+    "services/knowledge-runtime/rag/llm/tts_model.py": "vendored provider catalog; not a product embedding/rerank exit",
     "scripts/check_ai_gateway_provider_policy.py": "policy checker owns the direct-provider patterns",
     "scripts/local/render_ai_gateway_local_seed.go": "renders AI Gateway model profiles for local seed",
     "scripts/verify_local_seed_contract.py": "asserts AI Gateway local seed contract",

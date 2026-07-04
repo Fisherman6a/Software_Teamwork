@@ -57,7 +57,6 @@ type SettingsService interface {
 	CreateMCPServer(context.Context, string, string, service.MCPServerInput) (service.MCPServer, error)
 	UpdateMCPServer(context.Context, string, string, string, service.MCPServerPatch) (service.MCPServer, error)
 	DeleteMCPServer(context.Context, string, string, string) error
-	TestLLMConnection(context.Context, service.LLMConnectionTestInput) (service.LLMConnectionTestResult, error)
 	TestMCPConnection(context.Context, service.MCPConnectionTestInput) (service.MCPConnectionTestResult, error)
 }
 

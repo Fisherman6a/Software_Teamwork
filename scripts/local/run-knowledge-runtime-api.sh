@@ -130,7 +130,7 @@ Required for this script:
   KNOWLEDGE_RUNTIME_EMBEDDING_FACTORY
   KNOWLEDGE_RUNTIME_EMBEDDING_MODEL
   KNOWLEDGE_RUNTIME_EMBEDDING_BASE_URL
-  KNOWLEDGE_RUNTIME_MODEL_API_KEY, unless using a trusted local keyless provider
+  KNOWLEDGE_RUNTIME_AI_GATEWAY_SERVICE_TOKEN or AI_GATEWAY_SERVICE_TOKEN
 
 This API-only path installs the base runtime dependency profile. Use
 ./scripts/local/run-knowledge-parse-stack.sh for worker/full ingestion deps.

@@ -71,13 +71,13 @@ func TestBuildCreateDatasetBodyIncludesVendorEmbeddingID(t *testing.T) {
 	body, err := buildCreateDatasetBody(
 		createKnowledgeBaseRequest{Name: "Manuals"},
 		nil,
-		createDatasetOptions{VendorEmbeddingID: "BAAI/bge-m3@SILICONFLOW"},
+		createDatasetOptions{VendorEmbeddingID: "BAAI/bge-m3@default@AI_GATEWAY"},
 	)
 	if err != nil {
 		t.Fatalf("buildCreateDatasetBody: %v", err)
 	}
 	payload := decodeMap(t, body)
-	if payload["embedding_model"] != "BAAI/bge-m3@SILICONFLOW" {
+	if payload["embedding_model"] != "BAAI/bge-m3@default@AI_GATEWAY" {
 		t.Fatalf("embedding_model=%v", payload["embedding_model"])
 	}
 }
@@ -417,7 +417,7 @@ func TestBuildRetrievalBodyForwardsSearchParams(t *testing.T) {
 		MetadataFilter:   map[string]string{"专业": "锅炉"},
 		Rerank:           true,
 		RerankTopN:       &rerankTopN,
-	}, retrievalBuildOptions{VendorRerankID: "BAAI/bge-reranker-v2-m3@default@SILICONFLOW"})
+	}, retrievalBuildOptions{VendorRerankID: "BAAI/bge-reranker-v2-m3@default@AI_GATEWAY"})
 	if err != nil {
 		t.Fatalf("buildRetrievalBody: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestBuildRetrievalBodyForwardsSearchParams(t *testing.T) {
 	if payload["similarity_threshold"].(float64) != 0.4 {
 		t.Fatalf("similarity_threshold=%v", payload["similarity_threshold"])
 	}
-	if payload["rerank_id"] != "BAAI/bge-reranker-v2-m3@default@SILICONFLOW" {
+	if payload["rerank_id"] != "BAAI/bge-reranker-v2-m3@default@AI_GATEWAY" {
 		t.Fatalf("rerank_id=%v", payload["rerank_id"])
 	}
 	if payload["size"].(float64) != 5 {
@@ -541,13 +541,13 @@ func TestKnowledgeQueryTraceUsesConfiguredRuntimeValues(t *testing.T) {
 		0.4,
 		true,
 		ptrInt(5),
-		knowledgeQueryTraceOptions{VendorEmbeddingID: "BAAI/bge-m3@SILICONFLOW"},
+		knowledgeQueryTraceOptions{VendorEmbeddingID: "BAAI/bge-m3@default@AI_GATEWAY"},
 	)
 
 	if summary.Trace.EmbeddingProvider != "runtime" {
 		t.Fatalf("embeddingProvider=%q", summary.Trace.EmbeddingProvider)
 	}
-	if summary.Trace.EmbeddingModel != "BAAI/bge-m3@SILICONFLOW" {
+	if summary.Trace.EmbeddingModel != "BAAI/bge-m3@default@AI_GATEWAY" {
 		t.Fatalf("embeddingModel=%q", summary.Trace.EmbeddingModel)
 	}
 	if summary.Trace.EmbeddingModel == "vendor-default" {

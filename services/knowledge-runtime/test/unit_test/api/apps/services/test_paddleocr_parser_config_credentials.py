@@ -174,7 +174,7 @@ async def test_create_dataset_ignores_ext_parser_config_credentials(monkeypatch)
 
     def fake_create_with_name(name, scope_id, parser_id, **kwargs):
         captured.update(name=name, scope_id=scope_id, parser_id=parser_id, kwargs=kwargs)
-        return True, {"id": "kb-1", "embd_id": "BAAI/bge-m3@default@SILICONFLOW"}
+        return True, {"id": "kb-1", "embd_id": "BAAI/bge-m3@default@AI_GATEWAY"}
 
     knowledgebase_service = SimpleNamespace(
         create_with_name=fake_create_with_name,
@@ -220,7 +220,7 @@ async def test_create_dataset_consumes_top_level_parser_config_credentials(monke
 
     def fake_create_with_name(name, scope_id, parser_id, **kwargs):
         captured.update(name=name, scope_id=scope_id, parser_id=parser_id, kwargs=kwargs)
-        return True, {"id": "kb-1", "embd_id": "BAAI/bge-m3@default@SILICONFLOW"}
+        return True, {"id": "kb-1", "embd_id": "BAAI/bge-m3@default@AI_GATEWAY"}
 
     knowledgebase_service = SimpleNamespace(
         create_with_name=fake_create_with_name,

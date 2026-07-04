@@ -357,7 +357,6 @@ REQUIRED_ENV_TOKENS = [
     "# AI_GATEWAY_LOCAL_EMBEDDING_DIMENSIONS=1024",
     "# AI_GATEWAY_LOCAL_RERANK_MODEL=BAAI/bge-reranker-v2-m3",
     "# AI_GATEWAY_LOCAL_RERANK_TOP_N=5",
-    "# KNOWLEDGE_RUNTIME_MODEL_API_KEY=",
     "# UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple",
     "# GOPROXY=https://goproxy.cn,direct",
     "# GOSUMDB=sum.golang.google.cn",

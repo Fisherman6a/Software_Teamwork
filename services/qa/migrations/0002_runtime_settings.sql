@@ -1,11 +1,4 @@
 -- +goose Up
-ALTER TABLE llm_config_versions
-    ALTER COLUMN profile_id DROP NOT NULL,
-    ADD COLUMN api_endpoint TEXT,
-    ADD COLUMN api_key_encrypted BYTEA,
-    ADD COLUMN api_key_last4 TEXT,
-    ADD COLUMN token_header TEXT NOT NULL DEFAULT 'Authorization';
-
 CREATE TABLE qa_runtime_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
@@ -54,9 +47,3 @@ CREATE INDEX idx_mcp_servers_enabled ON mcp_servers(enabled, sort_order);
 -- +goose Down
 DROP TABLE IF EXISTS mcp_servers;
 DROP TABLE IF EXISTS qa_runtime_settings;
-ALTER TABLE llm_config_versions
-    DROP COLUMN IF EXISTS token_header,
-    DROP COLUMN IF EXISTS api_key_last4,
-    DROP COLUMN IF EXISTS api_key_encrypted,
-    DROP COLUMN IF EXISTS api_endpoint,
-    ALTER COLUMN profile_id SET NOT NULL;
