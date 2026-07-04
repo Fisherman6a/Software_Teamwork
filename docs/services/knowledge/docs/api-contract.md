@@ -537,21 +537,67 @@ DELETE /api/v1/documents/{documentId}?knowledgeBaseId=kb_001
 
 ### 5.6 创建文档删除任务
 
-候选扩展接口，尚未进入 gateway active public OpenAPI；进入公开契约前必须先更新 `docs/services/gateway/api/public.openapi.yaml`。
+批量文档删除接口已进入 gateway active public OpenAPI。批量删除建模为 deletion job 资源，不使用 `batch-delete` 动作路径，也不依赖 `DELETE` 请求体。首期实现同步完成删除任务并返回有序的逐文档结果。
 
 ```http
-POST /api/v1/document-deletion-jobs
+POST /api/v1/knowledge-bases/{knowledgeBaseId}/document-deletion-jobs
 ```
 
 请求：
 
 ```json
 {
-  "ids": ["doc_001", "doc_002"]
+  "documentIds": ["doc_001", "doc_002"]
 }
 ```
 
-响应结构同知识库删除任务。
+响应：`201 Created` 表示全部删除成功；`207 Multi-Status` 表示知识库存在且至少一个文档删除失败，但逐文档结果可用。
+
+```json
+{
+  "data": {
+    "id": "docdel_req_123",
+    "status": "completed",
+    "knowledgeBaseId": "kb_001",
+    "targetIds": ["doc_001", "doc_002"],
+    "totalCount": 2,
+    "successCount": 2,
+    "failedCount": 0,
+    "results": [
+      {
+        "documentId": "doc_001",
+        "status": "deleted"
+      },
+      {
+        "documentId": "doc_002",
+        "status": "deleted"
+      }
+    ]
+  },
+  "requestId": "req_123"
+}
+```
+
+部分失败响应中 `data.status` 为 `partial_failed`，失败项包含脱敏后的错误：
+
+```json
+{
+  "documentId": "doc_002",
+  "status": "failed",
+  "error": {
+    "code": "not_found",
+    "message": "document not found"
+  }
+}
+```
+
+规则：
+
+- 需要 `knowledge:write`、`knowledge:admin` 或 `system:admin`。
+- `knowledgeBaseId` 只从路径读取；请求体不得携带另一个知识库 ID。
+- `documentIds` 必须是 1 到 100 个非空且不重复的文档 ID。
+- 缺失或隐藏的知识库返回顶层 `404 not_found`，不进入逐文档删除。
+- 文档、chunks、索引和 runtime 内部对象生命周期仍由 Knowledge adapter/runtime 边界负责；Gateway 只负责认证、授权和代理。
 
 ### 5.7 创建文档处理任务
 

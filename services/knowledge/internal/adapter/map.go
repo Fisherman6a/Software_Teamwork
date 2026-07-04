@@ -23,6 +23,8 @@ const (
 	documentBatchMaxUploadBytes       = defaultMaxUploadBytes*documentBatchMaxFiles + documentBatchMultipartOverhead
 )
 
+const documentDeletionJobMaxDocuments = 100
+
 const (
 	vendorRetCodeArgument       = 101
 	vendorRetCodePermission     = 108
@@ -76,6 +78,10 @@ type updateKnowledgeBaseRequest struct {
 
 type updateDocumentRequest struct {
 	Tags *[]string `json:"tags"`
+}
+
+type createDocumentDeletionJobRequest struct {
+	DocumentIDs []string `json:"documentIds"`
 }
 
 type knowledgeQueryRequest struct {
@@ -171,6 +177,28 @@ type documentBatchItem struct {
 }
 
 type documentBatchItemError struct {
+	Code    service.Code `json:"code"`
+	Message string       `json:"message"`
+}
+
+type documentDeletionJobSummary struct {
+	ID              string                      `json:"id"`
+	Status          string                      `json:"status"`
+	KnowledgeBaseID string                      `json:"knowledgeBaseId"`
+	TargetIDs       []string                    `json:"targetIds"`
+	TotalCount      int                         `json:"totalCount"`
+	SuccessCount    int                         `json:"successCount"`
+	FailedCount     int                         `json:"failedCount"`
+	Results         []documentDeletionJobResult `json:"results"`
+}
+
+type documentDeletionJobResult struct {
+	DocumentID string                        `json:"documentId"`
+	Status     string                        `json:"status"`
+	Error      *documentDeletionJobItemError `json:"error,omitempty"`
+}
+
+type documentDeletionJobItemError struct {
 	Code    service.Code `json:"code"`
 	Message string       `json:"message"`
 }

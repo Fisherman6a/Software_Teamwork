@@ -291,6 +291,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/knowledge-bases/{knowledgeBaseId}/document-deletion-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                knowledgeBaseId: components["parameters"]["KnowledgeBaseId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create document deletion job
+         * @description Delete multiple knowledge-owned documents from one knowledge base. Gateway authenticates, enforces write/admin permissions, and proxies the request; Knowledge owns document, chunk, and index lifecycle. The first implementation completes the deletion job inline and returns ordered per-document results. Batch deletion is modeled as a deletion job resource, not a batch-delete action path, and does not rely on a DELETE request body.
+         */
+        post: operations["createKnowledgeBaseDocumentDeletionJob"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{documentId}": {
         parameters: {
             query: {
@@ -1950,6 +1972,39 @@ export interface components {
         };
         DocumentBatchResponse: {
             data: components["schemas"]["DocumentBatchSummary"];
+            requestId: string;
+        };
+        CreateDocumentDeletionJobRequest: {
+            /** @description Document IDs to delete from the path-scoped knowledge base. */
+            documentIds: string[];
+        };
+        /** @enum {string} */
+        DocumentDeletionJobStatus: "completed" | "partial_failed";
+        /** @enum {string} */
+        DocumentDeletionResultStatus: "deleted" | "failed";
+        DocumentDeletionJobItemError: {
+            /** @enum {string} */
+            code: "validation_error" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "rate_limited" | "dependency_error" | "internal_error";
+            message: string;
+        };
+        DocumentDeletionJobItem: {
+            documentId: string;
+            status: components["schemas"]["DocumentDeletionResultStatus"];
+            error?: components["schemas"]["DocumentDeletionJobItemError"];
+        };
+        DocumentDeletionJobSummary: {
+            /** @description Deletion job identifier. The first inline implementation derives this from the request id. */
+            id: string;
+            status: components["schemas"]["DocumentDeletionJobStatus"];
+            knowledgeBaseId: string;
+            targetIds: string[];
+            totalCount: number;
+            successCount: number;
+            failedCount: number;
+            results: components["schemas"]["DocumentDeletionJobItem"][];
+        };
+        DocumentDeletionJobResponse: {
+            data: components["schemas"]["DocumentDeletionJobSummary"];
             requestId: string;
         };
         DocumentListResponse: {
@@ -3880,6 +3935,46 @@ export interface operations {
             403: components["responses"]["Error"];
             404: components["responses"]["Error"];
             413: components["responses"]["Error"];
+            502: components["responses"]["Error"];
+        };
+    };
+    createKnowledgeBaseDocumentDeletionJob: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                knowledgeBaseId: components["parameters"]["KnowledgeBaseId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentDeletionJobRequest"];
+            };
+        };
+        responses: {
+            /** @description All requested documents were deleted. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDeletionJobResponse"];
+                };
+            };
+            /** @description One or more document deletes failed while ordered per-document results are available. */
+            207: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentDeletionJobResponse"];
+                };
+            };
+            400: components["responses"]["Error"];
+            401: components["responses"]["Error"];
+            403: components["responses"]["Error"];
+            404: components["responses"]["Error"];
             502: components["responses"]["Error"];
         };
     };

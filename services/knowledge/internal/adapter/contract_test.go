@@ -35,6 +35,8 @@ type fakeVendorState struct {
 	taskExecutorReady  bool
 	failParse          bool
 	failParseIDs       map[string]bool
+	failDeleteIDs      map[string]bool
+	failDeleteMessages map[string]string
 	searchStatus       int
 	searchResponse     map[string]any
 	searchBody         []byte
@@ -55,10 +57,12 @@ type deleteCall struct {
 
 func newFakeVendorState() *fakeVendorState {
 	return &fakeVendorState{
-		datasets:          map[string]map[string]any{},
-		documents:         map[string]map[string]any{},
-		failParseIDs:      map[string]bool{},
-		taskExecutorReady: true,
+		datasets:           map[string]map[string]any{},
+		documents:          map[string]map[string]any{},
+		failParseIDs:       map[string]bool{},
+		failDeleteIDs:      map[string]bool{},
+		failDeleteMessages: map[string]string{},
+		taskExecutorReady:  true,
 	}
 }
 
@@ -286,6 +290,14 @@ func startFakeVendor(t *testing.T, state *fakeVendorState) *httptest.Server {
 				t.Fatalf("decode delete body: %v", err)
 			}
 			for _, docID := range body.IDs {
+				if state.failDeleteIDs[docID] {
+					message := state.failDeleteMessages[docID]
+					if message == "" {
+						message = "document not found"
+					}
+					writeVendorJSON(w, http.StatusNotFound, map[string]any{"code": 404, "message": message})
+					return
+				}
 				state.deleteCalls = append(state.deleteCalls, deleteCall{datasetID: kbID, documentID: docID})
 				delete(state.documents, docID)
 			}
@@ -1684,6 +1696,314 @@ func TestAdapterDeleteDocumentUsesDatasetScopedRuntimeRoute(t *testing.T) {
 	}
 	if _, ok := state.documents["doc_fake_1"]; ok {
 		t.Fatal("document should be removed after delete")
+	}
+}
+
+func TestAdapterCreateDocumentDeletionJobAllSuccess(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	state.documents["doc_fake_1"] = map[string]any{
+		"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "name": "one.txt",
+	}
+	state.documents["doc_fake_2"] = map[string]any{
+		"id": "doc_fake_2", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "name": "two.txt",
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-deletion-jobs", strings.NewReader(`{"documentIds":["doc_fake_1","doc_fake_2"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-Id", "req_delete_job")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			ID              string   `json:"id"`
+			Status          string   `json:"status"`
+			KnowledgeBaseID string   `json:"knowledgeBaseId"`
+			TargetIDs       []string `json:"targetIds"`
+			TotalCount      int      `json:"totalCount"`
+			SuccessCount    int      `json:"successCount"`
+			FailedCount     int      `json:"failedCount"`
+			Results         []struct {
+				DocumentID string `json:"documentId"`
+				Status     string `json:"status"`
+			} `json:"results"`
+		} `json:"data"`
+		RequestID string `json:"requestId"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.ID != "docdel_req_delete_job" || body.Data.Status != "completed" || body.Data.KnowledgeBaseID != "kb_fake_1" {
+		t.Fatalf("job=%+v", body.Data)
+	}
+	if body.Data.TotalCount != 2 || body.Data.SuccessCount != 2 || body.Data.FailedCount != 0 {
+		t.Fatalf("summary=%+v", body.Data)
+	}
+	if len(body.Data.TargetIDs) != 2 || body.Data.TargetIDs[0] != "doc_fake_1" || body.Data.TargetIDs[1] != "doc_fake_2" {
+		t.Fatalf("targetIds=%v", body.Data.TargetIDs)
+	}
+	if len(body.Data.Results) != 2 ||
+		body.Data.Results[0].DocumentID != "doc_fake_1" ||
+		body.Data.Results[0].Status != "deleted" ||
+		body.Data.Results[1].DocumentID != "doc_fake_2" ||
+		body.Data.Results[1].Status != "deleted" {
+		t.Fatalf("results=%+v", body.Data.Results)
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.deleteCalls) != 2 ||
+		state.deleteCalls[0] != (deleteCall{datasetID: "kb_fake_1", documentID: "doc_fake_1"}) ||
+		state.deleteCalls[1] != (deleteCall{datasetID: "kb_fake_1", documentID: "doc_fake_2"}) {
+		t.Fatalf("deleteCalls=%v", state.deleteCalls)
+	}
+	if _, ok := state.documents["doc_fake_1"]; ok {
+		t.Fatal("doc_fake_1 should be removed after delete job")
+	}
+	if _, ok := state.documents["doc_fake_2"]; ok {
+		t.Fatal("doc_fake_2 should be removed after delete job")
+	}
+}
+
+func TestAdapterCreateDocumentDeletionJobPartialFailure(t *testing.T) {
+	state := newFakeVendorState()
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler"}
+	state.documents["doc_fake_1"] = map[string]any{
+		"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "name": "one.txt",
+	}
+	state.documents["doc_missing"] = map[string]any{
+		"id": "doc_missing", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "name": "missing.txt",
+	}
+	state.failDeleteIDs["doc_missing"] = true
+	state.failDeleteMessages["doc_missing"] = "document doc_missing not found in runtime shard http://runtime.internal/datasets/kb_fake_1"
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-deletion-jobs", strings.NewReader(`{"documentIds":["doc_fake_1","doc_missing"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-Id", "req_delete_partial")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusMultiStatus {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Data struct {
+			Status       string `json:"status"`
+			TotalCount   int    `json:"totalCount"`
+			SuccessCount int    `json:"successCount"`
+			FailedCount  int    `json:"failedCount"`
+			Results      []struct {
+				DocumentID string `json:"documentId"`
+				Status     string `json:"status"`
+				Error      struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			} `json:"results"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Data.Status != "partial_failed" || body.Data.TotalCount != 2 || body.Data.SuccessCount != 1 || body.Data.FailedCount != 1 {
+		t.Fatalf("summary=%+v", body.Data)
+	}
+	if len(body.Data.Results) != 2 ||
+		body.Data.Results[0].DocumentID != "doc_fake_1" ||
+		body.Data.Results[0].Status != "deleted" ||
+		body.Data.Results[1].DocumentID != "doc_missing" ||
+		body.Data.Results[1].Status != "failed" ||
+		body.Data.Results[1].Error.Code != string(service.CodeNotFound) ||
+		body.Data.Results[1].Error.Message != "document not found" {
+		t.Fatalf("results=%+v", body.Data.Results)
+	}
+	if strings.Contains(rec.Body.String(), "runtime.internal") || strings.Contains(rec.Body.String(), "runtime shard") {
+		t.Fatalf("partial failure leaked vendor message: %s", rec.Body.String())
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.deleteCalls) != 1 || state.deleteCalls[0] != (deleteCall{datasetID: "kb_fake_1", documentID: "doc_fake_1"}) {
+		t.Fatalf("deleteCalls=%v", state.deleteCalls)
+	}
+	if _, ok := state.documents["doc_fake_1"]; ok {
+		t.Fatal("successful document should be removed")
+	}
+	if _, ok := state.documents["doc_missing"]; !ok {
+		t.Fatal("failed document should remain")
+	}
+}
+
+func TestAdapterCreateDocumentDeletionJobRejectsInvalidDocumentIDs(t *testing.T) {
+	cases := []struct {
+		name      string
+		body      string
+		wantField string
+	}{
+		{name: "missing", body: `{}`, wantField: "is required"},
+		{name: "empty", body: `{"documentIds":[]}`, wantField: "is required"},
+		{name: "blank", body: `{"documentIds":["doc_fake_1"," "]}`, wantField: "must not include blank ids"},
+		{name: "duplicate", body: `{"documentIds":["doc_fake_1","doc_fake_1"]}`, wantField: "must not include duplicate ids"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			state := newFakeVendorState()
+			vendor := startFakeVendor(t, state)
+			defer vendor.Close()
+
+			server := NewServer(adapterconfig.Config{
+				ServiceVersion:   "test",
+				VendorRuntimeURL: vendor.URL,
+				ServiceToken:     testServiceToken,
+			}, nil)
+
+			req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-deletion-jobs", strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-User-Id", "usr_test")
+			req.Header.Set("X-Service-Token", testServiceToken)
+			req.Header.Set("X-User-Permissions", "knowledge:write")
+			rec := httptest.NewRecorder()
+			server.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+			}
+			var body struct {
+				Error struct {
+					Code   string            `json:"code"`
+					Fields map[string]string `json:"fields"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode error: %v", err)
+			}
+			if body.Error.Code != string(service.CodeValidation) || body.Error.Fields["documentIds"] != tc.wantField {
+				t.Fatalf("error=%+v", body.Error)
+			}
+
+			state.mu.Lock()
+			defer state.mu.Unlock()
+			if len(state.deleteCalls) != 0 {
+				t.Fatalf("deleteCalls=%v", state.deleteCalls)
+			}
+		})
+	}
+}
+
+func TestAdapterCreateDocumentDeletionJobRejectsTooManyDocumentIDs(t *testing.T) {
+	state := newFakeVendorState()
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	documentIDs := make([]string, 0, documentDeletionJobMaxDocuments+1)
+	for i := 0; i < documentDeletionJobMaxDocuments+1; i++ {
+		documentIDs = append(documentIDs, fmt.Sprintf("doc_%03d", i))
+	}
+	body, err := json.Marshal(createDocumentDeletionJobRequest{DocumentIDs: documentIDs})
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/kb_fake_1/document-deletion-jobs", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		Error struct {
+			Code   string            `json:"code"`
+			Fields map[string]string `json:"fields"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if payload.Error.Code != string(service.CodeValidation) ||
+		payload.Error.Fields["documentIds"] != "must include at most 100 documents" {
+		t.Fatalf("error=%+v", payload.Error)
+	}
+}
+
+func TestAdapterCreateDocumentDeletionJobReturnsNotFoundForMissingKnowledgeBase(t *testing.T) {
+	state := newFakeVendorState()
+	state.documents["doc_fake_1"] = map[string]any{
+		"id": "doc_fake_1", "kb_id": "missing", "dataset_id": "missing", "name": "one.txt",
+	}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/internal/v1/knowledge-bases/missing/document-deletion-jobs", strings.NewReader(`{"documentIds":["doc_fake_1"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-User-Id", "usr_test")
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Permissions", "knowledge:write")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if body.Error.Code != string(service.CodeNotFound) {
+		t.Fatalf("error=%+v", body.Error)
+	}
+
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.deleteCalls) != 0 {
+		t.Fatalf("missing knowledge base should not delete documents: %v", state.deleteCalls)
+	}
+	if _, ok := state.documents["doc_fake_1"]; !ok {
+		t.Fatal("document should remain when knowledge base preflight fails")
 	}
 }
 

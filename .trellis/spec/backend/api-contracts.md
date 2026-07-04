@@ -667,6 +667,121 @@ gateway -> permission/body-limit check -> proxy to Knowledge internal route
 knowledge -> sequential per-file upload/tag/parse -> 201 all-success or 207 item results
 ```
 
+## Scenario: Knowledge Document Batch Delete
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing multi-document deletion for Knowledge documents,
+  including Gateway public contracts, Knowledge internal contracts, generated
+  frontend Gateway types, or UI batch delete workflows.
+- Applies to `docs/services/gateway/api/public.openapi.yaml`,
+  `services/gateway/internal/http/routes.go`,
+  `services/knowledge/api/openapi.yaml`,
+  `docs/services/knowledge/api/internal.openapi.yaml`,
+  `docs/services/knowledge/docs/api-contract.md`,
+  `services/knowledge/internal/adapter`, and frontend Knowledge clients when
+  they start calling the endpoint.
+
+### 2. Signatures
+
+Gateway public route:
+
+```text
+POST /api/v1/knowledge-bases/{knowledgeBaseId}/document-deletion-jobs
+application/json:
+  documentIds: string[], min 1, max 100, unique, non-empty items
+```
+
+Knowledge internal route:
+
+```text
+POST /internal/v1/knowledge-bases/{knowledgeBaseId}/document-deletion-jobs
+```
+
+### 3. Contracts
+
+- Batch deletion is modeled as a deletion job resource. Do not add
+  `/batch-delete`, `/delete`, or other action-style public paths, and do not
+  depend on a public `DELETE` request body for batch deletion.
+- Gateway owns authentication, `knowledge:write`/admin permission enforcement,
+  active route registration, and context header injection. It must not delete
+  documents, inspect runtime document state, or aggregate per-document results.
+- Knowledge owns request validation, target knowledge-base resolution,
+  document/runtime deletion, chunk/index lifecycle coordination, and ordered
+  per-document result aggregation.
+- The path `knowledgeBaseId` is authoritative. The body must not carry a
+  second knowledge-base ID.
+- Request-shape validation happens before resource lookup. Once the JSON shape
+  is valid, Knowledge must validate that the target knowledge base exists
+  before any per-document delete. Shared resource or dependency failures, such
+  as a missing/hidden knowledge base, must use a top-level error envelope
+  rather than item-level `207` results.
+- The first implementation may complete the deletion job inline and return a
+  job summary without durable async job storage. Future async storage must keep
+  the public resource path and response envelope compatible.
+- Success responses use the standard `{ data, requestId }` envelope. `data`
+  contains `id`, `status`, `knowledgeBaseId`, `targetIds`, `totalCount`,
+  `successCount`, `failedCount`, and ordered `results`.
+- Response status is `201` only when every document delete succeeded. If one or
+  more per-document operations fail after the request shape and knowledge-base
+  preflight are valid, return `207` with item-level `status: failed` and a
+  sanitized `error`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Response/error |
+| --- | --- |
+| Missing trusted user context | `401 unauthorized` |
+| Caller lacks Knowledge write/admin permission | `403 forbidden` |
+| Malformed JSON or missing `documentIds` | `400 validation_error` |
+| Empty list, blank ID, duplicate ID, or more than 100 IDs | `400 validation_error` |
+| Missing or hidden knowledge base after valid JSON shape | top-level `404 not_found` |
+| Shared runtime/catalog dependency failure before per-document work | top-level error envelope, normally `502 dependency_error` |
+| Individual document delete fails after preflight | `207` with that item `failed` |
+| All requested documents delete successfully | `201` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: Gateway proxies the JSON request unchanged to Knowledge; Knowledge
+  validates the knowledge base once, deletes documents in request order, and
+  returns ordered per-document results.
+- Base: the first slice completes inline and documents that no durable job
+  polling endpoint exists yet.
+- Bad: adding `POST /document-batch-delete`, using `DELETE` with a body through
+  Gateway, returning raw runtime error bodies, or treating a missing knowledge
+  base as item-level partial failure.
+
+### 6. Tests Required
+
+- Gateway route matrix/OpenAPI tests for operation ID, owner, required
+  permissions, internal proxy path, and read-only-user rejection.
+- Knowledge adapter tests for all-success, partial success, malformed/empty/
+  duplicate/too-many IDs, missing knowledge base top-level `404`, and ordered
+  result preservation.
+- Regenerate Gateway frontend types from `docs/services/gateway/api/public.openapi.yaml`
+  when frontend generated API files are in scope.
+- Run `python3 scripts/verify_gateway_active_api.py`,
+  `cd services/gateway && go test ./...`,
+  `cd services/knowledge && go test ./...`, and `git diff --check`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+frontend -> DELETE /api/v1/documents with JSON body
+gateway -> loops DELETE /api/v1/documents/{id}
+knowledge -> returns first error only, hiding successful deletes
+```
+
+#### Correct
+
+```text
+frontend -> one JSON request creating document-deletion-jobs
+gateway -> permission check -> proxy to Knowledge internal route
+knowledge -> knowledge-base preflight -> ordered per-document delete -> 201 or 207 item results
+```
+
 ## Scenario: QA Owner Authorization
 
 ### 1. Scope / Trigger

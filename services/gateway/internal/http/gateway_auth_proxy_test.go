@@ -439,6 +439,99 @@ func TestKnowledgeDocumentBatchRouteRejectsReadOnlyUserBeforeProxy(t *testing.T)
 	}
 }
 
+func TestKnowledgeDocumentDeletionJobRouteProxiesToKnowledge(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_writer",
+		Username:    "writer",
+		Roles:       []string{"standard"},
+		Permissions: []string{"knowledge:write"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	var capturedMethod string
+	var capturedPath string
+	var capturedHeader http.Header
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedMethod = r.Method
+		capturedPath = r.URL.Path
+		capturedHeader = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMultiStatus)
+		_, _ = w.Write([]byte(`{"data":{"id":"docdel_req_delete","status":"partial_failed","knowledgeBaseId":"kb-1","targetIds":["doc-1","doc-2"],"totalCount":2,"successCount":1,"failedCount":1,"results":[]},"requestId":"req_delete"}`))
+	}))
+	defer downstream.Close()
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		store:         store,
+		hasher:        hasher,
+		ownerBaseURLs: map[string]string{"knowledge": downstream.URL},
+		serviceToken:  "svc-token",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-bases/kb-1/document-deletion-jobs", strings.NewReader(`{"documentIds":["doc-1","doc-2"]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-Id", "req_delete")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusMultiStatus {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if capturedMethod != http.MethodPost || capturedPath != "/internal/v1/knowledge-bases/kb-1/document-deletion-jobs" {
+		t.Fatalf("downstream method/path = %s %s", capturedMethod, capturedPath)
+	}
+	if capturedHeader.Get("X-User-Id") != "usr_writer" ||
+		capturedHeader.Get("X-User-Permissions") != "knowledge:write" ||
+		capturedHeader.Get("X-Request-Id") != "req_delete" ||
+		capturedHeader.Get("X-Service-Token") != "svc-token" {
+		t.Fatalf("downstream headers = %#v", capturedHeader)
+	}
+}
+
+func TestKnowledgeDocumentDeletionJobRouteRejectsReadOnlyUserBeforeProxy(t *testing.T) {
+	hasher := testHasher(t)
+	store := newMemorySessionStore()
+	accessToken := "valid-token"
+	store.putToken(t, hasher, accessToken, service.SessionCacheEntry{
+		SessionID:   "sess_1",
+		UserID:      "usr_reader",
+		Username:    "reader",
+		Roles:       []string{"standard"},
+		Permissions: []string{"knowledge:read"},
+		TokenType:   "Bearer",
+		ExpiresAt:   time.Now().Add(time.Hour).UTC(),
+	})
+
+	downstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("downstream should not be called for a read-only knowledge user")
+	}))
+	defer downstream.Close()
+
+	server := newGatewayTestServer(t, gatewayDeps{
+		store:         store,
+		hasher:        hasher,
+		ownerBaseURLs: map[string]string{"knowledge": downstream.URL},
+		serviceToken:  "svc-token",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/knowledge-bases/kb-1/document-deletion-jobs", strings.NewReader(`{"documentIds":["doc-1"]}`))
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Request-Id", "req_delete_readonly")
+	res := httptest.NewRecorder()
+
+	server.ServeHTTP(res, req)
+
+	if res.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestAdminUsersRouteProxiesToAuthWithActorContext(t *testing.T) {
 	hasher := testHasher(t)
 	store := newMemorySessionStore()

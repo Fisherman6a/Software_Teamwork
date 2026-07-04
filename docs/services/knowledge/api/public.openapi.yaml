@@ -211,23 +211,32 @@ paths:
           description: Deleted
         default:
           $ref: '#/components/responses/Error'
-  /document-deletion-jobs:
+  /knowledge-bases/{knowledgeBaseId}/document-deletion-jobs:
+    parameters:
+      - $ref: '#/components/parameters/KnowledgeBaseId'
     post:
       tags: [Documents]
       summary: Create document deletion job
+      description: Active gateway-facing contract. Requires knowledge:write, knowledge:admin, or system:admin. The first implementation completes the deletion job inline and returns ordered per-document results.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateDeletionJobRequest'
+              $ref: '#/components/schemas/CreateDocumentDeletionJobRequest'
       responses:
-        '202':
-          description: Deletion job accepted
+        '201':
+          description: All requested documents were deleted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DeletionJobResponse'
+                $ref: '#/components/schemas/DocumentDeletionJobResponse'
+        '207':
+          description: One or more document deletes failed while ordered per-document results are available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentDeletionJobResponse'
         default:
           $ref: '#/components/responses/Error'
   /documents/{documentId}/processing-jobs:
@@ -1064,6 +1073,59 @@ components:
           required: [data]
           properties:
             data: { $ref: '#/components/schemas/DeletionJob' }
+    CreateDocumentDeletionJobRequest:
+      type: object
+      required: [documentIds]
+      properties:
+        documentIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          description: Document IDs to delete from the path-scoped knowledge base.
+          items:
+            type: string
+            minLength: 1
+    DocumentDeletionJob:
+      type: object
+      required: [id, status, knowledgeBaseId, targetIds, totalCount, successCount, failedCount, results]
+      properties:
+        id:
+          type: string
+          description: Deletion job identifier. The first inline implementation derives this from the request id.
+        status:
+          type: string
+          enum: [completed, partial_failed]
+        knowledgeBaseId: { type: string }
+        targetIds:
+          type: array
+          items: { type: string }
+        totalCount: { type: integer, minimum: 0 }
+        successCount: { type: integer, minimum: 0 }
+        failedCount: { type: integer, minimum: 0 }
+        results:
+          type: array
+          items:
+            type: object
+            required: [documentId, status]
+            properties:
+              documentId: { type: string }
+              status:
+                type: string
+                enum: [deleted, failed]
+              error:
+                type: object
+                required: [code, message]
+                properties:
+                  code: { type: string }
+                  message: { type: string }
+    DocumentDeletionJobResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          required: [data]
+          properties:
+            data: { $ref: '#/components/schemas/DocumentDeletionJob' }
     UpdatedAt:
       type: object
       properties:

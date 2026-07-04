@@ -33,6 +33,7 @@ var activeProxyRoutes = []routeSpec{
 	{Method: "GET", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}/documents", Owner: "knowledge", OperationID: "listKnowledgeBaseDocuments"},
 	{Method: "POST", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}/documents", Owner: "knowledge", OperationID: "uploadKnowledgeBaseDocument", AdminPermissions: knowledgeWritePermissions},
 	{Method: "POST", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}/document-batches", Owner: "knowledge", OperationID: "uploadKnowledgeBaseDocumentBatch", AdminPermissions: knowledgeWritePermissions, LongUpload: true},
+	{Method: "POST", Pattern: "/api/v1/knowledge-bases/{knowledgeBaseId}/document-deletion-jobs", Owner: "knowledge", OperationID: "createKnowledgeBaseDocumentDeletionJob", AdminPermissions: knowledgeWritePermissions},
 	{Method: "GET", Pattern: "/api/v1/documents/{documentId}", Owner: "knowledge", OperationID: "getDocument"},
 	{Method: "PATCH", Pattern: "/api/v1/documents/{documentId}", Owner: "knowledge", OperationID: "updateDocument", AdminPermissions: knowledgeWritePermissions},
 	{Method: "DELETE", Pattern: "/api/v1/documents/{documentId}", Owner: "knowledge", OperationID: "deleteDocument", AdminPermissions: knowledgeWritePermissions},

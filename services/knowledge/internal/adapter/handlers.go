@@ -538,6 +538,146 @@ func (s *Server) handleDeleteDocument(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleCreateDocumentDeletionJob(w http.ResponseWriter, r *http.Request) {
+	reqCtx, ok := s.gatewayContext(w, r)
+	if !ok {
+		return
+	}
+	if _, err := mutationScope(reqCtx); err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	var body createDocumentDeletionJobRequest
+	if !decodeJSONBody(w, r, &body) {
+		return
+	}
+	documentIDs, err := validateDocumentDeletionJobIDs(body.DocumentIDs)
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+
+	ref, err := s.resolveKnowledgeBaseRuntimeRef(r.Context(), r.PathValue("knowledgeBaseId"))
+	if err != nil {
+		writeAppError(w, r, err)
+		return
+	}
+	if _, err := s.vendor.GetDataset(r.Context(), s.runtimeScopeID(), ref.ID); err != nil {
+		writeAppError(w, r, mapVendorError(err))
+		return
+	}
+
+	results := make([]documentDeletionJobResult, 0, len(documentIDs))
+	successCount := 0
+	for _, documentID := range documentIDs {
+		result := s.deleteDocumentDeletionJobItem(r.Context(), ref.ID, documentID)
+		if result.Status == "deleted" {
+			successCount++
+		}
+		results = append(results, result)
+	}
+
+	failedCount := len(results) - successCount
+	status := "completed"
+	httpStatus := http.StatusCreated
+	if failedCount > 0 {
+		status = "partial_failed"
+		httpStatus = http.StatusMultiStatus
+	}
+	summary := documentDeletionJobSummary{
+		ID:              "docdel_" + reqCtx.RequestID,
+		Status:          status,
+		KnowledgeBaseID: ref.ID,
+		TargetIDs:       documentIDs,
+		TotalCount:      len(results),
+		SuccessCount:    successCount,
+		FailedCount:     failedCount,
+		Results:         results,
+	}
+	writeJSON(w, httpStatus, summary, reqCtx.RequestID)
+}
+
+func validateDocumentDeletionJobIDs(raw []string) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, service.ValidationError("request validation failed", map[string]string{"documentIds": "is required"})
+	}
+	if len(raw) > documentDeletionJobMaxDocuments {
+		return nil, service.ValidationError("request validation failed", map[string]string{"documentIds": "must include at most 100 documents"})
+	}
+	seen := make(map[string]struct{}, len(raw))
+	documentIDs := make([]string, 0, len(raw))
+	for _, value := range raw {
+		documentID := strings.TrimSpace(value)
+		if documentID == "" {
+			return nil, service.ValidationError("request validation failed", map[string]string{"documentIds": "must not include blank ids"})
+		}
+		if _, ok := seen[documentID]; ok {
+			return nil, service.ValidationError("request validation failed", map[string]string{"documentIds": "must not include duplicate ids"})
+		}
+		seen[documentID] = struct{}{}
+		documentIDs = append(documentIDs, documentID)
+	}
+	return documentIDs, nil
+}
+
+func (s *Server) deleteDocumentDeletionJobItem(ctx context.Context, kbID, documentID string) documentDeletionJobResult {
+	if err := s.vendor.DeleteDocument(ctx, s.runtimeScopeID(), kbID, documentID); err != nil {
+		return failedDocumentDeletionJobResult(documentID, mapVendorError(err))
+	}
+	return documentDeletionJobResult{
+		DocumentID: documentID,
+		Status:     "deleted",
+	}
+}
+
+func failedDocumentDeletionJobResult(documentID string, err error) documentDeletionJobResult {
+	appErr, ok := service.Classify(err)
+	if !ok {
+		appErr = service.NewError(service.CodeInternal, "document delete failed", err)
+	}
+	return documentDeletionJobResult{
+		DocumentID: documentID,
+		Status:     "failed",
+		Error: &documentDeletionJobItemError{
+			Code:    appErr.Code,
+			Message: documentDeletionJobErrorMessage(appErr),
+		},
+	}
+}
+
+func documentDeletionJobErrorMessage(appErr *service.AppError) string {
+	if appErr == nil {
+		return "document delete failed"
+	}
+	if appErr.Code == service.CodeValidation {
+		if appErr.Fields != nil {
+			if message := strings.TrimSpace(appErr.Fields["documentIds"]); message != "" {
+				return message
+			}
+			if message := strings.TrimSpace(appErr.Fields["documentId"]); message != "" {
+				return message
+			}
+		}
+		return "document delete validation failed"
+	}
+	switch appErr.Code {
+	case service.CodeUnauthorized:
+		return "document delete is unauthorized"
+	case service.CodeForbidden:
+		return "document delete is forbidden"
+	case service.CodeNotFound:
+		return "document not found"
+	case service.CodeConflict:
+		return "document delete conflicts with current state"
+	case service.CodeRateLimited:
+		return "document delete was rate limited"
+	case service.CodeDependency:
+		return "document delete dependency failed"
+	default:
+		return "document delete failed"
+	}
+}
+
 func (s *Server) handleListDocumentChunks(w http.ResponseWriter, r *http.Request) {
 	reqCtx, ok := s.gatewayContext(w, r)
 	if !ok {
