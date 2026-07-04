@@ -205,6 +205,9 @@ class LocalSeedContractTests(unittest.TestCase):
                 "fingerprint=\n"
                 "pyproject.toml\n"
                 "uv.lock\n"
+                "runtime_nltk_data_ready\n"
+                "tokenizers/punkt_tab\n"
+                "corpora/wordnet\n"
                 "runtime_dependencies_synced\n"
                 "download_deps.py\n",
                 encoding="utf-8",

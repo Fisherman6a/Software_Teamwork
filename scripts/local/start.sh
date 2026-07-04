@@ -664,14 +664,25 @@ mark_runtime_dependencies_synced() {
   } > "$RUNTIME_SYNC_STAMP"
 }
 
+runtime_nltk_package_ready() {
+  local relative="$1"
+  local root="$RUNTIME_DIR/ragflow_deps/nltk_data"
+  [[ -e "$root/$relative" || -e "$root/$(dirname "$relative")/$(basename "$relative").zip" ]]
+}
+
+runtime_nltk_data_ready() {
+  runtime_nltk_package_ready "tokenizers/punkt_tab" || return 1
+  runtime_nltk_package_ready "corpora/wordnet"
+}
+
 runtime_artifacts_ready() {
   local required=(
     "$RUNTIME_DIR/ragflow_deps/tika-server-standard-3.3.0.jar"
     "$RUNTIME_DIR/ragflow_deps/cl100k_base.tiktoken"
   )
   if [[ "$RUNTIME_MODE" == "full" ]]; then
+    runtime_nltk_data_ready || return 1
     required+=(
-      "$RUNTIME_DIR/ragflow_deps/nltk_data"
       "$RUNTIME_DIR/rag/res/deepdoc/det.onnx"
       "$RUNTIME_DIR/rag/res/deepdoc/rec.onnx"
       "$RUNTIME_DIR/rag/res/deepdoc/tsr.onnx"

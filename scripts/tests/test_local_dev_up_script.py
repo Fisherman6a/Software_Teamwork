@@ -340,6 +340,26 @@ class LocalStartupScriptTests(unittest.TestCase):
             finally:
                 self.cleanup_started_processes(root)
 
+    def test_start_downloads_runtime_artifacts_when_nltk_data_is_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+            self.create_service_binaries(root)
+            self.create_runtime_files(root)
+            nltk_data = root / "services" / "knowledge-runtime" / "ragflow_deps" / "nltk_data"
+            shutil.rmtree(nltk_data)
+            nltk_data.mkdir(parents=True)
+
+            try:
+                result = self.run_start(root, args=["--backend-only"], extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "0"})
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                uv_calls = (root / "uv-calls.log").read_text(encoding="utf-8")
+                self.assertIn("ragflow_deps/download_deps.py --skip-uv-sync", uv_calls)
+            finally:
+                self.cleanup_started_processes(root)
+
     def prepare_runtime(self, root: Path) -> Path:
         for relative in [
             "scripts/local/start.sh",
@@ -527,7 +547,8 @@ class LocalStartupScriptTests(unittest.TestCase):
         runtime = root / "services" / "knowledge-runtime"
         (runtime / ".venv").mkdir(parents=True)
         (runtime / ".venv" / ".local-start-profile").write_text(f"{synced_profile}\n", encoding="utf-8")
-        (runtime / "ragflow_deps" / "nltk_data").mkdir(parents=True)
+        (runtime / "ragflow_deps" / "nltk_data" / "tokenizers" / "punkt_tab").mkdir(parents=True)
+        (runtime / "ragflow_deps" / "nltk_data" / "corpora" / "wordnet").mkdir(parents=True)
         (runtime / "rag" / "res" / "deepdoc").mkdir(parents=True)
         (runtime / "ragflow_deps" / "tika-server-standard-3.3.0.jar").write_text("jar\n", encoding="utf-8")
         (runtime / "ragflow_deps" / "cl100k_base.tiktoken").write_text("encoding\n", encoding="utf-8")
