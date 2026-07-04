@@ -967,8 +967,11 @@ Runtime rules:
   Mainland China mirror usage must be explicit through `start.sh --china` or
   local untracked `.env.local` overrides. It affects `start.sh` Go tool/service
   preparation, not Docker image pulls or Knowledge runtime uv downloads.
+  Because `config-ctl` itself is built during local preparation, `start.sh` must
+  read Go source variables from `.env.local` before building config-ctl, goose,
+  or seed helpers; do not rely on rendered config for the earliest Go downloads.
 - `start.sh` is the only standard local setup/start entrypoint. It may build
-  `.local/tools/config-ctl`, install `goose@v3.27.1`, build `.local/bin`
+  `.local/tools/config-ctl`, install `goose@v3.27.0`, build `.local/bin`
   service binaries, inspect/pull selected Docker infra images, and prepare
   Knowledge runtime `.venv`/artifacts. It must not run unpinned `go run`
   startup commands or use `go run ./cmd/server` for long-lived services.

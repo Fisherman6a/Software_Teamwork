@@ -60,6 +60,25 @@ class LocalStartupScriptTests(unittest.TestCase):
             self.assertNotIn("pull", docker_calls)
             self.assertNotIn("up", docker_calls)
 
+    def test_start_uses_env_local_go_proxy_before_config_renderer_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            env_file = root / ".env.local"
+            env_file.write_text(
+                env_file.read_text(encoding="utf-8")
+                .replace("GOPROXY=https://proxy.golang.org,direct", "GOPROXY=https://go.example.internal,direct")
+                .replace("GOSUMDB=sum.golang.org", "GOSUMDB=sum.example.internal"),
+                encoding="utf-8",
+            )
+
+            result = self.run_start(root, args=["--backend-only", "--no-runtime"])
+
+            self.assertNotEqual(0, result.returncode)
+            go_env = (root / "go-env.log").read_text(encoding="utf-8")
+            self.assertIn("GOPROXY=https://go.example.internal,direct", go_env)
+            self.assertIn("GOSUMDB=sum.example.internal", go_env)
+            self.assertIn("loaded Go module source settings from .env.local", result.stdout)
+
     def test_start_infra_only_pulls_missing_images(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self.prepare_runtime(Path(directory))
@@ -292,11 +311,19 @@ class LocalStartupScriptTests(unittest.TestCase):
             """\
             #!/usr/bin/env bash
             if [[ "$1" == "env" && "${2:-}" == "GOVERSION" ]]; then
-              echo go1.25.11
+              echo go1.25.4
+              exit 0
+            fi
+            if [[ "$1" == "env" && "${2:-}" == "GOPROXY" ]]; then
+              echo "${GOPROXY:-https://proxy.golang.org,direct}"
+              exit 0
+            fi
+            if [[ "$1" == "env" && "${2:-}" == "GOSUMDB" ]]; then
+              echo "${GOSUMDB:-sum.golang.org}"
               exit 0
             fi
             if [[ "$1" == "version" ]]; then
-              echo "go version go1.25.11 linux/amd64"
+              echo "go version go1.25.4 linux/amd64"
               exit 0
             fi
             echo "$PWD|$*" >> "$FAKE_GO_CALLS"
@@ -364,7 +391,7 @@ class LocalStartupScriptTests(unittest.TestCase):
     def create_prepared_tools(self, root: Path) -> None:
         self.write_executable(
             root / ".local" / "tools" / "goose",
-            "#!/usr/bin/env bash\nprintf 'goose version: v3.27.1\\n'\nexit 0\n",
+            "#!/usr/bin/env bash\nprintf 'goose version: v3.27.0\\n'\nexit 0\n",
         )
         self.write_executable(
             root / ".local" / "tools" / "render-ai-gateway-local-seed",

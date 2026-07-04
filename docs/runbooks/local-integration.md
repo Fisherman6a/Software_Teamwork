@@ -208,7 +208,9 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
 - 官方默认 Go module 设置是 `https://proxy.golang.org,direct` / `sum.golang.org`。
   `start.sh --china` 会在本次 Go 工具/服务构建和 goose 安装中使用
   `GOPROXY=https://goproxy.cn,direct` / `GOSUMDB=sum.golang.google.cn`。这不是 Docker
-  镜像源，也不是 Knowledge runtime 的 `UV_DEFAULT_INDEX`。
+  镜像源，也不是 Knowledge runtime 的 `UV_DEFAULT_INDEX`。长期企业 Go 源可以写在
+  `.env.local`；`start.sh` 会在构建 config renderer、安装 goose 和构建 seed helper 前先读取
+  `GOPROXY`、`GOSUMDB`、`GOPRIVATE`、`GONOPROXY`、`GONOSUMDB` 和 `GOINSECURE`。
 - `stop.sh`：按 `.local/run/` 中记录的进程组停止后端和 runtime，避免留下真实服务占用端口。
 - `clean.sh`：停止 host-run 进程并删除本地 infra Compose 数据卷；不删除 Docker images、
   `.env.local`、`.local/tools` 或 `.local/bin`。
@@ -274,11 +276,13 @@ Knowledge runtime 启动慢：
 
 Go modules 下载慢或超时：
 
-- `start.sh` 会在准备缺失 Go tools、`goose@v3.27.1` 和 host-run 服务二进制时下载 Go
+- `start.sh` 会在准备缺失 Go tools、`goose@v3.27.0` 和 host-run 服务二进制时下载 Go
   modules。默认保留 `.env.example` 里的官方
   `GOPROXY=https://proxy.golang.org,direct` 和 `GOSUMDB=sum.golang.org`；中国大陆网络使用
   `./scripts/local/start.sh --china`，脚本会在本次 Go 准备阶段设置
-  `https://goproxy.cn,direct` 和 `sum.golang.google.cn`。
+  `GOPROXY=https://goproxy.cn,direct` 和 `GOSUMDB=sum.golang.google.cn`。
+  企业网络可以把长期 Go 源覆盖写入 `.env.local`，这些值会在首次构建 config renderer/goose
+  之前生效。
 - `.env.local` 如果设置镜像值，脚本会尊重本地覆盖并提示；
   若 proxy 或 checksum DB 不可达或下载超时，脚本会在终端直接失败并打印当前有效
   `GOPROXY` / `GOSUMDB`，而不是只把错误藏在 `.local/logs/*.log`。
@@ -541,7 +545,7 @@ printf '%s' "$TOKEN" | shasum -a 256 | awk '{print "sha256:" $1}'
 set -a && source .local/config/dev.env.sh && set +a
 
 cd services/ai-gateway
-go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 \
+go run github.com/pressly/goose/v3/cmd/goose@v3.27.0 \
   -dir migrations postgres "$AI_GATEWAY_DATABASE_URL" up
 go run ./cmd/server
 ```

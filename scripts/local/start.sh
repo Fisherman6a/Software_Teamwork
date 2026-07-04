@@ -24,10 +24,10 @@ SKIP_PREPARE=0
 STARTED_SERVICES=()
 
 INFRA_SERVICES=(postgres redis minio elasticsearch)
-GOOSE_VERSION="v3.27.1"
+GOOSE_VERSION="v3.27.0"
 MIN_GO_MAJOR=1
 MIN_GO_MINOR=25
-MIN_GO_PATCH=7
+MIN_GO_PATCH=1
 OFFICIAL_POSTGRES_IMAGE="postgres:16-alpine"
 OFFICIAL_REDIS_IMAGE="redis:7-alpine"
 OFFICIAL_MINIO_IMAGE="minio/minio:RELEASE.2025-09-07T16-13-09Z"
@@ -268,6 +268,42 @@ check_local_env_file() {
   return 1
 }
 
+trim_shell_value() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  if [[ ( "$value" == \"*\" && "$value" == *\" ) || ( "$value" == \'*\' && "$value" == *\' ) ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s\n' "$value"
+}
+
+load_go_source_env_from_local_file() {
+  local env_file="$ROOT_DIR/.env.local"
+  local keys=(GOPROXY GOSUMDB GOPRIVATE GONOPROXY GONOSUMDB GOINSECURE)
+  local line key value loaded=()
+  [[ -f "$env_file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    if [[ "$line" == export[[:space:]]* ]]; then
+      line="${line#export}"
+      line="${line#"${line%%[![:space:]]*}"}"
+    fi
+    for key in "${keys[@]}"; do
+      if [[ "$line" == "$key="* ]]; then
+        [[ -n "${!key:-}" ]] && continue
+        value="$(trim_shell_value "${line#*=}")"
+        export "$key=$value"
+        loaded+=("$key")
+      fi
+    done
+  done < "$env_file"
+  if ((${#loaded[@]} > 0)); then
+    log_ok "loaded Go module source settings from .env.local: ${loaded[*]}"
+  fi
+}
+
 version_number_from_go() {
   local version="$1"
   version="${version#go}"
@@ -306,8 +342,10 @@ check_python_version() {
 
 preflight_host_environment() {
   check_local_env_file || return 1
-  preflight_command go "Install Go 1.25.7 or a later 1.25.x patch and ensure go is on PATH." || return 1
+  load_go_source_env_from_local_file
+  preflight_command go "Install Go 1.25.x and ensure go is on PATH." || return 1
   check_go_version || return 1
+  log_go_module_source_settings
   if (( ! SKIP_INFRA )); then
     preflight_command docker "Install Docker Desktop/Engine and start the Docker daemon." || return 1
     if ! docker info >/dev/null 2>&1; then
@@ -333,6 +371,13 @@ go_env_args() {
   if (( CHINA_MIRRORS )); then
     printf '%s\0' "GOPROXY=https://goproxy.cn,direct" "GOSUMDB=sum.golang.google.cn"
   fi
+}
+
+log_go_module_source_settings() {
+  local goproxy gosumdb
+  goproxy="$(run_go env GOPROXY 2>/dev/null || true)"
+  gosumdb="$(run_go env GOSUMDB 2>/dev/null || true)"
+  log_info "Go module source: GOPROXY=${goproxy:-<unset>} GOSUMDB=${gosumdb:-<unset>}"
 }
 
 run_go() {
