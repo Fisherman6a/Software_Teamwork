@@ -102,7 +102,7 @@ async function redirectToAppHome() {
   }
 
   if (canAccess(store.user, knowledgeReadAccess)) {
-    throw redirect({ to: '/knowledge/search' })
+    throw redirect({ to: '/admin/knowledge/search' })
   }
 
   if (canAccess(store.user, reportWriteAccess)) {
