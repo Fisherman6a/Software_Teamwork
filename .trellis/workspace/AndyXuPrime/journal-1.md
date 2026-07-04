@@ -1154,3 +1154,36 @@ Updated the AppLayout accessibility smoke test for the latest develop focus orde
 ### Next Steps
 
 - None - task complete
+
+
+## Session 33: Frontend upload dialog and app metadata fix
+
+**Date**: 2026-07-05
+**Task**: Frontend upload dialog and app metadata fix
+**Branch**: `PrimeTeam/fix/knowledge-upload-dialog-meta`
+
+### Summary
+
+Fixed the knowledge document upload dialog so long selected filenames are shortened and constrained within the modal, updated the browser title/favicon from default metadata to the product identity, and verified the frontend checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `518aa2aa` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
