@@ -31,6 +31,12 @@ from common.constants import MAXIMUM_PAGE_NUMBER
 from deepdoc.parser.paddleocr_adapter import PaddleOCRResultAdapter
 from deepdoc.parser.paddleocr_client import PaddleOCRCloudClient, PaddleOCRCloudRequestConfig
 from deepdoc.parser.paddleocr_normalizer import PaddleOCRLayoutNormalizer
+from deepdoc.parser.paddleocr_post_parse import (
+    LLMBundleLayoutRepairer,
+    LayoutHierarchyChunker,
+    PaddleOCRPostParseChain,
+    PostParseResult,
+)
 
 try:
     from deepdoc.parser.pdf_parser import RAGFlowPdfParser
@@ -222,6 +228,8 @@ class PaddleOCRParser(RAGFlowPdfParser):
         self.result_adapter = result_adapter or PaddleOCRResultAdapter()
         self.layout_normalizer = layout_normalizer or PaddleOCRLayoutNormalizer()
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.post_parse_result: PostParseResult | None = None
+        self.layout_chunks: list[dict[str, Any]] = []
 
         # Force PDF file type
         self.file_type = 0
@@ -300,7 +308,16 @@ class PaddleOCRParser(RAGFlowPdfParser):
         result = self._send_request(data_bytes, cfg, callback)
 
         # Process response
-        sections = self._transfer_to_sections(result, algorithm=cfg.algorithm, parse_method=parse_method)
+        parser_config = kwargs.get("parser_config") if isinstance(kwargs.get("parser_config"), dict) else {}
+        sections = self._transfer_to_sections(
+            result,
+            algorithm=cfg.algorithm,
+            parse_method=parse_method,
+            parser_config=parser_config,
+            scope_id=kwargs.get("scope_id"),
+            llm_id=kwargs.get("llm_id") or parser_config.get("llm_id"),
+            lang=kwargs.get("lang", "Chinese"),
+        )
         if callback:
             callback(0.9, f"[PaddleOCR] done, sections: {len(sections)}")
 
@@ -439,13 +456,60 @@ class PaddleOCRParser(RAGFlowPdfParser):
             callback=callback,
         )
 
-    def _transfer_to_sections(self, result: dict[str, Any], algorithm: AlgorithmType, parse_method: str) -> list[SectionTuple]:
+    def _transfer_to_sections(
+        self,
+        result: dict[str, Any],
+        algorithm: AlgorithmType,
+        parse_method: str,
+        parser_config: dict[str, Any] | None = None,
+        scope_id: str | None = None,
+        llm_id: str | None = None,
+        lang: str = "Chinese",
+    ) -> list[SectionTuple]:
         """Convert API response to section tuples."""
         if algorithm not in SUPPORTED_PADDLEOCR_ALGORITHMS:
             return []
         pages = self.result_adapter.adapt(result)
-        semantic_sections = self.layout_normalizer.normalize(pages)
-        return [section.to_section_tuple(parse_method, self._ZOOMIN) for section in semantic_sections]
+        parser_config = parser_config or {}
+        post_parse_config = parser_config.get("post_parse_chain") if isinstance(parser_config.get("post_parse_chain"), dict) else {}
+        if post_parse_config.get("enabled", True) is False:
+            self.post_parse_result = None
+            self.layout_chunks = []
+            semantic_sections = self.layout_normalizer.normalize(pages)
+            return [section.to_section_tuple(parse_method, self._ZOOMIN) for section in semantic_sections]
+
+        repair_config = post_parse_config.get("llm_repair") if isinstance(post_parse_config.get("llm_repair"), dict) else {}
+        repair_enabled = repair_config.get("enabled", True) is not False
+        max_blocks_per_call = int(repair_config.get("max_blocks_per_call", 12) or 12)
+        timeout_seconds = int(repair_config.get("timeout_seconds", 45) or 45)
+        repair_llm_id = str(repair_config.get("llm_id") or llm_id or "").strip() or None
+        repairer = None
+        if repair_enabled:
+            repairer = LLMBundleLayoutRepairer.from_runtime(
+                scope_id=scope_id,
+                llm_id=repair_llm_id,
+                lang=lang,
+                timeout_seconds=timeout_seconds,
+                max_blocks_per_call=max_blocks_per_call,
+            )
+
+        try:
+            chain = PaddleOCRPostParseChain(
+                normalizer=self.layout_normalizer,
+                repairer=repairer,
+                repair_enabled=repair_enabled,
+                max_blocks_per_call=max_blocks_per_call,
+            )
+            self.post_parse_result = chain.run(pages)
+            self.layout_chunks = LayoutHierarchyChunker().chunk(
+                self.post_parse_result.sections,
+                chunk_token_num=int(parser_config.get("chunk_token_num", 512) or 512),
+                delimiter=parser_config.get("delimiter", "\n!?。；！？"),
+            )
+            return self.post_parse_result.to_section_tuples(parse_method, self._ZOOMIN)
+        finally:
+            if repairer and hasattr(repairer, "close"):
+                repairer.close()
 
     def _transfer_to_tables(self, result: dict[str, Any]) -> list[TableTuple]:
         """Convert API response to table tuples."""

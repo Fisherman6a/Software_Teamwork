@@ -31,6 +31,7 @@ class SemanticSection:
     block_type: str
     page_number: int
     bbox: BBox = EMPTY_BBOX
+    order: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def position_tag(self, zoomin: int) -> str:
@@ -73,7 +74,17 @@ class PaddleOCRLayoutNormalizer:
                     block_type=self._infer_text_block_type(part),
                     page_number=block.page_number,
                     bbox=block.bbox,
-                    metadata={**block.metadata, "normalized_from": "markdown"},
+                    order=block.order,
+                    metadata={
+                        **block.metadata,
+                        "canonical_block_id": block.id or block.metadata.get("canonical_block_id"),
+                        "raw_label": block.raw_label,
+                        "raw_text": block.text,
+                        "source_block_ids": [block.id or block.metadata.get("canonical_block_id")],
+                        "normalized_from": "markdown",
+                        "heading_level": self._heading_level(part),
+                        "order": block.order,
+                    },
                 )
                 for part in self._split_markdown(text)
                 if part.strip()
@@ -85,7 +96,17 @@ class PaddleOCRLayoutNormalizer:
                 block_type=block.block_type,
                 page_number=block.page_number,
                 bbox=block.bbox,
-                metadata={**block.metadata, "normalized_from": "layout_block"},
+                order=block.order,
+                metadata={
+                    **block.metadata,
+                    "canonical_block_id": block.id or block.metadata.get("canonical_block_id"),
+                    "raw_label": block.raw_label,
+                    "raw_text": block.text,
+                    "source_block_ids": [block.id or block.metadata.get("canonical_block_id")],
+                    "normalized_from": "layout_block",
+                    "heading_level": self._heading_level(text),
+                    "order": block.order,
+                },
             )
         ]
 
@@ -149,6 +170,17 @@ class PaddleOCRLayoutNormalizer:
         if re.match(r"^#{1,6}\s+\S", stripped):
             return stripped
         return f"## {stripped}"
+
+    @staticmethod
+    def _heading_level(text: str) -> int:
+        stripped = text.strip()
+        match = re.match(r"^(#{1,6})\s+\S", stripped)
+        if match:
+            return len(match.group(1))
+        match = re.match(r"^\s*(\d+(?:\.\d+){0,5})[\s.、:：-]+", stripped)
+        if match:
+            return min(match.group(1).count(".") + 1, 6)
+        return 0
 
     @staticmethod
     def _infer_text_block_type(text: str) -> str:

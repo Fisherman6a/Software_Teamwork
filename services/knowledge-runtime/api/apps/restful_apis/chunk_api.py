@@ -165,6 +165,12 @@ def _list_chunk_fields():
         "content_with_weight",
         "tag_kwd",
         "question_kwd",
+        "section_path",
+        "section_title",
+        "section_level",
+        "source_block_ids",
+        "repair_status",
+        "quality_flags",
     ]
 
 
@@ -187,6 +193,12 @@ def _chunk_from_search_result(chunk_id, field, highlight, question, embedding_pr
         "available": bool(int(field.get("available_int", "1"))),
         "positions": field.get("position_int", []),
         "embedding_provider": embedding_provider,
+        "section_path": field.get("section_path", ""),
+        "section_title": field.get("section_title", ""),
+        "section_level": field.get("section_level", 0),
+        "source_block_ids": field.get("source_block_ids", []),
+        "repair_status": field.get("repair_status", ""),
+        "quality_flags": field.get("quality_flags", []),
     }
 
 
@@ -512,6 +524,12 @@ async def list_chunks(scope_id, dataset_id, document_id):
             "tag_kwd": chunk.get("tag_kwd", []),
             "tag_feas": chunk.get("tag_feas", {}),
             "embedding_provider": _chunk_embedding_provider(document_id),
+            "section_path": chunk.get("section_path", ""),
+            "section_title": chunk.get("section_title", ""),
+            "section_level": chunk.get("section_level", 0),
+            "source_block_ids": chunk.get("source_block_ids", []),
+            "repair_status": chunk.get("repair_status", ""),
+            "quality_flags": chunk.get("quality_flags", []),
         }
         res["chunks"].append(final_chunk)
         _ = Chunk(**final_chunk)

@@ -94,6 +94,20 @@ class TestEmbeddingUtilsPrepareTexts:
         titles, contents = EmbeddingUtils.prepare_texts_for_embedding(docs, use_question_kwd=False)
         assert contents == ["Content1"]
 
+    def test_prepare_texts_prefers_embedding_text(self):
+        """Test embedding_text takes priority without changing display content."""
+        docs = [
+            {
+                "docnm_kwd": "Title1",
+                "embedding_text": "Section: A > B\n\nContent1",
+                "question_kwd": ["Q1"],
+                "content_with_weight": "Content1",
+            },
+        ]
+        titles, contents = EmbeddingUtils.prepare_texts_for_embedding(docs)
+        assert titles == ["Title1"]
+        assert contents == ["Section: A > B\n\nContent1"]
+
 
 class TestEmbeddingUtilsTruncateTexts:
     """Tests for truncate_texts class method."""
@@ -242,6 +256,12 @@ class TestEmbeddingUtilsInternals:
         doc = {"question_kwd": ["Q1", "Q2"], "content_with_weight": "Content"}
         result = EmbeddingUtils._extract_content(doc, use_question_kwd=True)
         assert result == "Q1\nQ2"
+
+    def test_extract_content_prefers_embedding_text(self):
+        """Test _extract_content prefers context-enriched embedding text."""
+        doc = {"embedding_text": "Section: A\n\nContent", "question_kwd": ["Q1"], "content_with_weight": "Content"}
+        result = EmbeddingUtils._extract_content(doc, use_question_kwd=True)
+        assert result == "Section: A\n\nContent"
 
     def test_extract_content_without_question_kwd(self):
         """Test _extract_content without question_kwd."""

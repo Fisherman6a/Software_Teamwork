@@ -556,6 +556,27 @@ func TestDocumentChunkFromVendorMapsEmbeddingProvider(t *testing.T) {
 	}
 }
 
+func TestDocumentChunkFromVendorMapsSectionPathAndKeepsSafeMetadata(t *testing.T) {
+	chunk := documentChunkFromVendor(map[string]interface{}{
+		"id":                  "chunk_1",
+		"content_with_weight": "content",
+		"section_path":        "A > B",
+		"section_title":       "B",
+		"source_block_ids":    []any{"p1-b0001"},
+		"repair_status":       "clean",
+	}, "kb_1", "doc_1", 0)
+
+	if chunk.SectionPath == nil || *chunk.SectionPath != "A > B" {
+		t.Fatalf("SectionPath=%v, want A > B", chunk.SectionPath)
+	}
+	if _, ok := chunk.Metadata["section_path"]; ok {
+		t.Fatalf("section_path duplicated into metadata: %v", chunk.Metadata)
+	}
+	if chunk.Metadata["repair_status"] != "clean" {
+		t.Fatalf("metadata=%v, want repair_status preserved", chunk.Metadata)
+	}
+}
+
 func TestDocumentChunkFromVendorDoesNotLeakVectorMetadata(t *testing.T) {
 	chunk := documentChunkFromVendor(map[string]interface{}{
 		"id":                  "chunk_1",

@@ -29,6 +29,9 @@ class PaddleOCRBlock:
     text: str
     bbox: BBox = EMPTY_BBOX
     order: int = 0
+    id: str = ""
+    raw_label: str = ""
+    normalized_text: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -84,9 +87,13 @@ class PaddleOCRResultAdapter:
                             text=text,
                             bbox=normalize_bbox(raw_block.get("block_bbox")),
                             order=order,
+                            id=self._stable_block_id(page.page_number, sequence),
+                            raw_label=raw_label,
                             metadata={
                                 "source": "layoutParsingResults.prunedResult.parsing_res_list",
+                                "canonical_block_id": self._stable_block_id(page.page_number, sequence),
                                 "raw_block_type": raw_label,
+                                "source_block_id": raw_block.get("block_id"),
                                 "block_id": raw_block.get("block_id"),
                                 "block_order": raw_block.get("block_order"),
                                 "group_id": raw_block.get("group_id"),
@@ -101,7 +108,12 @@ class PaddleOCRResultAdapter:
                         block_type="markdown",
                         text=page.markdown,
                         order=0,
-                        metadata={"source": "layoutParsingResults.markdown"},
+                        id=self._stable_block_id(page.page_number, 0, prefix="md"),
+                        raw_label="markdown",
+                        metadata={
+                            "source": "layoutParsingResults.markdown",
+                            "canonical_block_id": self._stable_block_id(page.page_number, 0, prefix="md"),
+                        },
                     )
                 )
             pages.append(page)
@@ -134,7 +146,12 @@ class PaddleOCRResultAdapter:
                             text=text,
                             bbox=normalize_bbox(bbox),
                             order=sequence,
-                            metadata={"source": "ocrResults.prunedResult.rec_texts"},
+                            id=self._stable_block_id(page.page_number, sequence, prefix="ocr"),
+                            raw_label="ocr_text",
+                            metadata={
+                                "source": "ocrResults.prunedResult.rec_texts",
+                                "canonical_block_id": self._stable_block_id(page.page_number, sequence, prefix="ocr"),
+                            },
                         )
                     )
             pages.append(page)
@@ -167,6 +184,10 @@ class PaddleOCRResultAdapter:
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def _stable_block_id(page_number: int, sequence: int, prefix: str = "b") -> str:
+        return f"p{page_number}-{prefix}{sequence:04d}"
 
     @staticmethod
     def _semantic_block_type(raw_label: str, text: str) -> str:

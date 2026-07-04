@@ -112,6 +112,22 @@ def _normalize_section_text_for_rtl_presentation_forms(sections):
     return normalized_sections
 
 
+def _tokenize_layout_chunks(layout_chunks, doc, eng):
+    docs = []
+    for chunk in layout_chunks or []:
+        content = str(chunk.get("content_with_weight") or "")
+        if not content.strip():
+            continue
+        d = dict(doc)
+        d.update(chunk)
+        t = re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", content)
+        d["content_with_weight"] = content
+        d["content_ltks"] = rag_tokenizer.tokenize(t)
+        d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
+        docs.append(d)
+    return docs
+
+
 def by_deepdoc(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang="Chinese", callback=None, pdf_cls=None, **kwargs):
     callback = callback
     binary = binary
@@ -288,6 +304,8 @@ def by_paddleocr(
                     binary=binary,
                     callback=callback,
                     parse_method=parse_method,
+                    scope_id=scope_id,
+                    lang=lang,
                     **kwargs,
                 )
                 return sections, tables, pdf_parser
@@ -872,6 +890,7 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
     res = []
     pdf_parser = None
     section_images = None
+    layout_chunks = None
 
     is_root = kwargs.get("is_root", True)
     embed_res = []
@@ -962,6 +981,8 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
             **kwargs,
         )
         sections = _normalize_section_text_for_rtl_presentation_forms(sections)
+        if name == "paddleocr":
+            layout_chunks = getattr(pdf_parser, "layout_chunks", None) or None
 
         if not sections and not tables:
             return []
@@ -1182,7 +1203,9 @@ def chunk(filename, binary=None, from_page=0, to_page=MAXIMUM_PAGE_NUMBER, lang=
             if all(image is None for image in section_images):
                 section_images = None
 
-        if section_images:
+        if layout_chunks:
+            res.extend(_tokenize_layout_chunks(layout_chunks, doc, is_english))
+        elif section_images:
             chunks, images = naive_merge_with_images(sections, section_images, int(parser_config.get("chunk_token_num", 128)), parser_config.get("delimiter", "\n!?。；！？"), overlapped_percent)
             res.extend(tokenize_chunks_with_images(chunks, doc, is_english, images, child_delimiters_pattern=child_deli))
         else:

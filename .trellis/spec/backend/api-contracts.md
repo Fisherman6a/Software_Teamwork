@@ -1728,6 +1728,145 @@ Runtime: register only the project-required allowlisted route modules
 Entrypoint: #!/bin/sh with command args passed through Compose
 ```
 
+## Scenario: Knowledge Runtime Layout-Aware Post-Parse Chain
+
+### 1. Scope / Trigger
+
+- Trigger: changing PaddleOCR parsing, layout normalization, dirty-span repair,
+  hierarchy-aware chunking, embedding text preparation, runtime chunk responses,
+  or Knowledge adapter chunk mapping.
+- Applies to `services/knowledge-runtime/deepdoc/parser/`,
+  `services/knowledge-runtime/rag/app/`,
+  `services/knowledge-runtime/rag/svr/`,
+  `services/knowledge-runtime/api/apps/restful_apis/chunk_api.py`, and
+  `services/knowledge/internal/adapter/`.
+
+### 2. Signatures
+
+Parser config may opt out of the default post-parse chain:
+
+```json
+{
+  "post_parse_chain": {
+    "enabled": true,
+    "llm_repair": {
+      "enabled": true,
+      "llm_id": "",
+      "max_blocks_per_call": 12,
+      "timeout_seconds": 45
+    }
+  }
+}
+```
+
+Runtime chunks may carry safe layout context:
+
+```text
+content_with_weight: string
+embedding_text?: string
+section_path?: string
+section_title?: string
+section_level?: number
+source_block_ids?: string[]
+repair_status?: clean|repaired|repair_rejected|repair_skipped
+quality_flags?: string[]
+position_int?: [page,left,right,top,bottom][]
+page_num_int?: number[]
+```
+
+### 3. Contracts
+
+- PaddleOCR raw responses must first be canonicalized into bounded layout
+  blocks with stable page/order/type/bbox/source metadata.
+- Deterministic normalization is always the source fallback and must handle the
+  clean path without requiring an LLM.
+- LLM repair is default-on only for dirty PaddleOCR block windows. It must use
+  the runtime `LLMBundle` / AI Gateway model path, not direct provider clients.
+- LLM repair must receive only the dirty window plus minimal neighboring title
+  context. Do not log prompts, credentials, raw provider responses, vectors, or
+  whole-document OCR payloads.
+- Repaired sections must pass deterministic content-fidelity validation before
+  they become validated sections. Rejection falls back to deterministic output
+  for that window.
+- `content_with_weight` remains readable display text. `embedding_text`, when
+  present, is only embedding input and must not be exposed as the displayed
+  chunk body.
+- Runtime chunk list/get responses and the Go adapter may expose
+  `section_path`, `section_title`, `section_level`, `source_block_ids`,
+  `repair_status`, and `quality_flags`. They must not expose `embedding_text`,
+  vectors, credentials, prompts, raw PaddleOCR payloads, or raw provider bodies.
+- Go adapter maps `section_path` to `DocumentChunk.SectionPath` and keeps other
+  safe layout details in metadata without duplicating vector or embedding
+  provider internals.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+| --- | --- |
+| `post_parse_chain.enabled=false` | Use legacy PaddleOCR semantic section tuple output. |
+| No chat model, missing scope, timeout, or repair exception | Continue deterministic output with `repair_skipped` or `repair_rejected`. |
+| Repair drops numeric/date/unit/identifier tokens | Reject repair and preserve deterministic text. |
+| Repair adds unsupported fact tokens | Reject repair and preserve deterministic text. |
+| Repair shrinks table row/cell shape | Reject repair and preserve deterministic table output. |
+| Repair omits source block ids | Reject repair and preserve deterministic source metadata. |
+| Dirty gate marks a span | Route only that bounded window to repair; do not rewrite the whole document. |
+| Empty or whitespace-only chunk reaches embedding | Skip or reject it; never index a vector for empty display content. |
+
+### 5. Good/Base/Bad Cases
+
+- Good: clean PaddleOCR blocks flow through canonical adapter, deterministic
+  normalizer, hierarchy-aware chunker, `embedding_text` enrichment, index
+  insert, runtime chunk response, and Go adapter `SectionPath` mapping without
+  any LLM call.
+- Good: malformed table or garbled text is repaired by an AI Gateway-backed
+  chat profile, accepted only after fidelity checks, and still preserves source
+  block ids and page positions.
+- Base: dirty windows run without a configured chat model and ingest using
+  deterministic fallback with repair status metadata.
+- Bad: sending the full PaddleOCR raw result to a provider for whole-document
+  rewrite, storing raw OCR/provider payloads in chunk metadata, replacing
+  display text with prompt-style embedding context, or adding retrieval quality
+  metrics/RAGAS artifacts in this ingestion path.
+
+### 6. Tests Required
+
+- Runtime unit tests for canonical block ids, metadata preservation, clean
+  deterministic normalization, dirty gate signals, valid repair acceptance,
+  invalid repair fallback, content-fidelity validation, and hierarchy-aware
+  chunk inheritance.
+- Runtime embedding tests proving `embedding_text` is preferred for embedding
+  input while `content_with_weight` remains display content.
+- Runtime chunk API tests proving only safe section context fields are selected
+  and vectors/provider internals are not returned.
+- Go adapter tests proving `section_path` maps to `DocumentChunk.SectionPath`
+  and safe layout metadata remains available without duplicating excluded
+  fields.
+- `python3 scripts/check_ai_gateway_provider_policy.py` after changing the
+  model invocation path.
+- Knowledge runtime targeted tests and Knowledge adapter `go test ./...` plus
+  `go build ./cmd/adapter`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```text
+PaddleOCR raw result -> full-document LLM rewrite -> chunks
+chunk.content_with_weight = "Section: A > B\n\n<content>"
+runtime chunk API returns embedding_text and vector
+parser imports a direct provider SDK
+```
+
+#### Correct
+
+```text
+PaddleOCR raw result -> canonical blocks -> deterministic normalizer
+dirty windows only -> LLMBundle repair -> fidelity validation -> fallback on reject
+chunk.content_with_weight = "<content>"
+chunk.embedding_text = "Section: A > B\n\n<content>"
+runtime/adapter expose safe section context only
+```
+
 ## Scenario: Missing Downstream API Contracts
 
 ### 1. Scope / Trigger

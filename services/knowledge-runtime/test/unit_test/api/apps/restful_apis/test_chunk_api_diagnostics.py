@@ -13,6 +13,8 @@ def test_list_chunk_fields_avoid_backend_missing_columns():
     assert "token_count" not in fields
     assert "token_num" not in fields
     assert "embedding_dimension_int" not in fields
+    assert "section_path" in fields
+    assert "source_block_ids" in fields
 
 
 def test_chunk_from_search_result_does_not_read_doc_store(monkeypatch):
@@ -30,6 +32,9 @@ def test_chunk_from_search_result_does_not_read_doc_store(monkeypatch):
             "docnm_kwd": "doc.pdf",
             "kb_id": "kb_1",
             "available_int": "1",
+            "section_path": "A > B",
+            "source_block_ids": ["p1-b0001"],
+            "repair_status": "clean",
         },
         {},
         "",
@@ -37,5 +42,8 @@ def test_chunk_from_search_result_does_not_read_doc_store(monkeypatch):
     )
 
     assert result["embedding_provider"] == "bge@default@AI_GATEWAY"
+    assert result["section_path"] == "A > B"
+    assert result["source_block_ids"] == ["p1-b0001"]
+    assert result["repair_status"] == "clean"
     assert "embedding_dimension" not in result
     assert "token_count" not in result

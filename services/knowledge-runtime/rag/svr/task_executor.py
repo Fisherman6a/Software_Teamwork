@@ -321,6 +321,7 @@ async def build_chunks(task, progress_callback):
                 kb_id=task["kb_id"],
                 parser_config=parser_config_for_chunk,
                 scope_id=task["scope_id"],
+                llm_id=task.get("llm_id"),
             )
         logging.info("Chunking({}) {}/{} done".format(timer() - st, task["location"], task["name"]))
     except TaskCanceledException:
@@ -667,7 +668,9 @@ async def embedding(docs, mdl, parser_config=None, callback=None):
     tts, cnts, indexable_docs = [], [], []
     skipped_empty_chunks = 0
     for d in docs:
-        c = "\n".join(d.get("question_kwd", []))
+        c = d.get("embedding_text") or ""
+        if not c:
+            c = "\n".join(d.get("question_kwd", []))
         if not c:
             c = d["content_with_weight"]
         c = re.sub(r"</?(table|td|caption|tr|th)( [^<>]{0,12})?>", " ", c)
