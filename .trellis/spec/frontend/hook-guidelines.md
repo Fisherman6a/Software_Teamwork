@@ -54,6 +54,10 @@ features/knowledge/
   stream until EOF or a fatal `error` event; a fatal error after
   `answer.completed` must override the completed UI state and keep retry
   recovery available.
+- If API stream code derives default error semantics, normalize them before
+  dispatching to page or hook consumers. For QA SSE `error` events, missing
+  `fatal` is fatal unless `fatal: false` is explicit; downstream UI code should
+  receive that normalized boolean instead of reinterpreting `undefined`.
 - Never expose or cache private chain-of-thought, full prompts, raw MCP tool
   parameters/results, provider raw errors, internal URLs, or storage object keys.
 

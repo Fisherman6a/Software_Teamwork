@@ -183,10 +183,11 @@ export function streamChat(
         if (qaEvent === 'answer.completed') {
           didReceiveAnswerCompleted = true
         }
-        if (isFatalErrorEvent(qaEvent, payload)) {
+        const isFatalError = isFatalErrorEvent(qaEvent, payload)
+        if (isFatalError) {
           didReceiveFatalError = true
         }
-        dispatch(qaEvent, payload, handlers)
+        dispatch(qaEvent, isFatalError ? { ...payload, fatal: true } : payload, handlers)
       } catch {
         didReceiveFatalError = true
         stream.abort()
