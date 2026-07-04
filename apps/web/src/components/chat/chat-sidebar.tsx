@@ -337,10 +337,10 @@ export default function ChatSidebar({
                 key={sess.id}
                 type="button"
                 className={cn(
-                  'group relative flex items-center rounded-md transition-all hover:bg-primary/5',
+                  'group relative flex rounded-md transition-all hover:bg-primary/5',
                   collapsed
-                    ? 'justify-center px-0 py-2'
-                    : 'w-full flex-col items-start gap-0.5 px-3 py-2.5',
+                    ? 'items-center justify-center px-0 py-2'
+                    : 'w-full flex-col items-start gap-0.5 px-3 py-2.5 text-left',
                   isActive &&
                     !collapsed &&
                     'bg-primary/10 text-primary border-l-[3px] border-l-primary',
@@ -412,10 +412,10 @@ export default function ChatSidebar({
                 ) : (
                   /* ── Normal display ── */
                   <>
-                    <span className="w-full truncate pr-14 text-sm font-medium">
+                    <span className="block w-full truncate pr-14 text-left text-sm font-medium">
                       {sess.title ?? '新对话'}
                     </span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="block w-full text-left text-xs text-muted-foreground">
                       <MessageSquare className="mr-1 inline-block size-3" />
                       {sess.messageCount ?? 0} 条消息
                     </span>

@@ -96,6 +96,18 @@ describe('ChatSidebar title search', () => {
     expect(onSelect).toHaveBeenCalledWith('s-2')
   })
 
+  it('left-aligns expanded session titles and metadata', () => {
+    renderSidebar()
+
+    const title = screen.getByText('变压器巡检记录')
+    const row = title.closest('button')
+    const messageCount = screen.getByText('2 条消息')
+
+    expect(row).toHaveClass('items-start', 'text-left')
+    expect(title).toHaveClass('text-left')
+    expect(messageCount).toHaveClass('text-left')
+  })
+
   it('selects the only fuzzy result when pressing Enter', async () => {
     const user = userEvent.setup()
     const onSelect = vi.fn()
