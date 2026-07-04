@@ -21,14 +21,16 @@ import tiktoken
 
 from common.file_utils import get_project_base_directory
 
+CL100K_ENCODING_URL = "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
+
 
 def _ensure_tiktoken_cache() -> str:
-    cache_dir = get_project_base_directory()
+    cache_dir = os.environ.get("TIKTOKEN_CACHE_DIR") or get_project_base_directory("ragflow_deps", "tiktoken_cache")
+    os.makedirs(cache_dir, exist_ok=True)
     os.environ["TIKTOKEN_CACHE_DIR"] = cache_dir
 
     bundled_encoding_path = get_project_base_directory("ragflow_deps", "cl100k_base.tiktoken")
-    encoding_url = "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
-    cached_encoding_path = os.path.join(cache_dir, hashlib.sha1(encoding_url.encode()).hexdigest())
+    cached_encoding_path = os.path.join(cache_dir, hashlib.sha1(CL100K_ENCODING_URL.encode()).hexdigest())
 
     if os.path.exists(bundled_encoding_path) and not os.path.exists(cached_encoding_path):
         shutil.copyfile(bundled_encoding_path, cached_encoding_path)
