@@ -80,13 +80,13 @@ describe('QARetrievalTestPage accessibility smoke', () => {
 
     const queryInput = screen.getByLabelText('Query')
     const knowledgeSearchInput = await screen.findByLabelText('知识库范围搜索')
-    const knowledgeIdInput = screen.getByLabelText('知识库范围ID')
+    const knowledgeSelect = screen.getByRole('combobox', { name: '知识库范围选择' })
     const topKInput = screen.getByLabelText('Top K')
     const rerankCheckbox = screen.getByRole('checkbox', { name: /rerank/i })
 
     expect(queryInput).toHaveAccessibleName('Query')
     expect(knowledgeSearchInput).toHaveAccessibleName('知识库范围搜索')
-    expect(knowledgeIdInput).toHaveAccessibleName('知识库范围ID')
+    expect(knowledgeSelect).toHaveAccessibleName('知识库范围选择')
     expect(topKInput).toHaveAccessibleName('Top K')
     expect(rerankCheckbox).toHaveAccessibleName(/rerank/i)
 
@@ -97,13 +97,16 @@ describe('QARetrievalTestPage accessibility smoke', () => {
     expect(knowledgeSearchInput).toHaveFocus()
     await keyboard.keyboard('a11y')
     await keyboard.tab()
-    expect(knowledgeIdInput).toHaveFocus()
+    expect(knowledgeSelect).toHaveFocus()
+    await keyboard.keyboard('{Enter}{ArrowDown}{Enter}')
     await keyboard.tab()
-    const knowledgeButton = screen.getByRole('button', { name: /A11Y 知识库/ })
-    expect(knowledgeButton).toHaveFocus()
+    const addButton = screen.getByRole('button', { name: '添加' })
+    expect(addButton).toHaveFocus()
     await keyboard.keyboard('{Enter}')
-    expect(knowledgeButton).toHaveAttribute('aria-pressed', 'true')
-    await keyboard.tab()
+    expect(screen.getByTitle('kb-a11y')).toHaveTextContent('A11Y 知识库')
+    for (let i = 0; i < 6 && document.activeElement !== topKInput; i += 1) {
+      await keyboard.tab()
+    }
     expect(topKInput).toHaveFocus()
     await keyboard.tab()
     await keyboard.tab()

@@ -1,10 +1,18 @@
 import { Check, ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import type { KnowledgeBaseSummary } from '@/api/knowledge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectItemText,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 
 import { getGatewayCapabilityIssue } from '../capability'
@@ -36,20 +44,27 @@ export function KnowledgeBaseMultiSelect({
   value,
 }: KnowledgeBaseMultiSelectProps) {
   const [keyword, setKeyword] = useState('')
-  const [manualId, setManualId] = useState('')
+  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('')
   const [page, setPage] = useState(1)
   const query = useKnowledgeBases(page, pageSize)
   const items = query.data?.items ?? emptyKnowledgeBases
   const selectedItems = items.filter((item) => value.includes(item.id))
   const selectedUnknownIds = value.filter((id) => !items.some((item) => item.id === id))
   const normalizedKeyword = keyword.trim().toLowerCase()
-  const normalizedManualId = manualId.trim()
   const filteredItems = useMemo(() => {
     if (!normalizedKeyword) return items
     return items.filter((item) =>
       `${item.name} ${item.description ?? ''} ${item.id}`.toLowerCase().includes(normalizedKeyword),
     )
   }, [items, normalizedKeyword])
+  const addableItems = useMemo(
+    () => filteredItems.filter((item) => !value.includes(item.id)),
+    [filteredItems, value],
+  )
+  const selectedAddableItem = useMemo(
+    () => addableItems.find((item) => item.id === selectedKnowledgeBaseId),
+    [addableItems, selectedKnowledgeBaseId],
+  )
   const issue = query.isError ? getGatewayCapabilityIssue(query.error, '知识库列表') : null
   const pageInfo = query.data?.page
   const currentPage = pageInfo?.page ?? page
@@ -59,10 +74,19 @@ export function KnowledgeBaseMultiSelect({
   const canGoPrevious = currentPage > 1
   const canGoNext = currentPage < totalPages
 
-  const addManualId = () => {
-    if (!normalizedManualId || value.includes(normalizedManualId)) return
-    onChange([...value, normalizedManualId])
-    setManualId('')
+  useEffect(() => {
+    if (
+      selectedKnowledgeBaseId &&
+      !addableItems.some((item) => item.id === selectedKnowledgeBaseId)
+    ) {
+      setSelectedKnowledgeBaseId('')
+    }
+  }, [addableItems, selectedKnowledgeBaseId])
+
+  const addSelectedKnowledgeBase = () => {
+    if (!selectedAddableItem) return
+    onChange([...value, selectedAddableItem.id])
+    setSelectedKnowledgeBaseId('')
   }
 
   return (
@@ -143,28 +167,40 @@ export function KnowledgeBaseMultiSelect({
             placeholder="搜索名称或 ID"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
-            disabled={disabled || query.isLoading || query.isError}
+            disabled={disabled}
           />
         </div>
-        <Input
-          aria-label={`${label}ID`}
-          className="font-mono text-xs"
-          placeholder="粘贴知识库 ID"
-          value={manualId}
-          onChange={(event) => setManualId(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              addManualId()
-            }
-          }}
-          disabled={disabled}
-        />
+        <Select
+          value={selectedKnowledgeBaseId}
+          onValueChange={(id) => setSelectedKnowledgeBaseId(String(id))}
+          disabled={disabled || query.isLoading || query.isError || addableItems.length === 0}
+        >
+          <SelectTrigger aria-label={`${label}选择`}>
+            <SelectValue
+              placeholder={
+                query.isLoading
+                  ? '加载知识库...'
+                  : addableItems.length === 0
+                    ? '暂无可添加知识库'
+                    : '选择知识库'
+              }
+            />
+          </SelectTrigger>
+          <SelectContent>
+            {addableItems.map((item) => (
+              <SelectItem key={item.id} value={item.id}>
+                <SelectItemText>
+                  {item.name} ({item.id})
+                </SelectItemText>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button
           type="button"
           variant="outline"
-          onClick={addManualId}
-          disabled={disabled || !normalizedManualId || value.includes(normalizedManualId)}
+          onClick={addSelectedKnowledgeBase}
+          disabled={disabled || !selectedAddableItem}
         >
           <Plus className="size-3.5" />
           添加

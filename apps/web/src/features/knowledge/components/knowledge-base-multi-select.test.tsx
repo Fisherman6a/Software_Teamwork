@@ -7,9 +7,11 @@ import { renderWithProviders } from '@/test/render'
 
 import { KnowledgeBaseMultiSelect } from './knowledge-base-multi-select'
 
-function jsonResponse(body: unknown) {
+function jsonResponse(body: unknown, init?: ResponseInit) {
   return new Response(JSON.stringify(body), {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...init?.headers },
+    status: init?.status ?? 200,
+    statusText: init?.statusText,
   })
 }
 
@@ -78,14 +80,17 @@ describe('KnowledgeBaseMultiSelect', () => {
     expect(requestedPages).toContain('2:100')
   })
 
-  it('keeps an exact ID fallback for knowledge bases outside the loaded page', async () => {
+  it('adds a knowledge base selected from the loaded Gateway list', async () => {
     const user = userEvent.setup()
     const values: string[][] = []
     vi.stubGlobal(
       'fetch',
       vi.fn<typeof fetch>(async () =>
         jsonResponse({
-          data: [knowledgeBase('kb-001', '第 1 个知识库')],
+          data: [
+            knowledgeBase('kb-001', '第 1 个知识库'),
+            knowledgeBase('kb-002', '第 2 个知识库'),
+          ],
           page: { page: 1, pageSize: 100, total: 101 },
           requestId: 'req-kb-page-1',
         }),
@@ -95,10 +100,41 @@ describe('KnowledgeBaseMultiSelect', () => {
     renderWithProviders(<ControlledSelector onValueChange={(value) => values.push(value)} />)
 
     await screen.findByRole('button', { name: /第 1 个知识库/ })
-    await user.type(screen.getByLabelText('知识库范围ID'), 'kb-150')
+    await user.click(screen.getByRole('combobox', { name: '知识库范围选择' }))
+    await user.click(screen.getByRole('option', { name: /第 2 个知识库 \(kb-002\)/ }))
     await user.click(screen.getByRole('button', { name: '添加' }))
 
-    await waitFor(() => expect(values.at(-1)).toEqual(['kb-150']))
-    expect(screen.getByText('kb-150')).toBeVisible()
+    await waitFor(() => expect(values.at(-1)).toEqual(['kb-002']))
+    expect(screen.getByTitle('kb-002')).toHaveTextContent('第 2 个知识库')
+    expect(screen.queryByLabelText('知识库范围ID')).not.toBeInTheDocument()
+  })
+
+  it('keeps the search box editable when the knowledge base list fails', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse(
+          {
+            error: {
+              code: 'dependency_error',
+              message: 'knowledge service unavailable',
+              requestId: 'req-kb-failed',
+            },
+          },
+          { status: 502 },
+        ),
+      ),
+    )
+
+    renderWithProviders(<ControlledSelector onValueChange={vi.fn()} />)
+
+    expect(await screen.findByText('知识库列表依赖失败')).toBeVisible()
+    const searchInput = screen.getByLabelText('知识库范围搜索')
+    expect(searchInput).not.toBeDisabled()
+
+    await user.type(searchInput, '运行规程')
+
+    expect(searchInput).toHaveValue('运行规程')
   })
 })
