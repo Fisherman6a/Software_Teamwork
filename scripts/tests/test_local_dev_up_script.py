@@ -13,44 +13,21 @@ from typing import Optional
 
 
 class LocalStartupScriptTests(unittest.TestCase):
-    def test_check_default_only_inspects_environment(self) -> None:
+    def test_start_requires_existing_env_local_without_creating_it(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self.prepare_runtime(Path(directory))
-            self.create_prepared_config_tool(root)
-            self.create_prepared_tools(root)
-            self.create_service_binaries(root)
-            self.create_runtime_files(root)
+            (root / ".env.local").unlink()
 
-            result = self.run_check(root)
-
-            self.assertEqual(0, result.returncode, result.stderr)
-            self.assertIn("checking local environment; no downloads or builds will run", result.stdout)
-            self.assertIn("local environment looks ready", result.stdout)
-            self.assertFalse((root / "go-calls.log").exists())
-            docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
-            self.assertNotIn("image inspect", docker_calls)
-            self.assertNotIn(" pull ", f" {docker_calls} ")
-            self.assertFalse((root / "uv-calls.log").exists())
-
-    def test_check_china_mode_prints_manual_download_suggestions(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = self.prepare_runtime(Path(directory))
-
-            result = self.run_check(root, args=["--china"])
+            result = self.run_start(root, args=["--infra-only"])
 
             self.assertNotEqual(0, result.returncode)
-            self.assertIn("Mainland China mirrors, run manually only for missing items", result.stdout)
-            self.assertIn("docker pull docker.1ms.run/library/postgres:16-alpine", result.stdout)
-            self.assertIn("GOPROXY=https://goproxy.cn,direct", result.stdout)
-            self.assertIn("ragflow_deps/download_deps.py --skip-uv-sync --china", result.stdout)
+            self.assertIn("missing", result.stderr)
+            self.assertIn("cp .env.example .env.local", result.stderr)
+            self.assertFalse((root / ".env.local").exists())
             self.assertFalse((root / "go-calls.log").exists())
-            if (root / "docker-calls.log").exists():
-                docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
-                self.assertNotIn("image inspect", docker_calls)
-                self.assertNotIn(" pull ", f" {docker_calls} ")
-            self.assertFalse((root / "uv-calls.log").exists())
+            self.assertFalse((root / "docker-calls.log").exists())
 
-    def test_start_infra_only_never_pulls_or_requires_uv(self) -> None:
+    def test_start_infra_only_skips_pull_when_images_exist_and_requires_no_uv(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = self.prepare_runtime(Path(directory))
             self.create_prepared_config_tool(root)
@@ -67,6 +44,141 @@ class LocalStartupScriptTests(unittest.TestCase):
             self.assertNotIn(" pull ", f" {docker_calls} ")
             self.assertFalse((root / "uv-calls.log").exists())
             self.assertFalse((root / "go-calls.log").exists())
+
+    def test_start_default_runtime_requires_uv_before_loading_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            (root / "fake-bin" / "uv").unlink()
+
+            result = self.run_start(root, extra_env={"PATH": str(root / "fake-bin")})
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("uv is required", result.stderr)
+            self.assertFalse((root / ".local" / "config" / "dev.env").exists())
+            self.assertFalse((root / "uv-calls.log").exists())
+            docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
+            self.assertIn("info", docker_calls)
+            self.assertNotIn("pull", docker_calls)
+            self.assertNotIn("up", docker_calls)
+
+    def test_start_uses_env_local_go_proxy_before_config_renderer_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            env_file = root / ".env.local"
+            env_file.write_text(
+                env_file.read_text(encoding="utf-8")
+                .replace("GOPROXY=https://proxy.golang.org,direct", "GOPROXY=https://go.example.internal,direct")
+                .replace("GOSUMDB=sum.golang.org", "GOSUMDB=sum.example.internal"),
+                encoding="utf-8",
+            )
+
+            result = self.run_start(root, args=["--backend-only", "--no-runtime"])
+
+            self.assertNotEqual(0, result.returncode)
+            go_env = (root / "go-env.log").read_text(encoding="utf-8")
+            self.assertIn("GOPROXY=https://go.example.internal,direct", go_env)
+            self.assertIn("GOSUMDB=sum.example.internal", go_env)
+            self.assertIn("loaded Go module source settings from .env.local", result.stdout)
+
+    def test_start_rebuilds_stale_config_renderer_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+            source = root / "config" / "ctl" / "main.go"
+            source.write_text("package main\nfunc main() {}\n", encoding="utf-8")
+            future = time.time() + 10
+            os.utime(source, (future, future))
+
+            result = self.run_start(root, args=["--infra-only"])
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            go_calls = (root / "go-calls.log").read_text(encoding="utf-8")
+            self.assertIn(f"-C {root / 'config' / 'ctl'} build -o {root / '.local' / 'tools' / 'config-ctl'} .", go_calls)
+            self.assertTrue((root / ".local" / "stamps" / "config-ctl.sha256").exists())
+
+    def test_start_skip_prepare_fails_for_stale_config_renderer(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+            source = root / "config" / "ctl" / "main.go"
+            source.write_text("package main\nfunc main() {}\n", encoding="utf-8")
+            future = time.time() + 10
+            os.utime(source, (future, future))
+
+            result = self.run_start(root, args=["--infra-only", "--skip-prepare"])
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("config renderer is stale", result.stderr)
+            self.assertFalse((root / "go-calls.log").exists())
+            docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
+            self.assertIn("info", docker_calls)
+            self.assertNotIn("pull", docker_calls)
+            self.assertNotIn("up", docker_calls)
+
+    def test_start_skip_prepare_rejects_wrong_goose_version(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root, goose_version="v3.27.1")
+
+            result = self.run_start(root, args=["--infra-only", "--skip-prepare"])
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("goose is not v3.27.0", result.stderr)
+            self.assertIn("goose version: v3.27.1", result.stderr)
+            self.assertFalse((root / "go-calls.log").exists())
+            docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
+            self.assertIn("info", docker_calls)
+            self.assertNotIn("pull", docker_calls)
+            self.assertNotIn("up", docker_calls)
+
+    def test_start_rebuilds_stale_backend_binary_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+            self.create_service_binaries(root)
+            source = root / "services" / "auth" / "cmd" / "server" / "main.go"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text("package main\nfunc main() {}\n", encoding="utf-8")
+            future = time.time() + 10
+            os.utime(source, (future, future))
+
+            try:
+                result = self.run_start(
+                    root,
+                    args=["--backend-only", "--no-runtime"],
+                    extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "0"},
+                )
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                go_calls = (root / "go-calls.log").read_text(encoding="utf-8")
+                self.assertIn(f"-C {root / 'services' / 'auth'} build -o {root / '.local' / 'bin' / 'auth-server'} ./cmd/server", go_calls)
+                self.assertTrue((root / ".local" / "stamps" / "auth-server.sha256").exists())
+            finally:
+                self.cleanup_started_processes(root)
+
+    def test_start_infra_only_pulls_missing_images(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+
+            result = self.run_start(
+                root,
+                args=["--infra-only"],
+                extra_env={"FAKE_DOCKER_INSPECT_FAIL": "1"},
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            docker_calls = (root / "docker-calls.log").read_text(encoding="utf-8")
+            self.assertIn("pull postgres:16-alpine", docker_calls)
+            self.assertIn("pull redis:7-alpine", docker_calls)
+            self.assertIn("pull minio/minio:RELEASE.2025-09-07T16-13-09Z", docker_calls)
+            self.assertIn("pull minio/mc:RELEASE.2025-08-13T08-35-41Z", docker_calls)
+            self.assertIn("pull docker.elastic.co/elasticsearch/elasticsearch:8.15.3", docker_calls)
 
     def test_start_china_rewrites_rendered_compose_env_for_infra(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -101,7 +213,9 @@ class LocalStartupScriptTests(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("missing", result.stderr)
             self.assertIn(".local/bin/auth-server", result.stderr)
-            self.assertIn("./scripts/local/check.sh", result.stderr)
+            self.assertIn("build host-run service binaries", result.stderr)
+            go_calls = (root / "go-calls.log").read_text(encoding="utf-8")
+            self.assertIn("services/auth", go_calls)
             self.assertFalse((root / "docker-calls.log").exists())
 
     def test_start_backend_uses_prepared_binaries_without_runtime(self) -> None:
@@ -179,12 +293,93 @@ class LocalStartupScriptTests(unittest.TestCase):
                 self.assertTrue((root / ".local" / "run" / "knowledge-runtime-worker.pid").exists())
                 self.assertFalse((root / "go-calls.log").exists())
                 self.assertFalse((root / "uv-calls.log").exists())
+                self.assertFalse((root / "python-calls.log").exists())
             finally:
                 self.cleanup_started_processes(root)
 
+    def test_start_full_runtime_resyncs_worker_dependencies_after_api_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+            self.create_service_binaries(root)
+            self.create_runtime_files(root, synced_profile="api")
+
+            try:
+                result = self.run_start(root, args=["--backend-only"], extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "0"})
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                python_calls = (root / "python-calls.log").read_text(encoding="utf-8")
+                self.assertIn("ragflow_deps/download_deps.py --sync-only --profile worker", python_calls)
+                stamp = root / "services" / "knowledge-runtime" / ".venv" / ".local-start-profile"
+                stamp_text = stamp.read_text(encoding="utf-8")
+                self.assertTrue(stamp_text.startswith("worker\n"))
+                self.assertIn("fingerprint=", stamp_text)
+            finally:
+                self.cleanup_started_processes(root)
+
+    def test_start_resyncs_runtime_dependencies_when_lockfile_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+            self.create_service_binaries(root)
+            self.create_runtime_files(root)
+            lockfile = root / "services" / "knowledge-runtime" / "uv.lock"
+            lockfile.write_text("updated lock\n", encoding="utf-8")
+            future = time.time() + 10
+            os.utime(lockfile, (future, future))
+
+            try:
+                result = self.run_start(root, args=["--backend-only"], extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "0"})
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                python_calls = (root / "python-calls.log").read_text(encoding="utf-8")
+                self.assertIn("ragflow_deps/download_deps.py --sync-only --profile worker", python_calls)
+                stamp = root / "services" / "knowledge-runtime" / ".venv" / ".local-start-profile"
+                self.assertIn("fingerprint=", stamp.read_text(encoding="utf-8"))
+            finally:
+                self.cleanup_started_processes(root)
+
+    def test_start_downloads_runtime_artifacts_when_nltk_data_is_incomplete(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+            self.create_service_binaries(root)
+            self.create_runtime_files(root)
+            nltk_data = root / "services" / "knowledge-runtime" / "ragflow_deps" / "nltk_data"
+            shutil.rmtree(nltk_data)
+            nltk_data.mkdir(parents=True)
+
+            try:
+                result = self.run_start(root, args=["--backend-only"], extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "0"})
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                uv_calls = (root / "uv-calls.log").read_text(encoding="utf-8")
+                self.assertIn("ragflow_deps/download_deps.py --skip-uv-sync", uv_calls)
+            finally:
+                self.cleanup_started_processes(root)
+
+    def test_start_skip_prepare_rejects_missing_runtime_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.prepare_runtime(Path(directory))
+            self.create_prepared_config_tool(root)
+            self.create_prepared_tools(root)
+            self.create_service_binaries(root)
+            self.create_runtime_files(root)
+            (root / "services" / "knowledge-runtime" / "ragflow_deps" / "cl100k_base.tiktoken").unlink()
+
+            result = self.run_start(root, args=["--backend-only", "--skip-prepare"])
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("Knowledge runtime artifacts are not prepared", result.stderr)
+            self.assertIn("without --skip-prepare", result.stderr)
+            self.assertFalse((root / "uv-calls.log").exists())
+            self.assertFalse((root / ".local" / "run" / "knowledge-runtime-api.pid").exists())
+
     def prepare_runtime(self, root: Path) -> Path:
         for relative in [
-            "scripts/local/check.sh",
             "scripts/local/start.sh",
             "scripts/config/load-profile.sh",
             "scripts/local/lib/common.sh",
@@ -241,6 +436,9 @@ class LocalStartupScriptTests(unittest.TestCase):
             """\
             #!/usr/bin/env bash
             echo "$*" >> "$FAKE_DOCKER_CALLS"
+            if [[ "$1" == "image" && "${2:-}" == "inspect" && "${FAKE_DOCKER_INSPECT_FAIL:-0}" == "1" ]]; then
+              exit 1
+            fi
             {
               echo "POSTGRES_IMAGE=${POSTGRES_IMAGE:-}"
               echo "REDIS_IMAGE=${REDIS_IMAGE:-}"
@@ -255,6 +453,22 @@ class LocalStartupScriptTests(unittest.TestCase):
             fake_bin / "go",
             """\
             #!/usr/bin/env bash
+            if [[ "$1" == "env" && "${2:-}" == "GOVERSION" ]]; then
+              echo go1.25.4
+              exit 0
+            fi
+            if [[ "$1" == "env" && "${2:-}" == "GOPROXY" ]]; then
+              echo "${GOPROXY:-https://proxy.golang.org,direct}"
+              exit 0
+            fi
+            if [[ "$1" == "env" && "${2:-}" == "GOSUMDB" ]]; then
+              echo "${GOSUMDB:-sum.golang.org}"
+              exit 0
+            fi
+            if [[ "$1" == "version" ]]; then
+              echo "go version go1.25.4 linux/amd64"
+              exit 0
+            fi
             echo "$PWD|$*" >> "$FAKE_GO_CALLS"
             {
               echo "GOPROXY=${GOPROXY:-}"
@@ -265,9 +479,36 @@ class LocalStartupScriptTests(unittest.TestCase):
         )
         self.write_executable(fake_bin / "psql", "#!/usr/bin/env bash\ncat >/dev/null || true\nexit 0\n")
         self.write_executable(fake_bin / "bun", "#!/usr/bin/env bash\nexit 0\n")
-        self.write_executable(fake_bin / "python3", "#!/usr/bin/env bash\nexit 0\n")
+        self.write_executable(
+            fake_bin / "python3",
+            """\
+            #!/usr/bin/env bash
+            if [[ "${1:-}" == "-c" ]]; then
+              if [[ "${2:-}" == *"platform.python_version"* ]]; then
+                echo "3.13.0"
+              fi
+              exit 0
+            fi
+            echo "$PWD|$*" >> "$FAKE_PYTHON_CALLS"
+            exit 0
+            """,
+        )
         self.write_executable(fake_bin / "curl", "#!/usr/bin/env bash\nprintf '200'\nexit 0\n")
-        self.write_executable(fake_bin / "uv", "#!/usr/bin/env bash\necho \"$*\" >> \"$FAKE_UV_CALLS\"\nexit 0\n")
+        self.write_executable(
+            fake_bin / "uv",
+            """\
+            #!/usr/bin/env bash
+            echo "$*" >> "$FAKE_UV_CALLS"
+            if [[ "$*" == *"ragflow_deps/download_deps.py"* ]]; then
+              runtime="$FAKE_ROOT/services/knowledge-runtime"
+              mkdir -p "$runtime/ragflow_deps/nltk_data/tokenizers/punkt_tab"
+              mkdir -p "$runtime/ragflow_deps/nltk_data/corpora/wordnet"
+              printf 'jar\\n' > "$runtime/ragflow_deps/tika-server-standard-3.3.0.jar"
+              printf 'encoding\\n' > "$runtime/ragflow_deps/cl100k_base.tiktoken"
+            fi
+            exit 0
+            """,
+        )
         self.write_executable(fake_bin / "git", "#!/usr/bin/env bash\necho 0123456789abcdef0123456789abcdef01234567\n")
         self.write_executable(
             fake_bin / "setsid",
@@ -311,8 +552,11 @@ class LocalStartupScriptTests(unittest.TestCase):
             """,
         )
 
-    def create_prepared_tools(self, root: Path) -> None:
-        self.write_executable(root / ".local" / "tools" / "goose", "#!/usr/bin/env bash\nexit 0\n")
+    def create_prepared_tools(self, root: Path, goose_version: str = "v3.27.0") -> None:
+        self.write_executable(
+            root / ".local" / "tools" / "goose",
+            f"#!/usr/bin/env bash\nprintf 'goose version: {goose_version}\\n'\nexit 0\n",
+        )
         self.write_executable(
             root / ".local" / "tools" / "render-ai-gateway-local-seed",
             "#!/usr/bin/env bash\nexit 0\n",
@@ -338,13 +582,23 @@ class LocalStartupScriptTests(unittest.TestCase):
                 """,
             )
 
-    def create_runtime_files(self, root: Path) -> None:
+    def create_runtime_files(self, root: Path, synced_profile: str = "worker") -> None:
         runtime = root / "services" / "knowledge-runtime"
         (runtime / ".venv").mkdir(parents=True)
-        (runtime / "ragflow_deps" / "nltk_data").mkdir(parents=True)
+        (runtime / ".venv" / ".local-start-profile").write_text(f"{synced_profile}\n", encoding="utf-8")
+        (runtime / "ragflow_deps" / "nltk_data" / "tokenizers" / "punkt_tab").mkdir(parents=True)
+        (runtime / "ragflow_deps" / "nltk_data" / "corpora" / "wordnet").mkdir(parents=True)
         (runtime / "rag" / "res" / "deepdoc").mkdir(parents=True)
         (runtime / "ragflow_deps" / "tika-server-standard-3.3.0.jar").write_text("jar\n", encoding="utf-8")
         (runtime / "ragflow_deps" / "cl100k_base.tiktoken").write_text("encoding\n", encoding="utf-8")
+        for artifact in [
+            "det.onnx",
+            "rec.onnx",
+            "tsr.onnx",
+            "layout.onnx",
+            "updown_concat_xgb.model",
+        ]:
+            (runtime / "rag" / "res" / "deepdoc" / artifact).write_text("artifact\n", encoding="utf-8")
         self.write_executable(
             runtime / "deploy" / "api" / "run-local.sh",
             "#!/usr/bin/env bash\nwhile true; do sleep 60; done\n",
@@ -358,14 +612,6 @@ class LocalStartupScriptTests(unittest.TestCase):
             "es:\n  hosts: http://127.0.0.1:9200\n",
             encoding="utf-8",
         )
-
-    def run_check(
-        self,
-        root: Path,
-        args: Optional[list[str]] = None,
-        extra_env: Optional[dict[str, str]] = None,
-    ) -> subprocess.CompletedProcess[str]:
-        return self.run_script(root, "check.sh", args, extra_env)
 
     def run_start(
         self,
@@ -389,6 +635,7 @@ class LocalStartupScriptTests(unittest.TestCase):
         env["FAKE_DOCKER_ENV"] = str(root / "docker-env.log")
         env["FAKE_GO_CALLS"] = str(root / "go-calls.log")
         env["FAKE_GO_ENV"] = str(root / "go-env.log")
+        env["FAKE_PYTHON_CALLS"] = str(root / "python-calls.log")
         env["FAKE_UV_CALLS"] = str(root / "uv-calls.log")
         env["PATH"] = f"{root / 'fake-bin'}{os.pathsep}{env['PATH']}"
         return subprocess.run(

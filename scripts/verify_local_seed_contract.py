@@ -22,7 +22,6 @@ CONFIG_README = Path("config/README.md")
 CONFIG_BASE = Path("config/base.yaml")
 GITIGNORE = Path(".gitignore")
 AUTH_MIGRATIONS_DIR = Path("services/auth/migrations")
-CHECK_SCRIPT = Path("scripts/local/check.sh")
 START_SCRIPT = Path("scripts/local/start.sh")
 CLEAN_SCRIPT = Path("scripts/local/clean.sh")
 AI_GATEWAY_LOCAL_SEED_RENDERER = Path("scripts/local/render_ai_gateway_local_seed.go")
@@ -32,7 +31,6 @@ LOCAL_PROCESS_HELPER = Path("scripts/local/lib/process.sh")
 LOCAL_KNOWLEDGE_RUNTIME_HELPER = Path("scripts/local/lib/knowledge-runtime.sh")
 AI_GATEWAY_LOCAL_SEED_MAIN = Path("services/ai-gateway/cmd/local-seed/main.go")
 PUBLIC_LOCAL_ENTRYPOINTS = [
-    CHECK_SCRIPT,
     START_SCRIPT,
     STOP_SCRIPT,
     CLEAN_SCRIPT,
@@ -168,7 +166,6 @@ REQUIRED_DOC_TOKENS = [
     "大陆镜像",
     "GOPROXY=https://proxy.golang.org,direct",
     "GOSUMDB=sum.golang.org",
-    "./scripts/local/check.sh",
     "./scripts/local/start.sh",
     "./scripts/local/stop.sh",
     "down -v",
@@ -177,32 +174,30 @@ REQUIRED_DOC_TOKENS = [
     "default-chat",
 ]
 
-REQUIRED_CHECK_TOKENS = [
-    "[check]",
-    "no downloads or builds will run",
-    "setup suggestions",
-    "Official sources, run manually only for missing items",
-    "Mainland China mirrors, run manually only for missing items",
-    "--sync-only --profile",
-    "ragflow_deps/download_deps.py --skip-uv-sync",
-    "docker.1ms.run/library/postgres:16-alpine",
-    "goose@v3.27.1",
-    "https://go.dev/dl/",
-    "https://docs.astral.sh/uv",
-]
-
-FORBIDDEN_CHECK_TOKENS = [
-    "docker image inspect",
-    "docker_image_present",
-    "check_docker_images",
-]
-
 REQUIRED_START_TOKENS = [
     "[start]",
-    "This script does not run dependency downloads",
+    "Prepares missing local tools",
+    "preflighting host environment",
+    "check_local_env_file",
+    "cp .env.example .env.local",
+    "load_go_source_env_from_local_file",
+    "log_go_module_source_settings",
+    "preparing local Go tools",
+    "preparing Docker infrastructure images",
+    "preparing Knowledge runtime dependencies",
+    "preparing backend service binaries",
+    "run_with_heartbeat",
+    "source_fingerprint",
+    "artifact_current_for_sources",
+    "require_current_artifact",
+    ".local/stamps",
     "--pull never",
-    ".local/tools/config-ctl",
-    ".local/tools/goose",
+    "config-ctl",
+    "GOOSE_VERSION=\"v3.27.0\"",
+    "github.com/pressly/goose/v3/cmd/goose@$GOOSE_VERSION",
+    "goose_version_output",
+    "goose_version_matches",
+    "check_prepared_goose",
     ".local/bin",
     "AUTH_DATABASE_URL",
     "FILE_DATABASE_URL",
@@ -219,6 +214,16 @@ REQUIRED_START_TOKENS = [
     "--runtime full",
     "knowledge-runtime-api",
     "knowledge-runtime-worker",
+    ".local-start-profile",
+    "fingerprint=",
+    "pyproject.toml",
+    "uv.lock",
+    "runtime_nltk_data_ready",
+    "tokenizers/punkt_tab",
+    "corpora/wordnet",
+    "Knowledge runtime artifacts are not prepared",
+    "without --skip-prepare to download missing runtime files",
+    "runtime_dependencies_synced",
     "startup status",
     "host process groups",
     "compose_cmd ps",
@@ -226,17 +231,13 @@ REQUIRED_START_TOKENS = [
     "align_host_run_ai_gateway_models",
     "AI_GATEWAY_LOCAL_CHAT_MODEL for host-run QA",
     "AI_GATEWAY_LOCAL_CHAT_MODEL for host-run Document",
-    "go mod download",
-    "go run module@version",
+    "download_deps.py",
 ]
 
 FORBIDDEN_START_TOKENS = [
     "\nuv sync",
     "exec uv sync",
-    "uv sync --",
-    "download_deps.py",
     "go mod download)",
-    "go install github.com/pressly/goose",
 ]
 
 REQUIRED_STOP_TOKENS = [
@@ -388,7 +389,6 @@ def verify_local_seed_contract(root: Path) -> list[str]:
     env_example = read_required(root, ENV_EXAMPLE, issues)
     config_readme = read_required(root, CONFIG_README, issues)
     config_base = read_required(root, CONFIG_BASE, issues)
-    check_script = read_required(root, CHECK_SCRIPT, issues)
     start_script = read_required(root, START_SCRIPT, issues)
     clean_script = read_required(root, CLEAN_SCRIPT, issues)
     ai_gateway_local_seed_renderer = read_required(root, AI_GATEWAY_LOCAL_SEED_RENDERER, issues)
@@ -412,7 +412,6 @@ def verify_local_seed_contract(root: Path) -> list[str]:
             env_example,
             config_readme,
             config_base,
-            check_script,
             start_script,
             clean_script,
             ai_gateway_local_seed_renderer,
@@ -570,7 +569,6 @@ def validate_docs(
     env_example: str,
     config_readme: str,
     config_base: str,
-    check_script: str,
     start_script: str,
     clean_script: str,
     ai_gateway_local_seed_renderer: str,
@@ -596,12 +594,6 @@ def validate_docs(
     for token in FORBIDDEN_STARTUP_DOC_TOKENS:
         if token in combined:
             issues.append(f"startup documentation must not include `{token}`")
-    for token in REQUIRED_CHECK_TOKENS:
-        if token not in check_script:
-            issues.append(f"{CHECK_SCRIPT} missing check token `{token}`")
-    for token in FORBIDDEN_CHECK_TOKENS:
-        if token in check_script:
-            issues.append(f"{CHECK_SCRIPT} must not contain preflight Docker state token `{token}`")
     for token in REQUIRED_START_TOKENS:
         if token not in start_contract:
             issues.append(f"{START_SCRIPT} missing startup token `{token}`")
@@ -701,7 +693,6 @@ def validate_forbidden_content(root: Path) -> list[str]:
         DEPLOY_README,
         LOCAL_RUNBOOK,
         ENV_EXAMPLE,
-        CHECK_SCRIPT,
         START_SCRIPT,
         CLEAN_SCRIPT,
         AI_GATEWAY_LOCAL_SEED_RENDERER,
