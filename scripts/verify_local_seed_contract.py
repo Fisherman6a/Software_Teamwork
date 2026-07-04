@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -62,6 +63,25 @@ REQUIRED_SEED_001_TOKENS = {
         "33333333-3333-4333-8333-333333333502",
     ],
 }
+
+REQUIRED_REPORT_MATERIAL_COPY_TOKENS = [
+    "煤场库存盘点工作底稿",
+    "审计底稿",
+    "煤库存审计",
+    "煤场库存盘点工作底稿.md",
+    "记录2024年12月31日煤场库存盘点口径",
+    "煤场库存",
+    "盘点差异",
+    "热值折算",
+    "保供风险",
+]
+
+FORBIDDEN_REPORT_MATERIAL_PLACEHOLDER_TOKENS = [
+    "本地演示检查记录",
+    "local-demo-inspection-notes.md",
+    "用于本地联调的安全占位素材",
+    "无文件引用",
+]
 
 REQUIRED_DATABASE_SECTIONS = [
     r"\\connect\s+auth_system",
@@ -449,6 +469,12 @@ def validate_seed_001(content: str) -> list[str]:
         for token in tokens:
             if token not in content:
                 issues.append(f"{SEED_001} missing {group} token `{token}`")
+    for token in REQUIRED_REPORT_MATERIAL_COPY_TOKENS:
+        if token not in content:
+            issues.append(f"{SEED_001} report material seed should use realistic audit material copy; missing `{token}`")
+    for token in FORBIDDEN_REPORT_MATERIAL_PLACEHOLDER_TOKENS:
+        if token in content:
+            issues.append(f"{SEED_001} report material seed should use realistic audit material copy; found placeholder `{token}`")
     if content.count("ON CONFLICT") < 10:
         issues.append(f"{SEED_001} should use ON CONFLICT for deterministic idempotent rows")
     if "file_ref" in content.lower() and "file_ref,\n    filename" not in content:
@@ -629,14 +655,39 @@ def validate_gitignore(content: str) -> list[str]:
 def validate_executable_entrypoints(root: Path) -> list[str]:
     issues: list[str] = []
     for relative in PUBLIC_LOCAL_ENTRYPOINTS:
+        relative_text = relative.as_posix()
         path = root / relative
         try:
-            mode = path.stat().st_mode
+            executable = is_executable_entrypoint(root, relative, path)
         except OSError:
             continue
-        if mode & 0o111 == 0:
-            issues.append(f"{relative} must be executable because docs run it as ./{relative}")
+        if not executable:
+            issues.append(
+                f"{relative_text} must be executable because docs run it as ./{relative_text}"
+            )
     return issues
+
+
+def is_executable_entrypoint(root: Path, relative: Path, path: Path) -> bool:
+    tracked_mode = git_tracked_mode(root, relative)
+    if tracked_mode:
+        return tracked_mode.endswith("755")
+    return path.stat().st_mode & 0o111 != 0
+
+
+def git_tracked_mode(root: Path, relative: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--stage", "--", relative.as_posix()],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.split(maxsplit=1)[0]
 
 
 def validate_forbidden_content(root: Path) -> list[str]:

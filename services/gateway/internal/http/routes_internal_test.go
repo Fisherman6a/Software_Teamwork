@@ -27,7 +27,7 @@ type routeContract struct {
 }
 
 func TestActiveRouteMatrixCoversGatewayOwnerMap(t *testing.T) {
-	if got, want := activeOperationCount(), 114; got != want {
+	if got, want := activeOperationCount(), 115; got != want {
 		t.Fatalf("active operations = %d, want %d", got, want)
 	}
 	openAPIRoutes := gatewayOpenAPIRoutes(t, gatewayOpenAPIPath(t))
@@ -59,7 +59,7 @@ func TestActiveRouteMatrixCoversGatewayOwnerMap(t *testing.T) {
 		"auth":       11,
 		"knowledge":  20,
 		"ai-gateway": 5,
-		"document":   44,
+		"document":   45,
 		"qa":         29,
 	}
 	for owner, want := range expected {
