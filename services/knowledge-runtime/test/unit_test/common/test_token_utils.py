@@ -17,8 +17,15 @@
 import hashlib
 import os
 
-from common.file_utils import get_project_base_directory
-from common.token_utils import num_tokens_from_string, total_token_count_from_response, truncate, encoder
+from common import token_utils
+from common.token_utils import (
+    CL100K_ENCODING_URL,
+    encoder,
+    num_tokens_from_string,
+    tiktoken_cache_dir,
+    total_token_count_from_response,
+    truncate,
+)
 import pytest
 
 
@@ -117,9 +124,33 @@ def test_consistency():
 
 
 def test_bundled_cl100k_cache_file_exists():
-    encoding_url = "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
-    cache_path = get_project_base_directory(hashlib.sha1(encoding_url.encode()).hexdigest())
+    cache_path = os.path.join(tiktoken_cache_dir, hashlib.sha1(CL100K_ENCODING_URL.encode()).hexdigest())
+    assert os.environ["TIKTOKEN_CACHE_DIR"] == tiktoken_cache_dir
     assert os.path.exists(cache_path)
+
+
+def test_default_tiktoken_cache_stays_under_ragflow_deps(tmp_path, monkeypatch):
+    monkeypatch.setenv("RAG_PROJECT_BASE", str(tmp_path))
+    monkeypatch.delenv("TIKTOKEN_CACHE_DIR", raising=False)
+
+    cache_dir = token_utils._ensure_tiktoken_cache()
+
+    assert cache_dir == str(tmp_path / "ragflow_deps" / "tiktoken_cache")
+    assert os.path.isdir(cache_dir)
+    assert not os.path.exists(os.path.join(str(tmp_path), hashlib.sha1(CL100K_ENCODING_URL.encode()).hexdigest()))
+
+
+def test_litellm_tokenizer_cache_is_not_reused_as_runtime_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("RAG_PROJECT_BASE", str(tmp_path))
+    monkeypatch.setenv(
+        "TIKTOKEN_CACHE_DIR",
+        "/tmp/site-packages/litellm/litellm_core_utils/tokenizers",
+    )
+
+    cache_dir = token_utils._ensure_tiktoken_cache()
+
+    assert cache_dir == str(tmp_path / "ragflow_deps" / "tiktoken_cache")
+    assert os.environ["TIKTOKEN_CACHE_DIR"] == cache_dir
 
 
 class TestTotalTokenCountFromResponse:

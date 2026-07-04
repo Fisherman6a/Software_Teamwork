@@ -447,6 +447,11 @@ func TestBuildRetrievalBodyForwardsSearchParams(t *testing.T) {
 	if payload["size"].(float64) != 5 {
 		t.Fatalf("size=%v", payload["size"])
 	}
+	for _, internalField := range []string{"retrieval_plan", "context_packs", "trace", "enable_llm_query_planner"} {
+		if _, ok := payload[internalField]; ok {
+			t.Fatalf("runtime-internal field %q should not be forwarded: %v", internalField, payload)
+		}
+	}
 
 	filter, ok := payload["meta_data_filter"].(map[string]any)
 	if !ok {
@@ -556,6 +561,27 @@ func TestDocumentChunkFromVendorMapsEmbeddingProvider(t *testing.T) {
 	}
 }
 
+func TestDocumentChunkFromVendorMapsSectionPathAndKeepsSafeMetadata(t *testing.T) {
+	chunk := documentChunkFromVendor(map[string]interface{}{
+		"id":                  "chunk_1",
+		"content_with_weight": "content",
+		"section_path":        "A > B",
+		"section_title":       "B",
+		"source_block_ids":    []any{"p1-b0001"},
+		"repair_status":       "clean",
+	}, "kb_1", "doc_1", 0)
+
+	if chunk.SectionPath == nil || *chunk.SectionPath != "A > B" {
+		t.Fatalf("SectionPath=%v, want A > B", chunk.SectionPath)
+	}
+	if _, ok := chunk.Metadata["section_path"]; ok {
+		t.Fatalf("section_path duplicated into metadata: %v", chunk.Metadata)
+	}
+	if chunk.Metadata["repair_status"] != "clean" {
+		t.Fatalf("metadata=%v, want repair_status preserved", chunk.Metadata)
+	}
+}
+
 func TestDocumentChunkFromVendorDoesNotLeakVectorMetadata(t *testing.T) {
 	chunk := documentChunkFromVendor(map[string]interface{}{
 		"id":                  "chunk_1",
@@ -606,6 +632,34 @@ func TestMapRetrievalChunkOmitsMissingChunkIndex(t *testing.T) {
 
 	if result.ChunkIndex != nil {
 		t.Fatalf("ChunkIndex=%v, want nil when vendor payload has no chunk index", *result.ChunkIndex)
+	}
+}
+
+func TestMapRetrievalChunkMapsSectionPathAndBlockType(t *testing.T) {
+	result := mapRetrievalChunk(map[string]interface{}{
+		"id":                  "chunk_1",
+		"content_with_weight": "content",
+		"section_path":        "Root / Relay",
+		"block_type":          "table",
+	})
+
+	if result.SectionPath == nil || *result.SectionPath != "Root / Relay" {
+		t.Fatalf("SectionPath=%v, want Root / Relay", result.SectionPath)
+	}
+	if result.ChunkType == nil || *result.ChunkType != "table" {
+		t.Fatalf("ChunkType=%v, want table", result.ChunkType)
+	}
+}
+
+func TestMapRetrievalChunkAcceptsCamelCaseSectionPath(t *testing.T) {
+	result := mapRetrievalChunk(map[string]interface{}{
+		"id":                  "chunk_1",
+		"content_with_weight": "content",
+		"sectionPath":         "Root / Protection",
+	})
+
+	if result.SectionPath == nil || *result.SectionPath != "Root / Protection" {
+		t.Fatalf("SectionPath=%v, want Root / Protection", result.SectionPath)
 	}
 }
 

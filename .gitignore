@@ -102,6 +102,7 @@ services/knowledge-runtime/ragflow_deps/chromedriver*
 services/knowledge-runtime/ragflow_deps/huggingface.co/
 services/knowledge-runtime/ragflow_deps/libssl*.deb
 services/knowledge-runtime/ragflow_deps/nltk_data/
+services/knowledge-runtime/ragflow_deps/tiktoken_cache/
 services/knowledge-runtime/ragflow_deps/cl100k_base.tiktoken
 services/knowledge-runtime/ragflow_deps/uv-*.tar.gz
 

@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from common.token_utils import truncate
+from rag.nlp.retrieval_context import select_embedding_text
 
 
 class EmbeddingUtils:
@@ -58,8 +59,9 @@ class EmbeddingUtils:
     ) -> Tuple[List[str], List[str]]:
         """Prepare title and content texts for embedding.
 
-        Extracts titles from 'docnm_kwd' field and contents from 'question_kwd'
-        (if available and use_question_kwd is True) or 'content_with_weight'.
+        Extracts titles from 'docnm_kwd' field and contents from
+        'embedding_text', 'question_kwd' (if available and use_question_kwd is
+        True), or 'content_with_weight'.
         Table HTML tags are normalized to spaces.
 
         Args:
@@ -190,13 +192,9 @@ class EmbeddingUtils:
     ) -> str:
         """Extract content from a chunk dictionary.
 
-        Priority: question_kwd (joined by newline) -> content_with_weight.
+        Priority: embedding_text -> question_kwd (joined by newline) -> content_with_weight.
         """
-        if use_question_kwd:
-            question_kwd = doc.get("question_kwd", [])
-            if question_kwd:
-                return "\n".join(question_kwd)
-        return doc.get("content_with_weight", "")
+        return select_embedding_text(doc, use_question_kwd=use_question_kwd)
 
     @classmethod
     def _normalize_table_html(cls, text: str) -> str:

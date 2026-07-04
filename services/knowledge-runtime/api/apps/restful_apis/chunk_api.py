@@ -60,6 +60,7 @@ from common.misc_utils import thread_pool_exec
 from common.string_utils import is_content_empty, remove_redundant_spaces
 from common.tag_feature_utils import validate_tag_features
 from rag.nlp import search
+from rag.nlp.retrieval_context import populate_section_token_fields, select_embedding_text
 from rag.prompts.generator import cross_languages, keyword_extraction
 
 
@@ -147,6 +148,23 @@ def _strip_chunk_runtime_fields(chunk):
     return chunk
 
 
+SECTION_AWARE_CHUNK_FIELDS = (
+    "section_path",
+    "section_title",
+    "section_level",
+    "block_type",
+    "source_block_ids",
+    "repair_status",
+)
+
+
+def _copy_section_aware_chunk_fields(req, chunk):
+    for field in SECTION_AWARE_CHUNK_FIELDS:
+        if field in req:
+            chunk[field] = req[field]
+    populate_section_token_fields(chunk)
+
+
 def _chunk_embedding_provider(document_id):
     embd_id = DocumentService.get_embd_id(document_id)
     return embd_id or None
@@ -165,6 +183,12 @@ def _list_chunk_fields():
         "content_with_weight",
         "tag_kwd",
         "question_kwd",
+        "section_path",
+        "section_title",
+        "section_level",
+        "source_block_ids",
+        "repair_status",
+        "quality_flags",
     ]
 
 
@@ -187,6 +211,12 @@ def _chunk_from_search_result(chunk_id, field, highlight, question, embedding_pr
         "available": bool(int(field.get("available_int", "1"))),
         "positions": field.get("position_int", []),
         "embedding_provider": embedding_provider,
+        "section_path": field.get("section_path", ""),
+        "section_title": field.get("section_title", ""),
+        "section_level": field.get("section_level", 0),
+        "source_block_ids": field.get("source_block_ids", []),
+        "repair_status": field.get("repair_status", ""),
+        "quality_flags": field.get("quality_flags", []),
     }
 
 
@@ -512,6 +542,12 @@ async def list_chunks(scope_id, dataset_id, document_id):
             "tag_kwd": chunk.get("tag_kwd", []),
             "tag_feas": chunk.get("tag_feas", {}),
             "embedding_provider": _chunk_embedding_provider(document_id),
+            "section_path": chunk.get("section_path", ""),
+            "section_title": chunk.get("section_title", ""),
+            "section_level": chunk.get("section_level", 0),
+            "source_block_ids": chunk.get("source_block_ids", []),
+            "repair_status": chunk.get("repair_status", ""),
+            "quality_flags": chunk.get("quality_flags", []),
         }
         res["chunks"].append(final_chunk)
         _ = Chunk(**final_chunk)
@@ -596,6 +632,7 @@ async def add_chunk(scope_id, dataset_id, document_id):
     d["kb_id"] = dataset_id
     d["docnm_kwd"] = doc.name
     d["doc_id"] = document_id
+    _copy_section_aware_chunk_fields(req, d)
 
     if "tag_kwd" in req:
         if not isinstance(req["tag_kwd"], list):
@@ -622,7 +659,7 @@ async def add_chunk(scope_id, dataset_id, document_id):
     embd_id = DocumentService.get_embd_id(document_id)
     model_config = get_model_config_from_provider_instance(dataset_scope_id, LLMType.EMBEDDING.value, embd_id)
     embd_mdl = RuntimeLLMService.model_instance(model_config)
-    v, c = embd_mdl.encode([doc.name, req["content"] if not d["question_kwd"] else "\n".join(d["question_kwd"])])
+    v, c = embd_mdl.encode([doc.name, select_embedding_text(d)])
     v = 0.1 * v[0] + 0.9 * v[1]
     d[f"q_{len(v)}_vec"] = v.tolist()
     settings.docStoreConn.insert([d], search.index_name(dataset_scope_id), dataset_id)
@@ -724,6 +761,7 @@ async def update_chunk(scope_id, dataset_id, document_id, chunk_id):
     d = {"id": chunk_id, "content_with_weight": content}
     d["content_ltks"] = rag_tokenizer.tokenize(d["content_with_weight"])
     d["content_sm_ltks"] = rag_tokenizer.fine_grained_tokenize(d["content_ltks"])
+    _copy_section_aware_chunk_fields(req, d)
     if "important_keywords" in req:
         if not isinstance(req["important_keywords"], list):
             return get_error_data_result("`important_keywords` should be a list")
@@ -774,7 +812,7 @@ async def update_chunk(scope_id, dataset_id, document_id, chunk_id):
     v, _ = embd_mdl.encode(
         [
             doc.name,
-            d["content_with_weight"] if not d.get("question_kwd") else "\n".join(d["question_kwd"]),
+            select_embedding_text(d),
         ]
     )
     v = 0.1 * v[0] + 0.9 * v[1] if doc.parser_id != ParserType.QA else v[1]

@@ -173,6 +173,14 @@ class PaddleOCROcrModel(Base):
     def outlines(self):
         return getattr(self._parser, "outlines", [])
 
+    @property
+    def layout_chunks(self):
+        return getattr(self._parser, "layout_chunks", [])
+
+    @property
+    def post_parse_result(self):
+        return getattr(self._parser, "post_parse_result", None)
+
     def crop(self, text: str, *args, **kwargs):
         return self._parser.crop(text, *args, **kwargs)
 

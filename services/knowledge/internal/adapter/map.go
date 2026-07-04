@@ -369,7 +369,7 @@ func documentChunkFromVendor(raw map[string]interface{}, kbID, documentID string
 			continue
 		}
 		switch key {
-		case "id", "chunk_id", "content_with_weight", "content", "content_ltks", "chunk_index", "chunkIndex", "page_num_int", "doc_id", "document_id", "kb_id", "dataset_id", "docnm_kwd", "image_id", "img_id", "available", "available_int", "positions", "position_int", "tag_kwd", "tag_feas", "important_kwd", "question_kwd", "vector", "token_count", "tokenCount", "token_num", "embedding_provider", "embeddingProvider", "embedding_model", "embeddingModel", "embd_id", "embedding_dimension_int", "embedding_dimension", "embeddingDimension", "vector_dim", "vectorDim":
+		case "id", "chunk_id", "content_with_weight", "content", "content_ltks", "chunk_index", "chunkIndex", "page_num_int", "doc_id", "document_id", "kb_id", "dataset_id", "docnm_kwd", "image_id", "img_id", "available", "available_int", "positions", "position_int", "tag_kwd", "tag_feas", "important_kwd", "question_kwd", "section_path", "sectionPath", "vector", "token_count", "tokenCount", "token_num", "embedding_provider", "embeddingProvider", "embedding_model", "embeddingModel", "embd_id", "embedding_dimension_int", "embedding_dimension", "embeddingDimension", "vector_dim", "vectorDim":
 			continue
 		default:
 			metadata[key] = value
@@ -380,6 +380,7 @@ func documentChunkFromVendor(raw map[string]interface{}, kbID, documentID string
 		KnowledgeBaseID:   firstNonEmpty(stringField(raw, "kb_id", "dataset_id"), kbID),
 		DocumentID:        firstNonEmpty(stringField(raw, "doc_id", "document_id"), documentID),
 		ChunkIndex:        chunkIndex,
+		SectionPath:       optionalStringField(raw, "section_path", "sectionPath"),
 		Content:           content,
 		EmbeddingProvider: embeddingProviderField(raw),
 		Metadata:          metadata,
@@ -434,13 +435,17 @@ func mapRetrievalChunk(raw map[string]interface{}) knowledgeQueryResult {
 	if idx := optionalIntField(raw, "chunk_index", "page_num_int"); idx != nil && *idx >= 0 {
 		chunkIndex = idx
 	}
+	sectionPath := optionalStringField(raw, "section_path", "sectionPath")
+	chunkType := optionalStringField(raw, "chunk_type", "chunkType", "block_type", "blockType")
 	return knowledgeQueryResult{
 		Score:           score,
 		KnowledgeBaseID: kbID,
 		DocumentID:      docID,
 		ChunkID:         chunkID,
 		DocumentName:    docName,
+		SectionPath:     sectionPath,
 		ChunkIndex:      chunkIndex,
+		ChunkType:       chunkType,
 		ContentPreview:  content,
 	}
 }

@@ -28,12 +28,24 @@ import json_repair
 from json.decoder import JSONDecodeError
 import litellm
 import openai
+import requests
 from openai import AsyncOpenAI, OpenAI
 from enum import StrEnum
 
+from common.exceptions import ModelException
 from common.misc_utils import thread_pool_exec
 from common.token_utils import num_tokens_from_string, total_token_count_from_response
 from rag.llm import FACTORY_DEFAULT_BASE_URL, LITELLM_PROVIDER_PREFIX, SupportedLiteLLMProvider
+from rag.llm.ai_gateway_utils import (
+    ai_gateway_caller_service,
+    ai_gateway_headers,
+    ai_gateway_profile_id,
+    ai_gateway_request_id,
+    ai_gateway_timeout_seconds,
+    normalize_ai_gateway_endpoint,
+    raise_ai_gateway_model_exception_if_failed,
+    resolve_ai_gateway_service_token,
+)
 from rag.llm.key_utils import _normalize_replicate_key
 from rag.llm.mistral_sdk import import_mistral_v2_client
 from rag.llm.tool_decorator import FunctionToolSession, is_tool
@@ -852,6 +864,72 @@ class LocalAIChat(Base):
         base_url = urljoin(base_url, "v1")
         self.client = OpenAI(api_key="empty", base_url=base_url)
         self.model_name = model_name.split("___")[0]
+
+
+class AIGatewayChat(Base):
+    _FACTORY_NAME = "AI_GATEWAY"
+
+    def __init__(self, key, model_name, base_url="http://127.0.0.1:8086/internal/v1", **kwargs):
+        self.base_url = normalize_ai_gateway_endpoint(base_url, "chat/completions")
+        self.service_token = resolve_ai_gateway_service_token()
+        self.caller_service = ai_gateway_caller_service()
+        self.profile_id = ai_gateway_profile_id("KNOWLEDGE_RUNTIME_AI_GATEWAY_CHAT_PROFILE_ID", "default-chat")
+        self.timeout = ai_gateway_timeout_seconds()
+        self.model_name = str(model_name or "").strip()
+        self.is_tools = False
+        self.tools = []
+        self.toolcall_sessions = {}
+
+    @staticmethod
+    def _messages(system, history):
+        messages = list(history) if history else []
+        if system and (not messages or messages[0].get("role") != "system"):
+            messages.insert(0, {"role": "system", "content": system})
+        return messages
+
+    def _payload(self, system, history, gen_conf):
+        payload = {
+            "profile_id": self.profile_id,
+            "messages": self._messages(system, history),
+        }
+        if self.model_name:
+            payload["model"] = self.model_name
+        for key in ALLOWED_GEN_CONF_KEYS:
+            if key in gen_conf:
+                payload[key] = gen_conf[key]
+        return payload
+
+    @staticmethod
+    def _parse_response(response):
+        raise_ai_gateway_model_exception_if_failed(response)
+        try:
+            res = response.json()
+        except ValueError as exc:
+            raise ModelException(f"unexpected chat response: {response.text}", retryable=True) from exc
+        choices = res.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise ModelException(f"unexpected chat response: {res}", retryable=True)
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if content is None:
+            raise ModelException(f"unexpected chat response: {res}", retryable=True)
+        return str(content), total_token_count_from_response(res)
+
+    def _post(self, payload):
+        request_id = ai_gateway_request_id()
+        response = requests.post(
+            self.base_url,
+            json=payload,
+            headers=ai_gateway_headers(self.service_token, self.caller_service, request_id),
+            timeout=self.timeout,
+        )
+        return self._parse_response(response)
+
+    def chat(self, system, history, gen_conf=None, **kwargs):
+        return self._post(self._payload(system, history, dict(gen_conf or {})))
+
+    async def async_chat(self, system, history, gen_conf=None, **kwargs):
+        return await thread_pool_exec(self._post, self._payload(system, history, dict(gen_conf or {})))
 
 
 class LocalLLM(Base):
