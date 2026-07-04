@@ -57,6 +57,16 @@ func TestLoadDefaultConfiguration(t *testing.T) {
 		cfg.AIGatewayStream {
 		t.Fatalf("unexpected AI Gateway defaults: %+v", cfg)
 	}
+	for _, want := range []string{
+		"Answer in the same language as the user's question.",
+		"Answer only questions related to the power industry",
+		"politely refuse in the user's language",
+		"write bubble sort",
+	} {
+		if !strings.Contains(cfg.SystemPrompt, want) {
+			t.Fatalf("default system prompt missing %q", want)
+		}
+	}
 }
 
 func TestLoadKnowledgeMCPConfiguration(t *testing.T) {

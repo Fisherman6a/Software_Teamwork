@@ -45,3 +45,31 @@ func TestMigrationsEnableDocumentReportToolsForUntouchedSystemDefault(t *testing
 		t.Fatalf("document report tool migration must not update user-created configs:\n%s", content)
 	}
 }
+
+func TestDomainRefusalPromptMigrationCoversLegacyDefaults(t *testing.T) {
+	data, err := os.ReadFile("../../migrations/0019_domain_refusal_system_prompt.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	required := []string{
+		"-- +goose Up",
+		"Answer in the same language as the user''s question.",
+		"Answer only questions related to the power industry",
+		"politely refuse in the user''s language",
+		`"write bubble sort"`,
+		"do not call retrieval, attachment, or document tools",
+		"leave knowledgeBaseIds empty to search all indexed knowledge bases.\nIf knowledge__search is unavailable",
+		"leave knowledgeBaseIds empty to search all indexed knowledge bases.\nAfter knowledge__search or knowledge__get_chunk returns relevant results",
+		"WHERE key = 'system_prompt'\n  AND value IN (",
+		"WHERE system_prompt IN (",
+	}
+	for _, token := range required {
+		if !strings.Contains(content, token) {
+			t.Fatalf("domain-refusal prompt migration missing %q\n%s", token, content)
+		}
+	}
+	if strings.Contains(content, strings.Repeat("?", 5)) {
+		t.Fatalf("domain-refusal prompt migration contains placeholder question marks:\n%s", content)
+	}
+}
