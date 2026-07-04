@@ -138,7 +138,7 @@ body {
 
 ::-webkit-scrollbar-thumb {
   border-radius: 3px;
-  background: transparent;
+  background: var(--border);
 }
 
 /* ===== Toast notification slide-in ===== */

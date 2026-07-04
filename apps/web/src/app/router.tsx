@@ -242,19 +242,6 @@ const chatRoute = createRoute({
   component: ChatPage,
 })
 
-const qaRoute = createRoute({
-  getParentRoute: () => authenticatedRoute,
-  path: 'qa',
-  beforeLoad: requireAuth(qaAccess),
-  component: Outlet,
-})
-
-const qaRetrievalTestRoute = createRoute({
-  getParentRoute: () => qaRoute,
-  path: 'retrieval-test',
-  component: QARetrievalTestPage,
-})
-
 const reportsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: 'reports',
@@ -494,7 +481,6 @@ const routeTree = rootRoute.addChildren([
     forbiddenRoute,
     profileRoute,
     chatRoute,
-    qaRoute.addChildren([qaRetrievalTestRoute]),
     reportsRoute.addChildren([
       reportsIndexRoute,
       reportGenerateRoute,
