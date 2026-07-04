@@ -37,8 +37,14 @@ function cardBg(): string {
 
 const ROSE_COLORS = ['#ec4899', '#d946ef', '#a855f7', '#6366f1']
 const PIE_COLORS = [
-  '#0d9488', '#0891b2', '#0284c7', '#4f46e5',
-  '#7c3aed', '#db2777', '#ea580c', '#65a30d',
+  '#0d9488',
+  '#0891b2',
+  '#0284c7',
+  '#4f46e5',
+  '#7c3aed',
+  '#db2777',
+  '#ea580c',
+  '#65a30d',
 ]
 
 // ── Helpers ──
@@ -110,7 +116,9 @@ function StatCard({
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="text-xl font-bold text-foreground tabular-nums">
           {value}
-          {suffix && <span className="ml-0.5 text-sm font-normal text-muted-foreground">{suffix}</span>}
+          {suffix && (
+            <span className="ml-0.5 text-sm font-normal text-muted-foreground">{suffix}</span>
+          )}
         </p>
       </div>
     </div>
@@ -121,10 +129,31 @@ function StatCards({ overview }: { overview: QAMetricsOverview }) {
   const v = (k: string) => (overview as Record<string, number | undefined>)[k]
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <StatCard label="今日问答" value={formatNumber(v('todayQaCount'))} icon={Zap} accent="#6366f1" />
-      <StatCard label="今日活跃用户" value={formatNumber(v('activeUsersToday'))} icon={Users} accent="#06b6d4" />
-      <StatCard label="平均延迟" value={v('avgLatencyMs') != null ? `${Math.round(v('avgLatencyMs')!)}` : '-'} icon={Timer} suffix="ms" accent="#f59e0b" />
-      <StatCard label="会话数" value={formatNumber(v('conversationCount'))} icon={MessageSquare} accent="#10b981" />
+      <StatCard
+        label="今日问答"
+        value={formatNumber(v('todayQaCount'))}
+        icon={Zap}
+        accent="#6366f1"
+      />
+      <StatCard
+        label="今日活跃用户"
+        value={formatNumber(v('activeUsersToday'))}
+        icon={Users}
+        accent="#06b6d4"
+      />
+      <StatCard
+        label="平均延迟"
+        value={v('avgLatencyMs') != null ? `${Math.round(v('avgLatencyMs')!)}` : '-'}
+        icon={Timer}
+        suffix="ms"
+        accent="#f59e0b"
+      />
+      <StatCard
+        label="会话数"
+        value={formatNumber(v('conversationCount'))}
+        icon={MessageSquare}
+        accent="#10b981"
+      />
     </div>
   )
 }
@@ -141,19 +170,18 @@ const ROSE_METRICS: { key: keyof QAMetricsOverview; label: string }[] = [
 function MetricsRoseChart({ overview }: { overview: QAMetricsOverview }) {
   // Store real values for tooltip lookup
   const realValues = useMemo(
-    () => Object.fromEntries(
-      ROSE_METRICS.map(({ key, label }) => [label, overview[key] ?? 0]),
-    ),
+    () => Object.fromEntries(ROSE_METRICS.map(({ key, label }) => [label, overview[key] ?? 0])),
     [overview],
   )
 
   // All petals use uniform visual weight for a perfect rose shape
   const data = useMemo(
-    () => ROSE_METRICS.map(({ label }, i) => ({
-      name: label,
-      value: 100 + i * 20,    // small gradient for slight visual variety
-      real: realValues[label],
-    })),
+    () =>
+      ROSE_METRICS.map(({ label }, i) => ({
+        name: label,
+        value: 100 + i * 20, // small gradient for slight visual variety
+        real: realValues[label],
+      })),
     [realValues],
   )
 
@@ -188,7 +216,12 @@ function MetricsRoseChart({ overview }: { overview: QAMetricsOverview }) {
               `${params.name}\n${params.data.real.toLocaleString()}`,
           },
           emphasis: {
-            label: { fontSize: 15, fontWeight: 'bold', formatter: (params: { name: string; data: { real: number } }) => `${params.name}\n${params.data.real.toLocaleString()}` },
+            label: {
+              fontSize: 15,
+              fontWeight: 'bold',
+              formatter: (params: { name: string; data: { real: number } }) =>
+                `${params.name}\n${params.data.real.toLocaleString()}`,
+            },
             itemStyle: { shadowBlur: 14, shadowColor: 'rgba(0,0,0,0.2)' },
           },
           data,
@@ -465,9 +498,7 @@ export function StatsOverviewPage() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-2xl font-semibold text-foreground">QA 统计</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            即时指标
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">即时指标</p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="w-28 space-y-1 text-sm">
@@ -492,7 +523,10 @@ export function StatsOverviewPage() {
       {/* Row 1: Instant stat cards */}
       <section>
         {overviewQuery.isError ? (
-          <SectionState tone="error" message={`概览指标加载失败：${getErrorMessage(overviewQuery.error)}`} />
+          <SectionState
+            tone="error"
+            message={`概览指标加载失败：${getErrorMessage(overviewQuery.error)}`}
+          />
         ) : overviewQuery.isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -514,7 +548,10 @@ export function StatsOverviewPage() {
         <h4 className="mb-1 text-lg font-semibold text-foreground">容量指标</h4>
         <p className="mb-4 text-sm text-muted-foreground">总问答、问题、知识库、文档存量</p>
         {overviewQuery.isError ? (
-          <SectionState tone="error" message={`容量指标加载失败：${getErrorMessage(overviewQuery.error)}`} />
+          <SectionState
+            tone="error"
+            message={`容量指标加载失败：${getErrorMessage(overviewQuery.error)}`}
+          />
         ) : overviewQuery.isLoading ? (
           <ChartSkeleton height={300} />
         ) : overviewQuery.data ? (
@@ -542,7 +579,10 @@ export function StatsOverviewPage() {
             </label>
           </div>
           {trendQuery.isError ? (
-            <SectionState tone="error" message={`趋势加载失败：${getErrorMessage(trendQuery.error)}`} />
+            <SectionState
+              tone="error"
+              message={`趋势加载失败：${getErrorMessage(trendQuery.error)}`}
+            />
           ) : trendQuery.isLoading ? (
             <ChartSkeleton height={300} />
           ) : trendPoints.length === 0 ? (
@@ -558,7 +598,10 @@ export function StatsOverviewPage() {
             <p className="mt-1 text-sm text-muted-foreground">引导线标注占比</p>
           </div>
           {intentDistributionQuery.isError ? (
-            <SectionState tone="error" message={`意图分布加载失败：${getErrorMessage(intentDistributionQuery.error)}`} />
+            <SectionState
+              tone="error"
+              message={`意图分布加载失败：${getErrorMessage(intentDistributionQuery.error)}`}
+            />
           ) : intentDistributionQuery.isLoading ? (
             <ChartSkeleton height={320} />
           ) : (intentDistributionQuery.data ?? []).length === 0 ? (
@@ -597,7 +640,10 @@ export function StatsOverviewPage() {
         </div>
 
         {topQueriesQuery.isError ? (
-          <SectionState tone="error" message={`热门问题加载失败：${getErrorMessage(topQueriesQuery.error)}`} />
+          <SectionState
+            tone="error"
+            message={`热门问题加载失败：${getErrorMessage(topQueriesQuery.error)}`}
+          />
         ) : topQueriesQuery.isLoading ? (
           <ChartSkeleton height={240} />
         ) : (topQueriesQuery.data ?? []).length === 0 ? (

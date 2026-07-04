@@ -34,13 +34,7 @@ type EChartsWrapperProps = {
   onChartReady?: (instance: echarts.ECharts) => void
 }
 
-function EChartsWrapper({
-  option,
-  className,
-  style,
-  theme,
-  onChartReady,
-}: EChartsWrapperProps) {
+function EChartsWrapper({ option, className, style, theme, onChartReady }: EChartsWrapperProps) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const chartRef = React.useRef<echarts.ECharts | null>(null)
 
