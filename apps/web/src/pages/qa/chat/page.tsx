@@ -526,6 +526,11 @@ export function ChatPage() {
   const setActiveId = useChatStore((s) => s.setActiveId)
   const streaming = useChatStore((s) => s.streaming)
   const setStreaming = useChatStore((s) => s.setStreaming)
+  const setActiveStream = useChatStore((s) => s.setActiveStream)
+  const abortActiveStream = useChatStore((s) => s.abortActiveStream)
+  const qaUnreadCompletion = useChatStore((s) => s.qaUnreadCompletion)
+  const clearQaUnreadCompletion = useChatStore((s) => s.clearQaUnreadCompletion)
+  const markQaCompletionUnread = useChatStore((s) => s.markQaCompletionUnread)
   const error = useChatStore((s) => s.error)
   const setError = useChatStore((s) => s.setError)
   const lastFailedMsg = useChatStore((s) => s.lastFailedMsg)
@@ -599,16 +604,6 @@ export function ChatPage() {
   // ── SSE cleanup ref ──
   const abortRef = useRef<(() => void) | null>(null)
   const streamUiCleanupRef = useRef<(() => void) | null>(null)
-
-  useEffect(
-    () => () => {
-      streamUiCleanupRef.current?.()
-      streamUiCleanupRef.current = null
-      abortRef.current?.()
-      abortRef.current = null
-    },
-    [],
-  )
 
   // ── Event replay: track current responseRunId for reconnect recovery ──
   const responseRunIdRef = useRef<string | null>(null)
@@ -1030,6 +1025,7 @@ export function ChatPage() {
         thinking: [],
         citations: [],
       }
+      let assistantMessageId = asstMsg.id
 
       appendSessionMessages(uid, [userMsg, asstMsg])
 
@@ -1105,7 +1101,22 @@ export function ChatPage() {
         }
         // Keep the existing same-chunk fatal-error override window.
         queueMicrotask(() => {
+          const current = useChatStore.getState()
+          const messages = current.messagesBySession[uid] ?? []
+          const lastMessage = messages[messages.length - 1]
+          const completedWhileBackgrounded =
+            lastMessage?.role === 'assistant' &&
+            lastMessage.status === 'completed' &&
+            !current.qaChatVisible
+          if (completedWhileBackgrounded) {
+            markQaCompletionUnread({
+              completedAt: new Date().toISOString(),
+              messageId: completedMessageId ?? assistantMessageId,
+              sessionId: uid,
+            })
+          }
           setStreaming(false)
+          setActiveStream(null)
           abortRef.current = null
         })
       }
@@ -1163,7 +1174,12 @@ export function ChatPage() {
           // Capture the real message id and responseRunId from the server
           const serverMsgId = data.messageId as string | undefined
           if (serverMsgId) {
+            assistantMessageId = serverMsgId
             patchAssistant({ id: serverMsgId })
+            const currentStream = useChatStore.getState().activeStream
+            if (currentStream?.sessionId === uid) {
+              setActiveStream({ ...currentStream, assistantMessageId: serverMsgId })
+            }
           }
           const runId = data.responseRunId as string | undefined
           if (runId) responseRunIdRef.current = runId
@@ -1335,6 +1351,7 @@ export function ChatPage() {
             (data.assistantMessageId as string | undefined) ??
             (data.messageId as string | undefined)
           completedMessageId = typeof serverMsgId === 'string' ? serverMsgId : completedMessageId
+          assistantMessageId = completedMessageId ?? assistantMessageId
           answerCompleted = true
           frameBatcher.cancel()
           patchAssistant({
@@ -1351,6 +1368,9 @@ export function ChatPage() {
           if (sseErr.fatal) {
             cancelUiSchedulers()
             abortRef.current = null
+            setActiveStream(null)
+            const unread = useChatStore.getState().qaUnreadCompletion
+            if (unread?.sessionId === uid) clearQaUnreadCompletion()
             // Only insert mock for genuine network failures (backend unreachable).
             // HTTP errors (401/403/404/502) mean the backend is alive — surface them.
             const isOffline =
@@ -1442,6 +1462,7 @@ export function ChatPage() {
               streaming: false,
             }
           })
+          setActiveStream(null)
           abortRef.current = null
         },
       }
@@ -1466,13 +1487,17 @@ export function ChatPage() {
       )
 
       abortRef.current = abort
+      setActiveStream({ abort, assistantMessageId, sessionId: uid })
     },
     [
       addSession,
       appendSessionMessages,
       clearError,
+      clearQaUnreadCompletion,
       createSessionMut,
+      markQaCompletionUnread,
       setActiveId,
+      setActiveStream,
       setError,
       setLastFailedMsg,
       setStreaming,
@@ -1503,7 +1528,22 @@ export function ChatPage() {
   // Active session
   // ══════════════════════════════════════════════════════════════════════════
 
-  const activeMessages = activeId ? (messagesBySession[activeId] ?? []) : []
+  const activeMessages = useMemo(
+    () => (activeId ? (messagesBySession[activeId] ?? []) : []),
+    [activeId, messagesBySession],
+  )
+
+  useEffect(() => {
+    if (!activeId || !qaUnreadCompletion || qaUnreadCompletion.sessionId !== activeId) return
+
+    const hasSeenCompletedAnswer = activeMessages.some(
+      (message) =>
+        message.role === 'assistant' &&
+        message.status === 'completed' &&
+        (!qaUnreadCompletion.messageId || message.id === qaUnreadCompletion.messageId),
+    )
+    if (hasSeenCompletedAnswer) clearQaUnreadCompletion()
+  }, [activeId, activeMessages, clearQaUnreadCompletion, qaUnreadCompletion])
 
   // ══════════════════════════════════════════════════════════════════════════════
   // FLIP animation: slide input from center (empty) to bottom (active)
@@ -1634,7 +1674,7 @@ export function ChatPage() {
                 onSend={sendMessage}
                 disabled={streaming}
                 streaming={streaming}
-                onStop={() => abortRef.current?.()}
+                onStop={abortActiveStream}
                 value={inputText}
                 onChange={setInputText}
                 size={chatPhase === 'empty' ? 'large' : 'normal'}
