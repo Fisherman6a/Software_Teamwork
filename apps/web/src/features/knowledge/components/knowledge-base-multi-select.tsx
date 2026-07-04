@@ -44,6 +44,8 @@ export function KnowledgeBaseMultiSelect({
   value,
 }: KnowledgeBaseMultiSelectProps) {
   const [keyword, setKeyword] = useState('')
+  const [manualIdsText, setManualIdsText] = useState('')
+  const [showManualInput, setShowManualInput] = useState(false)
   const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('')
   const [page, setPage] = useState(1)
   const query = useKnowledgeBases(page, pageSize)
@@ -88,6 +90,27 @@ export function KnowledgeBaseMultiSelect({
     onChange([...value, selectedAddableItem.id])
     setSelectedKnowledgeBaseId('')
   }
+
+  const manualIds = useMemo(
+    () =>
+      manualIdsText
+        .split(/[\s,，]+/)
+        .map((id) => id.trim())
+        .filter(Boolean),
+    [manualIdsText],
+  )
+  const addableManualIds = useMemo(
+    () => manualIds.filter((id, index) => manualIds.indexOf(id) === index && !value.includes(id)),
+    [manualIds, value],
+  )
+
+  const addManualKnowledgeBaseIds = () => {
+    if (addableManualIds.length === 0) return
+    onChange([...value, ...addableManualIds])
+    setManualIdsText('')
+    setShowManualInput(false)
+  }
+  const shouldShowManualInput = showManualInput || query.isError
 
   return (
     <div
@@ -207,25 +230,53 @@ export function KnowledgeBaseMultiSelect({
         </Button>
       </div>
 
+      {!shouldShowManualInput && (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            onClick={() => setShowManualInput(true)}
+            disabled={disabled}
+          >
+            手动添加已知 ID
+          </Button>
+        </div>
+      )}
+
       {query.isLoading ? (
         <div className="flex items-center gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
           <Loader2 aria-hidden="true" className="size-4 animate-spin" />
           正在加载知识库列表...
         </div>
       ) : query.isError ? (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <div className="font-medium">{issue?.title ?? '加载知识库失败'}</div>
-          <p className="mt-1">{issue?.description ?? '请稍后重试。'}</p>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="mt-2"
-            onClick={() => void query.refetch()}
-          >
-            <RefreshCw className="size-3.5" />
-            重试
-          </Button>
+          <p>{issue?.description ?? '请稍后重试。'}</p>
+          <p className="text-xs text-destructive/80">可临时添加已知知识库 ID 继续诊断。</p>
+          <div className="grid gap-2 md:grid-cols-[minmax(180px,1fr)_auto_auto]">
+            <Input
+              aria-label={`${label}手动ID`}
+              placeholder="输入已知 ID，多个用逗号或换行分隔"
+              value={manualIdsText}
+              onChange={(event) => setManualIdsText(event.target.value)}
+              disabled={disabled}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addManualKnowledgeBaseIds}
+              disabled={disabled || addableManualIds.length === 0}
+            >
+              <Plus className="size-3.5" />
+              添加ID
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void query.refetch()}>
+              <RefreshCw className="size-3.5" />
+              重试
+            </Button>
+          </div>
         </div>
       ) : items.length === 0 ? (
         <div className="rounded-lg bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
@@ -308,6 +359,37 @@ export function KnowledgeBaseMultiSelect({
             </div>
           )}
         </>
+      )}
+
+      {shouldShowManualInput && !query.isError && (
+        <div className="grid gap-2 rounded-lg border border-dashed border-border bg-muted/20 p-2 md:grid-cols-[minmax(180px,1fr)_auto_auto]">
+          <Input
+            aria-label={`${label}手动ID`}
+            placeholder="输入已知 ID，多个用逗号或换行分隔"
+            value={manualIdsText}
+            onChange={(event) => setManualIdsText(event.target.value)}
+            disabled={disabled}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={addManualKnowledgeBaseIds}
+            disabled={disabled || addableManualIds.length === 0}
+          >
+            <Plus className="size-3.5" />
+            添加ID
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => {
+              setManualIdsText('')
+              setShowManualInput(false)
+            }}
+          >
+            收起
+          </Button>
+        </div>
       )}
     </div>
   )

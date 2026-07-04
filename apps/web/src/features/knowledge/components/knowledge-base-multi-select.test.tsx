@@ -109,6 +109,36 @@ describe('KnowledgeBaseMultiSelect', () => {
     expect(screen.queryByLabelText('知识库范围ID')).not.toBeInTheDocument()
   })
 
+  it('keeps manual id fallback for diagnostic retrieval', async () => {
+    const user = userEvent.setup()
+    const values: string[][] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        jsonResponse(
+          {
+            error: {
+              code: 'dependency_error',
+              message: 'knowledge service unavailable',
+              requestId: 'req-kb-failed',
+            },
+          },
+          { status: 502 },
+        ),
+      ),
+    )
+
+    renderWithProviders(<ControlledSelector onValueChange={(value) => values.push(value)} />)
+
+    expect(await screen.findByText('知识库列表依赖失败')).toBeVisible()
+    await user.type(screen.getByLabelText('知识库范围手动ID'), 'kb-known, kb-off-page')
+    await user.click(screen.getByRole('button', { name: '添加ID' }))
+
+    await waitFor(() => expect(values.at(-1)).toEqual(['kb-known', 'kb-off-page']))
+    expect(screen.getByTitle('kb-known')).toBeVisible()
+    expect(screen.getByTitle('kb-off-page')).toBeVisible()
+  })
+
   it('keeps the search box editable when the knowledge base list fails', async () => {
     const user = userEvent.setup()
     vi.stubGlobal(

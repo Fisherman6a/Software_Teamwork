@@ -80,13 +80,25 @@ function isReportOutlineJob(job?: Pick<ReportJob, 'jobType'> | null): boolean {
   return job?.jobType === 'outline_generation' || job?.jobType === 'outline_regeneration'
 }
 
-function resetSectionsForGeneration(sections?: ReportSection[]): ReportSection[] | undefined {
+function resetSectionsForGeneration(
+  sections?: ReportSection[],
+  sectionId?: string,
+): ReportSection[] | undefined {
   return sections?.map((section) => ({
     ...section,
-    generatedAt: undefined,
-    generationStatus: 'pending',
-    lastJobId: undefined,
+    ...(sectionId && section.id !== sectionId
+      ? {}
+      : {
+          generatedAt: undefined,
+          generationStatus: 'pending' as const,
+          lastJobId: undefined,
+        }),
   }))
+}
+
+function getSectionRegenerationTargetId(payload: CreateReportJobPayload): string | undefined {
+  if (payload.jobType !== 'section_regeneration') return undefined
+  return payload.target?.scope === 'section' ? payload.target.sectionId : undefined
 }
 
 function isWithinFailedReportRetryGrace(referenceTime?: string): boolean {
@@ -267,8 +279,9 @@ export function useCreateReportJobMutation() {
       }
 
       if (isReportContentJob(payload)) {
+        const sectionId = getSectionRegenerationTargetId(payload)
         queryClient.setQueryData<ReportSection[]>(reportKeys.sections(reportId), (sections) =>
-          resetSectionsForGeneration(sections),
+          resetSectionsForGeneration(sections, sectionId),
         )
       }
     },
