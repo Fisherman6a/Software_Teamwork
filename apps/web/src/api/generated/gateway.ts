@@ -1564,12 +1564,10 @@ export interface paths {
         };
         /**
          * Cross-service administration overview
-         * @description Aggregated snapshot for the administration dashboard.  Gateway
-         *     collects lightweight metrics from QA, Knowledge (document stats),
-         *     and Document (report stats) owner services on each request; the
-         *     `reports` response module reflects Document-owned report data.
-         *     Data is suitable for a landing-page dashboard and is not a
-         *     real-time operational view.
+         * @description Aggregated snapshot for the administration dashboard. Gateway
+         *     collects lightweight counts from Auth, Knowledge, Document, and QA
+         *     owner services on each request. Data is suitable for landing-page
+         *     cards and is not a real-time operational view.
          *     Route is registered and returns 501 Not Implemented until
          *     aggregation implementation is complete.
          */
@@ -1591,11 +1589,10 @@ export interface paths {
         };
         /**
          * Cross-service time-series metrics
-         * @description Daily or hourly trend data across QA, Knowledge (document stats),
-         *     and Document (report stats) owner services.  Supports a configurable
-         *     lookback window for dashboard trend charts.
-         *     **Route registration** is tracked in a separate backend issue;
-         *     this OpenAPI contract defines the design-time schema only.
+         * @description Daily or hourly trend data across Auth, Knowledge, Document, and QA
+         *     owner services. Supports a configurable lookback window for the
+         *     administration dashboard trend chart. Route is registered and returns
+         *     501 Not Implemented until aggregation implementation is complete.
          */
         get: operations["getAdminMetrics"];
         put?: never;
@@ -3308,29 +3305,26 @@ export interface components {
             data: components["schemas"]["QAIntentDistributionItem"][];
             requestId: string;
         };
+        /** @description Current dashboard card counts across owner services. */
+        AdminMetricTotals: {
+            /** @description Auth-owned non-deleted user count. */
+            userCount: number;
+            /** @description Knowledge-owned non-deleted knowledge base count. */
+            knowledgeBaseCount: number;
+            /** @description Knowledge-owned non-deleted document count. */
+            documentCount: number;
+            /** @description Knowledge runtime chunks available for public retrieval or display. */
+            chunkCount: number;
+            /** @description Document-owned non-deleted report template count. */
+            reportTemplateCount: number;
+            /** @description Document-owned non-deleted report record count. */
+            reportRecordCount: number;
+            /** @description QA-owned user question count from non-deleted sessions. */
+            qaCount: number;
+        };
         /** @description Cross-service snapshot for the administration landing page. */
         AdminOverview: {
-            /** @description QA service summary. */
-            qa: {
-                totalQaCount: number;
-                todayQaCount: number;
-                conversationCount: number;
-                avgLatencyMs: number;
-            };
-            /** @description Document service summary. */
-            documents: {
-                totalCount: number;
-                parsingSuccessRate?: number;
-            };
-            /** @description Report service summary. */
-            reports: {
-                totalGenerated: number;
-                todayGenerated: number;
-            };
-            /** @description System-level metrics. */
-            system: {
-                activeUsersToday: number;
-            };
+            totals: components["schemas"]["AdminMetricTotals"];
             /** Format: date-time */
             updatedAt: string;
         };
@@ -3351,15 +3345,27 @@ export interface components {
         AdminMetrics: {
             days: number;
             /** @enum {string} */
-            granularity?: "daily" | "hourly";
-            /** @description QA service daily/hourly query counts. */
-            qa: components["schemas"]["AdminMetricsPoint"][];
-            /** @description Document service daily/hourly processing counts. */
-            documents: components["schemas"]["AdminMetricsPoint"][];
-            /** @description Report service daily/hourly generation counts. */
-            reports: components["schemas"]["AdminMetricsPoint"][];
-            /** @description System-level daily/hourly active user counts. */
-            system: components["schemas"]["AdminMetricsPoint"][];
+            granularity: "daily" | "hourly";
+            series: components["schemas"]["AdminMetricsSeries"];
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        /** @description Time-series fields matching AdminMetricTotals. */
+        AdminMetricsSeries: {
+            /** @description Users created in each bucket. */
+            userCount: components["schemas"]["AdminMetricsPoint"][];
+            /** @description Knowledge bases created in each bucket. */
+            knowledgeBaseCount: components["schemas"]["AdminMetricsPoint"][];
+            /** @description Knowledge documents created in each bucket. */
+            documentCount: components["schemas"]["AdminMetricsPoint"][];
+            /** @description Chunks created or made available in each bucket. */
+            chunkCount: components["schemas"]["AdminMetricsPoint"][];
+            /** @description Report templates created in each bucket. */
+            reportTemplateCount: components["schemas"]["AdminMetricsPoint"][];
+            /** @description Report records created in each bucket. */
+            reportRecordCount: components["schemas"]["AdminMetricsPoint"][];
+            /** @description User questions created in each bucket. */
+            qaCount: components["schemas"]["AdminMetricsPoint"][];
         };
         AdminMetricsResponse: {
             data: components["schemas"]["AdminMetrics"];
@@ -6310,6 +6316,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             501: components["responses"]["Error"];
+            502: components["responses"]["Error"];
         };
     };
     getAdminMetrics: {
@@ -6339,6 +6346,7 @@ export interface operations {
             401: components["responses"]["Error"];
             403: components["responses"]["Error"];
             501: components["responses"]["Error"];
+            502: components["responses"]["Error"];
         };
     };
 }

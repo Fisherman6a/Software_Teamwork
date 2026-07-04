@@ -384,14 +384,14 @@ Gateway 不应为这些资源建立自己的业务表，也不应把下游返回
 
 ## 7. 管理后台聚合预留模型
 
-`GET /api/v1/admin/overview` 和 `GET /api/v1/admin/metrics` 已转为 active contracts。Gateway 负责轻量聚合读，schema 定义见 OpenAPI `AdminOverview` / `AdminMetrics` 及对应 Response envelope。
+`GET /api/v1/admin/overview` 和 `GET /api/v1/admin/metrics` 已转为 active contracts。Gateway 负责轻量聚合读，schema 定义见 OpenAPI `AdminOverview` / `AdminMetrics` 及对应 Response envelope；字段口径和趋势语义见 [管理后台总览与统计聚合接口文档](admin-metrics-contract.md)。
 
 | 字段 | 类型建议 | 说明 |
 | --- | --- | --- |
-| `request_id` | string | 聚合请求 ID。 |
-| `generated_at` | datetime | 聚合生成时间。 |
-| `sources` | object[] | 参与聚合的 owner service 和数据新鲜度。 |
-| `data` | object | 聚合后的公开展示数据。 |
+| `requestId` | string | 聚合请求 ID。 |
+| `updatedAt` | datetime | Gateway 完成本次聚合的时间。 |
+| `totals` | object | 总览卡片快照，包含用户数、知识库数、文档数、切片数、报告模板数、报告记录数和问答次数。 |
+| `series` | object | 趋势图时间序列，字段与 `totals` 一一对应。 |
 
 聚合模型只能保存或返回前端已确认需要的摘要字段，不能把各服务内部表结构直接暴露为 Gateway API。
 

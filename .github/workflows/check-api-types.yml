@@ -3,7 +3,7 @@ name: Check API Types
 on:
   pull_request:
     paths:
-      - 'docs/services/gateway/api/openapi.yaml'
+      - 'docs/services/gateway/api/public.openapi.yaml'
       - 'apps/web/src/api/generated/gateway.ts'
       - 'apps/web/package.json'
       - 'bun.lock'

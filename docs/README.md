@@ -26,6 +26,7 @@
 | [技术选型基线](architecture/technology-decisions.md) | 后端数据库访问、迁移、日志、HTTP、配置、队列、认证、前端 API client、测试、CI、观测和 DOCX/MCP 等工程技术选型。 |
 | [Gateway 服务规划](services/gateway/README.md) | Gateway 的设计原则、公开 API、认证上下文、响应约定和后续扩展。 |
 | [Gateway 权限矩阵](services/gateway/docs/permission-matrix.md) | Gateway 公开入口、认证缓存、角色权限透传和 owner service 复核边界。 |
+| [管理后台总览与统计聚合接口文档](services/gateway/docs/admin-metrics-contract.md) | 管理后台用户数、知识库数、文档数、切片数、报告模板数、报告记录数、问答次数和近 30 天趋势接口口径。 |
 | [Gateway 实现说明](services/gateway/docs/implementation.md) | `services/gateway/` 当前实现状态、契约对齐、缺口和最近检查记录。 |
 | [Auth 服务接口文档](services/auth/README.md) | 用户、会话、权限上下文和 auth 内部服务接口草案。 |
 | [Auth 权限矩阵](services/auth/docs/permission-matrix.md) | Auth 角色、权限字符串、内部 API 授权和会话权限刷新口径。 |

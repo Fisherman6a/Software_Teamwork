@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [develop]
     paths:
-      - "docs/services/gateway/api/openapi.yaml"
+      - "docs/services/gateway/api/public.openapi.yaml"
       - "docs/services/gateway/docs/active-api-owner-map.md"
       - "apps/web/package.json"
       - "package.json"
@@ -13,7 +13,7 @@ on:
   push:
     branches: [develop]
     paths:
-      - "docs/services/gateway/api/openapi.yaml"
+      - "docs/services/gateway/api/public.openapi.yaml"
       - "docs/services/gateway/docs/active-api-owner-map.md"
       - "apps/web/package.json"
       - "package.json"

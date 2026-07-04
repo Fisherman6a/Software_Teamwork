@@ -2875,12 +2875,10 @@ paths:
       - admin
       summary: Cross-service administration overview
       description: |
-        Aggregated snapshot for the administration dashboard.  Gateway
-        collects lightweight metrics from QA, Knowledge (document stats),
-        and Document (report stats) owner services on each request; the
-        `reports` response module reflects Document-owned report data.
-        Data is suitable for a landing-page dashboard and is not a
-        real-time operational view.
+        Aggregated snapshot for the administration dashboard. Gateway
+        collects lightweight counts from Auth, Knowledge, Document, and QA
+        owner services on each request. Data is suitable for landing-page
+        cards and is not a real-time operational view.
         Route is registered and returns 501 Not Implemented until
         aggregation implementation is complete.
       operationId: getAdminOverview
@@ -2900,6 +2898,8 @@ paths:
           $ref: '#/components/responses/Error'
         '403':
           $ref: '#/components/responses/Error'
+        '502':
+          $ref: '#/components/responses/Error'
         '501':
           $ref: '#/components/responses/Error'
   /api/v1/admin/metrics:
@@ -2908,11 +2908,10 @@ paths:
       - admin
       summary: Cross-service time-series metrics
       description: |
-        Daily or hourly trend data across QA, Knowledge (document stats),
-        and Document (report stats) owner services.  Supports a configurable
-        lookback window for dashboard trend charts.
-        **Route registration** is tracked in a separate backend issue;
-        this OpenAPI contract defines the design-time schema only.
+        Daily or hourly trend data across Auth, Knowledge, Document, and QA
+        owner services. Supports a configurable lookback window for the
+        administration dashboard trend chart. Route is registered and returns
+        501 Not Implemented until aggregation implementation is complete.
       operationId: getAdminMetrics
       x-owner-service: gateway
       security:
@@ -2947,6 +2946,8 @@ paths:
         '401':
           $ref: '#/components/responses/Error'
         '403':
+          $ref: '#/components/responses/Error'
+        '502':
           $ref: '#/components/responses/Error'
         '501':
           $ref: '#/components/responses/Error'
@@ -6953,72 +6954,55 @@ components:
             $ref: '#/components/schemas/QAIntentDistributionItem'
         requestId:
           type: string
+    AdminMetricTotals:
+      type: object
+      description: Current dashboard card counts across owner services.
+      required:
+      - userCount
+      - knowledgeBaseCount
+      - documentCount
+      - chunkCount
+      - reportTemplateCount
+      - reportRecordCount
+      - qaCount
+      properties:
+        userCount:
+          type: integer
+          minimum: 0
+          description: Auth-owned non-deleted user count.
+        knowledgeBaseCount:
+          type: integer
+          minimum: 0
+          description: Knowledge-owned non-deleted knowledge base count.
+        documentCount:
+          type: integer
+          minimum: 0
+          description: Knowledge-owned non-deleted document count.
+        chunkCount:
+          type: integer
+          minimum: 0
+          description: Knowledge runtime chunks available for public retrieval or display.
+        reportTemplateCount:
+          type: integer
+          minimum: 0
+          description: Document-owned non-deleted report template count.
+        reportRecordCount:
+          type: integer
+          minimum: 0
+          description: Document-owned non-deleted report record count.
+        qaCount:
+          type: integer
+          minimum: 0
+          description: QA-owned user question count from non-deleted sessions.
     AdminOverview:
       type: object
       description: Cross-service snapshot for the administration landing page.
       required:
-      - qa
-      - documents
-      - reports
-      - system
+      - totals
       - updatedAt
       properties:
-        qa:
-          type: object
-          description: QA service summary.
-          required:
-          - totalQaCount
-          - todayQaCount
-          - conversationCount
-          - avgLatencyMs
-          properties:
-            totalQaCount:
-              type: integer
-              minimum: 0
-            todayQaCount:
-              type: integer
-              minimum: 0
-            conversationCount:
-              type: integer
-              minimum: 0
-            avgLatencyMs:
-              type: integer
-              minimum: 0
-        documents:
-          type: object
-          description: Document service summary.
-          required:
-          - totalCount
-          properties:
-            totalCount:
-              type: integer
-              minimum: 0
-            parsingSuccessRate:
-              type: number
-              minimum: 0
-              maximum: 1
-        reports:
-          type: object
-          description: Report service summary.
-          required:
-          - totalGenerated
-          - todayGenerated
-          properties:
-            totalGenerated:
-              type: integer
-              minimum: 0
-            todayGenerated:
-              type: integer
-              minimum: 0
-        system:
-          type: object
-          description: System-level metrics.
-          required:
-          - activeUsersToday
-          properties:
-            activeUsersToday:
-              type: integer
-              minimum: 0
+        totals:
+          $ref: '#/components/schemas/AdminMetricTotals'
         updatedAt:
           type: string
           format: date-time
@@ -7053,10 +7037,9 @@ components:
       description: Cross-service time-series for dashboard trend charts.
       required:
       - days
-      - qa
-      - documents
-      - reports
-      - system
+      - granularity
+      - series
+      - updatedAt
       properties:
         days:
           type: integer
@@ -7066,24 +7049,56 @@ components:
           enum:
           - daily
           - hourly
-        qa:
+        series:
+          $ref: '#/components/schemas/AdminMetricsSeries'
+        updatedAt:
+          type: string
+          format: date-time
+    AdminMetricsSeries:
+      type: object
+      description: Time-series fields matching AdminMetricTotals.
+      required:
+      - userCount
+      - knowledgeBaseCount
+      - documentCount
+      - chunkCount
+      - reportTemplateCount
+      - reportRecordCount
+      - qaCount
+      properties:
+        userCount:
           type: array
-          description: QA service daily/hourly query counts.
+          description: Users created in each bucket.
           items:
             $ref: '#/components/schemas/AdminMetricsPoint'
-        documents:
+        knowledgeBaseCount:
           type: array
-          description: Document service daily/hourly processing counts.
+          description: Knowledge bases created in each bucket.
           items:
             $ref: '#/components/schemas/AdminMetricsPoint'
-        reports:
+        documentCount:
           type: array
-          description: Report service daily/hourly generation counts.
+          description: Knowledge documents created in each bucket.
           items:
             $ref: '#/components/schemas/AdminMetricsPoint'
-        system:
+        chunkCount:
           type: array
-          description: System-level daily/hourly active user counts.
+          description: Chunks created or made available in each bucket.
+          items:
+            $ref: '#/components/schemas/AdminMetricsPoint'
+        reportTemplateCount:
+          type: array
+          description: Report templates created in each bucket.
+          items:
+            $ref: '#/components/schemas/AdminMetricsPoint'
+        reportRecordCount:
+          type: array
+          description: Report records created in each bucket.
+          items:
+            $ref: '#/components/schemas/AdminMetricsPoint'
+        qaCount:
+          type: array
+          description: User questions created in each bucket.
           items:
             $ref: '#/components/schemas/AdminMetricsPoint'
     AdminMetricsResponse:

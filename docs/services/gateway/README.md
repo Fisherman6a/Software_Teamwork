@@ -5,6 +5,7 @@
 相关文档：
 
 - [Gateway 数据模型文档](docs/data-models.md)
+- [管理后台总览与统计聚合接口文档](docs/admin-metrics-contract.md)
 - [Gateway Public OpenAPI 契约](api/public.openapi.yaml)
 - [Gateway Internal OpenAPI 契约](api/internal.openapi.yaml)
 - [Gateway Active API Owner Map](docs/active-api-owner-map.md)
@@ -191,7 +192,7 @@ Gateway 可透传或映射 owner service 的服务特有错误码，但任何稳
 
 ## Active contract 与实现状态
 
-`GET /api/v1/admin/overview` 和 `GET /api/v1/admin/metrics` 已转为 active contracts，具体 schema 以 Gateway OpenAPI 为准。Gateway 负责轻量聚合，各领域服务提供指标来源。路由注册由单独后端 issue 追踪。
+`GET /api/v1/admin/overview` 和 `GET /api/v1/admin/metrics` 已转为 active contracts，具体 schema 以 Gateway OpenAPI 为准；字段口径、趋势语义和 owner 来源见 [管理后台总览与统计聚合接口文档](docs/admin-metrics-contract.md)。Gateway 负责轻量聚合，各领域服务提供指标来源。当前 route 仍按稳定 `not_implemented` 占位，真实聚合实现由单独后端 issue 追踪。
 
 当前 Gateway OpenAPI 只保留 `status: resolved` 的 `x-missing-contracts` 记录，`placeholderOperations` 为空；新增公开资源必须先进入 Gateway OpenAPI、owner map 和对应服务文档。active path 只表示公开 method/path/schema 已稳定，不表示真实 owner service、provider、worker 或跨服务 smoke 已全部通过。
 
