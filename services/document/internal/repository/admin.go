@@ -323,6 +323,68 @@ func (r *PostgresRepository) ListReportDailyStatistics(ctx context.Context, days
 	return items, nil
 }
 
+func (r *PostgresRepository) GetAdminStatistics(ctx context.Context, days int, granularity string) (service.AdminStatistics, error) {
+	stats := service.AdminStatistics{
+		Series: service.AdminStatisticsSeries{
+			ReportTemplateCount: []service.AdminMetricPoint{},
+			ReportRecordCount:   []service.AdminMetricPoint{},
+		},
+	}
+	if err := r.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM report_templates
+		WHERE deleted_at IS NULL`).Scan(&stats.ReportTemplateCount); err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("count report templates: %w", err)
+	}
+	if err := r.db.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM reports
+		WHERE deleted_at IS NULL AND status <> 'deleted'`).Scan(&stats.ReportRecordCount); err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("count reports: %w", err)
+	}
+	templatePoints, err := r.listAdminMetricPoints(ctx, "report_templates", "deleted_at IS NULL", days, granularity)
+	if err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("list report template series: %w", err)
+	}
+	reportPoints, err := r.listAdminMetricPoints(ctx, "reports", "deleted_at IS NULL AND status <> 'deleted'", days, granularity)
+	if err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("list report series: %w", err)
+	}
+	stats.Series.ReportTemplateCount = templatePoints
+	stats.Series.ReportRecordCount = reportPoints
+	return stats, nil
+}
+
+func (r *PostgresRepository) listAdminMetricPoints(ctx context.Context, table string, where string, days int, granularity string) ([]service.AdminMetricPoint, error) {
+	truncUnit := "day"
+	if granularity == "hourly" {
+		truncUnit = "hour"
+	}
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT date_trunc('%s', created_at)::timestamptz AS bucket, count(*)::int
+		FROM %s
+		WHERE %s
+			AND created_at >= now() - ($1::int * INTERVAL '1 day')
+		GROUP BY bucket
+		ORDER BY bucket`, truncUnit, table, where), days)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	points := []service.AdminMetricPoint{}
+	for rows.Next() {
+		var point service.AdminMetricPoint
+		if err := rows.Scan(&point.Date, &point.Count); err != nil {
+			return nil, err
+		}
+		points = append(points, point)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return points, nil
+}
+
 func encodeReportSettings(settings service.ReportSettings) ([]byte, []byte, []byte, error) {
 	llmRaw, err := json.Marshal(reportSettingsModelJSON{
 		Provider:       settings.LLM.Provider,

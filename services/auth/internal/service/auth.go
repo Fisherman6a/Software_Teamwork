@@ -197,6 +197,20 @@ type AdminUserList struct {
 	Page  PageInfo
 }
 
+type AdminStatisticsPoint struct {
+	Date  time.Time
+	Count int64
+}
+
+type AdminStatisticsSeries struct {
+	UserCount []AdminStatisticsPoint
+}
+
+type AdminStatistics struct {
+	UserCount int64
+	Series    AdminStatisticsSeries
+}
+
 type ListManagedUsersInput struct {
 	Page     int
 	PageSize int
@@ -362,6 +376,7 @@ type Repository interface {
 	UpdatePassword(ctx context.Context, params UpdatePasswordParams) (Credential, error)
 	RecordLoginFailure(ctx context.Context, params LoginFailureParams) (LoginFailureResult, error)
 	ResetLoginFailures(ctx context.Context, params ResetLoginFailuresParams) error
+	GetAdminStatistics(ctx context.Context, days int, granularity string) (AdminStatistics, error)
 	CreateSession(ctx context.Context, params CreateSessionParams) (SessionIdentity, error)
 	RevokeSession(ctx context.Context, params RevokeSessionParams) (Session, error)
 	RevokeUserSessions(ctx context.Context, params RevokeUserSessionsParams) ([]Session, error)

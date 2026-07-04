@@ -26,8 +26,8 @@
 | 项目 | 状态 | 说明 |
 | --- | --- | --- |
 | 文档状态 | active | README、OpenAPI、active owner map 和数据模型文档存在。 |
-| 代码状态 | partial | Go gateway、auth public routes、Redis session cache、proxy route matrix、中间件、错误归一化、Auth profile/password-change/admin-users routes 和 Prometheus HTTP metrics baseline 已实现。 |
-| 契约对齐 | guarded / partial | Gateway OpenAPI 现有 112 个 active operations；当前 route matrix 覆盖全部 112 个 active operations。app-version freshness 由 Gateway 代理 GitHub compare 语义判断当前构建是否包含 develop 最新提交，并做缓存/fallback；admin parser-configs、Knowledge document lifecycle、chunks、content、knowledge-queries、QA session attachments 和 Auth profile/password-change/admin-users 已转为 owner proxy；admin overview/metrics 是 active contract，但实现仍返回稳定 `not_implemented`。 |
+| 代码状态 | partial | Go gateway、auth public routes、Redis session cache、proxy route matrix、中间件、错误归一化、Auth profile/password-change/admin-users routes、Prometheus HTTP metrics baseline 和 admin overview/metrics 聚合已实现。 |
+| 契约对齐 | guarded / partial | Gateway OpenAPI 现有 113 个 active operations；当前 route matrix 覆盖全部 113 个 active operations。app-version freshness 由 Gateway 代理 GitHub compare 语义判断当前构建是否包含 develop 最新提交，并做缓存/fallback；admin parser-configs、Knowledge document lifecycle、chunks、content、knowledge-queries、QA session attachments、Auth profile/password-change/admin-users 和 admin overview/metrics 已转为真实实现或 owner proxy。 |
 | 数据持久化 | redis / none | Gateway 不持久化业务数据库；使用 Redis 保存 session cache。 |
 | 测试状态 | partial | 单元测试覆盖 route matrix、QA active OpenAPI schema contract、auth proxy、headers、binary/SSE proxy、中间件和 metrics middleware；缺真实 Redis/downstream 集成测试。 |
 | 建议动作 | 联调 / 复核 | Auth/Gateway/Redis full smoke 已脚本化；继续补真实 owner services 端到端联调验证。 |
@@ -51,12 +51,12 @@
 | Knowledge document lifecycle proxy | `services/gateway/internal/http/routes.go`、`gateway_auth_proxy_test.go` | Gateway OpenAPI document paths | `TestKnowledgeDocumentLifecycleRoutesProxyToKnowledge` | 转发 `PATCH/DELETE /api/v1/documents/{documentId}` 到 Knowledge，保留认证上下文和 request id。 |
 | Knowledge chunks/content/query proxy | `services/gateway/internal/http/routes.go`、`gateway_auth_proxy_test.go` | Gateway OpenAPI Knowledge active paths | `TestKnowledgeDocumentChunkAndContentRoutesProxyToKnowledge`、`TestKnowledgeQueriesRouteProxiesToKnowledge` | chunks/query 返回 JSON envelope，content 保持二进制透明代理。 |
 | Auth profile/password-change/admin-users routes | `services/gateway/internal/http/auth.go`、`routes.go`、`authclient/client.go` | Gateway OpenAPI Auth active paths | `TestAdminUsersRouteProxiesToAuthWithActorContext`、`TestAdminUsersRouteUsesDedicatedAuthAdminServiceToken`、`TestMustChangePasswordBlocksProtectedRoutesButAllowsPasswordChange` | 当前用户资料/改密通过 Auth client 刷新 Redis cache；当前用户写接口和 admin-users proxy 均使用专用 Auth admin service token，并透传 actor context 供 Auth 复核。 |
+| Admin overview/metrics aggregation | `services/gateway/internal/http/admin_metrics.go`、`routes.go` | Gateway OpenAPI admin paths / admin metrics contract | `TestAdminMetricsAggregatesOwnersAndPropagatesContext`、`TestAdminOverviewAggregatesOwnerTotals`、`TestAdminMetricsValidationAndDependencyErrors` | Gateway 调用 Auth `/internal/v1/admin/statistics`、Knowledge `/internal/v1/knowledge-statistics`、Document `/admin/statistics` 和 QA `/internal/v1/admin/statistics`，严格校验必需字段，owner/config/network/malformed 响应统一映射为脱敏 `502 dependency_error`。 |
 
 ## 4. 未实现
 
 | 缺口 | 文档来源 | 影响范围 | 建议任务 |
 | --- | --- | --- | --- |
-| 管理概览/跨服务指标聚合路由待实现 | OpenAPI active paths 已定义 | backend / deploy | 契约已补齐，路由注册由单独后端 issue 追踪。 |
 | 真实 owner service 跨服务 smoke 仍需按 slice 验证 | README / deploy expectation | deploy / integration | `/readyz` 不承担完整业务链路验证；#125 承担跨服务 smoke 汇总，#352 的 Auth/Gateway/Redis full smoke 已由 `scripts/run_issue_352_smoke.sh` 脚本化，并提供手动 optional workflow。 |
 
 ## 5. 文档与实现出入
@@ -66,7 +66,7 @@
 | readyz 依赖 | Gateway README 要求轻量接流量门禁，完整 owner service 可用性由 smoke/diagnostics 承担 | `gatewayReadyCheck` 检查 Redis、Auth `/readyz`，并要求 knowledge、qa、document、ai-gateway base URL 全配置；不请求这些 owner services 的 `/readyz` | 只启动 gateway 时 `/readyz` 会因 Redis/Auth 或 owner base URL 配置缺失失败；即使 `/readyz` 通过，也不能证明上传、检索、QA、报告生成、模型 profile 或真实 provider 调用可用 | 当前行为符合 #353 选择的拆分语义；保持文档一致，完整链路继续由 #125/#352 和 runbook smoke 验证。 |
 | 下游错误归一化 | 前后端契约要求统一 error envelope | proxy 会丢弃非公开错误细节并归一化 | 有利于安全，但可能隐藏调试信息 | 在日志/trace 中补 request id 和 dependency 信息。 |
 | Gateway 不写业务逻辑 | 服务边界要求 Gateway 不访问 SQL/MinIO/runtime doc engine/LLM | 当前代码符合 | 无 | 持续通过 review/测试防回归。 |
-| metrics 边界 | #308/#322 要求 observability baseline | Gateway 暴露自身 HTTP request count/duration；跨服务业务指标契约已补齐（admin-overview / admin-metrics），当前 Gateway route 仍返回稳定 `not_implemented`，聚合实现待后续 backend issue | 前端可基于 active schema 并行开发，但不能把聚合运行证据视为已完成 | 保持 active contract 与实现状态分开记录。 |
+| metrics 边界 | #308/#322 要求 observability baseline；#644 要求管理后台业务指标聚合 | Gateway 暴露自身 HTTP request count/duration；admin overview/metrics 通过 owner service 统计接口聚合业务指标，不直接读取 owner 数据库或 runtime/provider 细节 | 真实 owner service 端到端 smoke 仍取决于完整依赖环境 | 保持 observability metrics 与管理后台业务指标聚合分层记录。 |
 | 用户管理契约 | OpenAPI 已新增 Auth-owned profile、required password-change 和 admin-users active paths | Gateway 已注册这些新增路由并转发 actor context | 剩余主要是前端 UI 与真实依赖联调 | 前端子任务继续接入这些 active contract。 |
 
 ## 6. MVP / mock / memory backend / 占位
@@ -89,9 +89,9 @@
 
 | 验证项 | 命令或步骤 | 当前结果 | 缺口 |
 | --- | --- | --- | --- |
-| 单元测试 | `cd services/gateway && go test ./...` | pass（2026-07-03） | 不覆盖真实 Redis/downstreams。 |
+| 单元测试 | `cd services/gateway && go test ./...` | pass（2026-07-04） | 不覆盖真实 Redis/downstreams。 |
 | 集成测试 | Gateway + Redis + Auth smoke；Gateway -> owner service smoke | partial | `bash scripts/run_issue_352_smoke.sh` 或手动 workflow `Auth Gateway Redis Smoke` 可执行 Auth/Gateway/Redis full smoke；#125 继续负责更完整的 owner service 跨服务 smoke。 |
-| 契约测试 | `TestActiveRouteMatrixCoversGatewayOwnerMap`、`TestQAActiveOpenAPIContractsHaveSchemasAndAuth`、`TestQAInternalOpenAPIRefsCoverGatewayActivePaths`、`TestQASseEventSchemaCoversSafePublicEvents`、`TestNotImplementedRoutesReturnStableGatewayError`、`TestGatewayDoesNotImportBusinessInfrastructureClients` | pass（2026-07-03，`cd services/gateway && go test ./...`；Gateway Contract CI verify 通过） | 仍不覆盖真实 Redis/downstreams。 |
+| 契约测试 | `TestActiveRouteMatrixCoversGatewayOwnerMap`、`TestQAActiveOpenAPIContractsHaveSchemasAndAuth`、`TestQAInternalOpenAPIRefsCoverGatewayActivePaths`、`TestQASseEventSchemaCoversSafePublicEvents`、`TestNotImplementedRoutesReturnStableGatewayError`、`TestGatewayDoesNotImportBusinessInfrastructureClients` | pass（2026-07-04，`cd services/gateway && go test ./...`；active API verifier 通过） | 仍不覆盖真实 Redis/downstreams。 |
 | 手工 smoke | 登录、访问 knowledge/report/qa route | not run | 需要完整依赖环境。 |
 
 ## 9. 建议任务
@@ -114,3 +114,4 @@
 | 2026-07-01 | Codex #343 branch | `develop@96b5ad8f` + 本分支改动 | 新增 QA active path schema-level contract tests，覆盖当时 25 个 QA-owned operations、SSE 唯一路径、ErrorResponse envelope、分页 schema、QA internal `$ref` drift 和默认 proxy namespace/query 映射；后续 develop 已扩展到 29 个 QA active operations。 |
 | 2026-07-02 | Codex backend task | `develop@cda73a10` + user-management working tree | route matrix 覆盖 110 个 active operations；新增 Auth profile/password-change/admin-users direct/proxy routes、actor context forwarding 和 mustChangePassword route guard；Gateway `go test ./...`、`go build ./cmd/server`、active API verifier 通过。 |
 | 2026-07-02 | Codex docs refresh | `develop@58fc6eb2` | Gateway active owner map 当前为 110 个 active operations；QA session attachments、QA config `systemPrompt` 权限契约、Auth profile/password-change/admin-users、前端附件上传状态已经进入当前事实，admin overview/metrics 仍是 active contract + `not_implemented` 实现缺口。 |
+| 2026-07-04 | Codex issue #644 | 本分支改动 | admin overview/metrics 已实现 Gateway 轻量聚合；Auth、Knowledge、Document、QA 提供 owner 统计接口；验证覆盖 active API verifier、各触达服务 `go test ./...` 和对应 build。 |

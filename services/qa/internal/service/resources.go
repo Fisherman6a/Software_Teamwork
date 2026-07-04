@@ -389,6 +389,21 @@ type MetricsTrend struct {
 	Days   int                 `json:"days"`
 	Points []MetricsTrendPoint `json:"points"`
 }
+
+type AdminStatisticsPoint struct {
+	Date  time.Time `json:"date"`
+	Count int       `json:"count"`
+}
+
+type AdminStatisticsSeries struct {
+	QACount []AdminStatisticsPoint `json:"qaCount"`
+}
+
+type AdminStatistics struct {
+	QACount int                   `json:"qaCount"`
+	Series  AdminStatisticsSeries `json:"series"`
+}
+
 type TopQuery struct {
 	Query        string    `json:"query"`
 	Count        int       `json:"count"`
@@ -421,6 +436,7 @@ type ResourceRepository interface {
 	GetRetrievalTestRun(context.Context, string, string) (RetrievalTestRun, error)
 	GetMetricsOverview(context.Context, string, int) (MetricsOverview, error)
 	GetMetricsTrend(context.Context, int) (MetricsTrend, error)
+	GetAdminStatistics(context.Context, int, string) (AdminStatistics, error)
 	GetTopQueries(context.Context, int, int) ([]TopQuery, error)
 	GetIntentDistribution(context.Context, int) ([]IntentDistribution, error)
 }
@@ -886,11 +902,44 @@ func (s *ResourceService) GetMetricsOverview(ctx context.Context, userID string,
 func (s *ResourceService) GetMetricsTrend(ctx context.Context, days int) (MetricsTrend, error) {
 	return s.repository.GetMetricsTrend(ctx, days)
 }
+func (s *ResourceService) GetAdminStatistics(ctx context.Context, days int, granularity string) (AdminStatistics, error) {
+	normalizedDays, normalizedGranularity, err := normalizeAdminStatisticsQuery(days, granularity)
+	if err != nil {
+		return AdminStatistics{}, err
+	}
+	stats, err := s.repository.GetAdminStatistics(ctx, normalizedDays, normalizedGranularity)
+	if err != nil {
+		return AdminStatistics{}, err
+	}
+	if stats.Series.QACount == nil {
+		stats.Series.QACount = []AdminStatisticsPoint{}
+	}
+	return stats, nil
+}
 func (s *ResourceService) GetTopQueries(ctx context.Context, days, limit int) ([]TopQuery, error) {
 	return s.repository.GetTopQueries(ctx, days, limit)
 }
 func (s *ResourceService) GetIntentDistribution(ctx context.Context, days int) ([]IntentDistribution, error) {
 	return s.repository.GetIntentDistribution(ctx, days)
+}
+
+func normalizeAdminStatisticsQuery(days int, granularity string) (int, string, error) {
+	if days == 0 {
+		days = 30
+	}
+	if days < 1 || days > 90 {
+		return 0, "", ValidationError(map[string]string{"days": "must be between 1 and 90"})
+	}
+	granularity = strings.TrimSpace(granularity)
+	if granularity == "" {
+		granularity = "daily"
+	}
+	switch granularity {
+	case "daily", "hourly":
+		return days, granularity, nil
+	default:
+		return 0, "", ValidationError(map[string]string{"granularity": "must be daily or hourly"})
+	}
 }
 
 func validateLLMProfile(provider, profileID, model string, timeout int, temperature float64, maxTokens int) map[string]string {

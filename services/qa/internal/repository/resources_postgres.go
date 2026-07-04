@@ -722,6 +722,48 @@ func (r *Postgres) GetMetricsTrend(ctx context.Context, days int) (service.Metri
 	}
 	return v, rows.Err()
 }
+
+func (r *Postgres) GetAdminStatistics(ctx context.Context, days int, granularity string) (service.AdminStatistics, error) {
+	stats := service.AdminStatistics{
+		Series: service.AdminStatisticsSeries{QACount: []service.AdminStatisticsPoint{}},
+	}
+	if err := r.pool.QueryRow(ctx, `
+		SELECT count(*)::int
+		FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE m.role = 'user'
+			AND c.deleted_at IS NULL`).Scan(&stats.QACount); err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("count admin QA messages: %w", err)
+	}
+	truncUnit := "day"
+	if granularity == "hourly" {
+		truncUnit = "hour"
+	}
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT date_trunc('%s', m.created_at)::timestamptz AS bucket, count(*)::int
+		FROM messages m
+		JOIN conversations c ON c.id = m.conversation_id
+		WHERE m.role = 'user'
+			AND c.deleted_at IS NULL
+			AND m.created_at >= now() - ($1::int * INTERVAL '1 day')
+		GROUP BY bucket
+		ORDER BY bucket`, truncUnit), days)
+	if err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("list admin QA series: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var point service.AdminStatisticsPoint
+		if err := rows.Scan(&point.Date, &point.Count); err != nil {
+			return service.AdminStatistics{}, fmt.Errorf("scan admin QA point: %w", err)
+		}
+		stats.Series.QACount = append(stats.Series.QACount, point)
+	}
+	if err := rows.Err(); err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("iterate admin QA series: %w", err)
+	}
+	return stats, nil
+}
 func (r *Postgres) GetTopQueries(ctx context.Context, days, limit int) ([]service.TopQuery, error) {
 	if days <= 0 {
 		days = 7

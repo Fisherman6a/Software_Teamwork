@@ -246,6 +246,48 @@ func (r *PostgresRepository) ListManagedUsers(ctx context.Context, params servic
 	return records, count, nil
 }
 
+func (r *PostgresRepository) GetAdminStatistics(ctx context.Context, days int, granularity string) (service.AdminStatistics, error) {
+	if r.db == nil {
+		return service.AdminStatistics{}, fmt.Errorf("get admin statistics: repository is not configured with a database executor")
+	}
+	stats := service.AdminStatistics{
+		Series: service.AdminStatisticsSeries{UserCount: []service.AdminStatisticsPoint{}},
+	}
+	if err := r.db.QueryRow(ctx, `
+		SELECT count(*)::bigint
+		FROM auth_users
+		WHERE deleted_at IS NULL`).Scan(&stats.UserCount); err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("count users: %w", err)
+	}
+
+	truncUnit := "day"
+	if granularity == "hourly" {
+		truncUnit = "hour"
+	}
+	rows, err := r.db.Query(ctx, fmt.Sprintf(`
+		SELECT date_trunc('%s', created_at)::timestamptz AS bucket, count(*)::bigint
+		FROM auth_users
+		WHERE deleted_at IS NULL
+			AND created_at >= now() - ($1::int * INTERVAL '1 day')
+		GROUP BY bucket
+		ORDER BY bucket`, truncUnit), days)
+	if err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("list user count series: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var point service.AdminStatisticsPoint
+		if err := rows.Scan(&point.Date, &point.Count); err != nil {
+			return service.AdminStatistics{}, fmt.Errorf("scan user count point: %w", err)
+		}
+		stats.Series.UserCount = append(stats.Series.UserCount, point)
+	}
+	if err := rows.Err(); err != nil {
+		return service.AdminStatistics{}, fmt.Errorf("iterate user count series: %w", err)
+	}
+	return stats, nil
+}
+
 func (r *PostgresRepository) UpdateUserProfile(ctx context.Context, params service.UpdateUserProfileParams) (service.UserRecord, error) {
 	updatedAt := params.UpdatedAt
 	if updatedAt.IsZero() {

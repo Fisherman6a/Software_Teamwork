@@ -135,8 +135,8 @@ go build ./cmd/server
   `X-User-Permissions`, `X-Forwarded-For`, and `X-Forwarded-Proto` into
   downstream requests.
 - Active routes from `docs/services/gateway/docs/active-api-owner-map.md` are
-  registered. Missing `admin-overview` and `admin-metrics` placeholders are not
-  implemented.
+  registered. Admin overview and metrics routes aggregate Auth, Knowledge,
+  Document, and QA owner statistics over HTTP and normalize dependency failures.
 - Binary content and `text/event-stream` responses are streamed from downstream
   without wrapping them in a JSON envelope.
 - When `GATEWAY_MAX_IN_FLIGHT` or `GATEWAY_AUTH_REFRESH_MAX_IN_FLIGHT` is

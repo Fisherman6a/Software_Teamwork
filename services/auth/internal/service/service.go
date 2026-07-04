@@ -15,6 +15,8 @@ const (
 	defaultSessionTTL                = 24 * time.Hour
 	defaultPageSize                  = 20
 	maxPageSize                      = 100
+	defaultAdminStatisticsDays       = 30
+	maxAdminStatisticsDays           = 90
 	minPasswordLength                = 8
 	maxPasswordLength                = 1024
 	defaultCredentialWorkMaxInFlight = 4
@@ -408,6 +410,27 @@ func (s *Service) ListManagedUsers(ctx context.Context, reqCtx RequestContext, i
 			Total:    total,
 		},
 	}, nil
+}
+
+func (s *Service) GetAdminStatistics(ctx context.Context, reqCtx RequestContext, days int, granularity string) (AdminStatistics, error) {
+	if err := s.validateReady(); err != nil {
+		return AdminStatistics{}, err
+	}
+	if err := validateGatewayCaller(reqCtx); err != nil {
+		return AdminStatistics{}, err
+	}
+	normalizedDays, normalizedGranularity, err := normalizeAdminStatisticsQuery(days, granularity)
+	if err != nil {
+		return AdminStatistics{}, err
+	}
+	stats, err := s.repo.GetAdminStatistics(ctx, normalizedDays, normalizedGranularity)
+	if err != nil {
+		return AdminStatistics{}, mapRepositoryError(err, "admin statistics unavailable")
+	}
+	if stats.Series.UserCount == nil {
+		stats.Series.UserCount = []AdminStatisticsPoint{}
+	}
+	return stats, nil
 }
 
 func (s *Service) CreateAdminUser(ctx context.Context, reqCtx RequestContext, input CreateAdminUserInput) (AdminUserRecord, error) {
@@ -1100,6 +1123,25 @@ func validatePasswordChangeInput(input ChangePasswordInput) (string, error) {
 		return "", ValidationError("request validation failed", fields)
 	}
 	return input.NewPassword, nil
+}
+
+func normalizeAdminStatisticsQuery(days int, granularity string) (int, string, error) {
+	if days == 0 {
+		days = defaultAdminStatisticsDays
+	}
+	if days < 1 || days > maxAdminStatisticsDays {
+		return 0, "", ValidationError("request validation failed", map[string]string{"days": "must be between 1 and 90"})
+	}
+	granularity = strings.TrimSpace(granularity)
+	if granularity == "" {
+		granularity = "daily"
+	}
+	switch granularity {
+	case "daily", "hourly":
+		return days, granularity, nil
+	default:
+		return 0, "", ValidationError("request validation failed", map[string]string{"granularity": "must be daily or hourly"})
+	}
 }
 
 func (input UpdateAdminUserInput) hasAny() bool {

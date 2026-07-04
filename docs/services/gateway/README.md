@@ -45,7 +45,7 @@ Gateway 后续实现必须遵循 [技术选型基线](../../architecture/technol
 | Response contract | 对前端保持统一成功响应、分页响应和错误响应结构。 |
 | Request correlation | 生成或透传 `X-Request-Id`，并要求下游服务保留该 request id。 |
 | Admin runtime configuration entrypoint | 暴露模型 profile、文档解析器配置和用户管理的管理入口；模型配置转发给 `ai-gateway`，解析器配置转发给 `knowledge`，用户管理转发给 `auth`。 |
-| Cross-service aggregation | 仅在前后端契约明确后提供聚合读接口；管理后台概览和指标已经是 active contracts，但当前 Gateway route 仍按稳定 `not_implemented` 占位，聚合实现和运行证据待补。 |
+| Cross-service aggregation | 仅在前后端契约明确后提供聚合读接口；管理后台概览和指标已经是 active contracts，当前 Gateway 会聚合 Auth、Knowledge、Document 和 QA 的 owner 统计接口并归一化响应。 |
 | Streaming entrypoint | 问答通过 `POST /api/v1/qa-sessions/{sessionId}/messages` 提供 `text/event-stream` 响应，并通过 `/api/v1/qa-sessions/{sessionId}/events` 提供短期事件回放；报告生成当前提供事件列表资源，后续如需 SSE 需先补 OpenAPI 契约。 |
 | Edge policy | 集中处理 CORS、基础请求头、请求大小原则、健康检查和公开 API 命名。 |
 
@@ -85,7 +85,7 @@ Gateway 后续实现必须遵循 [技术选型基线](../../architecture/technol
 
 | Owner | Gateway 公开资源范围 |
 | --- | --- |
-| `gateway` | 健康检查、就绪检查、管理后台概览和跨服务指标聚合入口；后两者当前仍按稳定 `not_implemented` 占位。 |
+| `gateway` | 健康检查、就绪检查、管理后台概览和跨服务指标聚合入口。 |
 | `auth` | 用户、会话、当前用户身份、当前用户资料、必需改密和管理员用户管理。 |
 | `knowledge` | 知识库、知识库文档、文档详情、文档切片、原始文件内容、知识查询和管理员解析器配置。 |
 | `document` | 报告类型、模板、素材、报告记录、大纲、章节、任务、事件、生成文件、统计、操作日志和报告设置。 |
@@ -97,7 +97,7 @@ Active contract 与实现状态：
 | 状态 | 说明 |
 | --- | --- |
 | 缺失公开契约 | 无。当前计划内公开 API 已转为 active paths；Gateway OpenAPI 只保留 `status: resolved` 的 `x-missing-contracts` 记录，`placeholderOperations` 为空。 |
-| 已稳定但未完整实现 | `GET /api/v1/admin/overview` 和 `GET /api/v1/admin/metrics` 仍按稳定 `not_implemented` 占位；真实 owner service、provider、worker 或跨服务 smoke 以 implementation 文档和运行记录为准。 |
+| 已稳定但未完整实现 | 无公开 path 仍依赖 Gateway `not_implemented` 占位；真实 owner service、provider、worker 或跨服务 smoke 以 implementation 文档和运行记录为准。 |
 
 当某个 endpoint 涉及两个服务时，文档必须显式标注 workflow owner。默认规则是：拥有核心业务状态的服务拥有流程，gateway 只做入口和上下文传递。若流程需要模型能力，领域服务应通过 [AI Gateway 服务接口文档](../ai-gateway/README.md) 和 [AI Gateway OpenAPI 契约](../ai-gateway/api/internal.openapi.yaml) 调用内部模型接口，不能让 public gateway 直接拼 prompt 或直连 provider。
 
@@ -192,7 +192,7 @@ Gateway 可透传或映射 owner service 的服务特有错误码，但任何稳
 
 ## Active contract 与实现状态
 
-`GET /api/v1/admin/overview` 和 `GET /api/v1/admin/metrics` 已转为 active contracts，具体 schema 以 Gateway OpenAPI 为准；字段口径、趋势语义和 owner 来源见 [管理后台总览与统计聚合接口文档](docs/admin-metrics-contract.md)。Gateway 负责轻量聚合，各领域服务提供指标来源。当前 route 仍按稳定 `not_implemented` 占位，真实聚合实现由单独后端 issue 追踪。
+`GET /api/v1/admin/overview` 和 `GET /api/v1/admin/metrics` 已转为 active contracts，具体 schema 以 Gateway OpenAPI 为准；字段口径、趋势语义和 owner 来源见 [管理后台总览与统计聚合接口文档](docs/admin-metrics-contract.md)。Gateway 负责轻量聚合，各领域服务提供指标来源；任一必需 owner service 不可用或返回不可聚合数据时，Gateway 返回 `502 dependency_error` 而不是局部成功。
 
 当前 Gateway OpenAPI 只保留 `status: resolved` 的 `x-missing-contracts` 记录，`placeholderOperations` 为空；新增公开资源必须先进入 Gateway OpenAPI、owner map 和对应服务文档。active path 只表示公开 method/path/schema 已稳定，不表示真实 owner service、provider、worker 或跨服务 smoke 已全部通过。
 

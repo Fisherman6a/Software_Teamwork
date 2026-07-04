@@ -46,6 +46,7 @@ type ResourceService interface {
 	GetRetrievalTestRun(context.Context, string, string) (service.RetrievalTestRun, error)
 	GetMetricsOverview(context.Context, string, int) (service.MetricsOverview, error)
 	GetMetricsTrend(context.Context, int) (service.MetricsTrend, error)
+	GetAdminStatistics(context.Context, int, string) (service.AdminStatistics, error)
 	GetTopQueries(context.Context, int, int) ([]service.TopQuery, error)
 	GetIntentDistribution(context.Context, int) ([]service.IntentDistribution, error)
 }

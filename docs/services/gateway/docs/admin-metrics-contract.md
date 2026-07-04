@@ -1,16 +1,16 @@
 # 管理后台总览与统计聚合接口文档
 
 本文定义 Gateway 面向管理后台的跨服务聚合接口。`GET /api/v1/admin/overview`
-和 `GET /api/v1/admin/metrics` 已是 Gateway active contract；当前
-`services/gateway` route matrix 仍返回稳定 `501 not_implemented`，本文件只补齐
-接口口径和后续实现验收边界，不代表本 PR 已完成后端聚合或前端页面改造。
+和 `GET /api/v1/admin/metrics` 已是 Gateway active contract，并由 Gateway
+在请求时轻量聚合 Auth、Knowledge、Document 和 QA 的 owner 统计接口。本文定义
+接口口径、错误语义和后续联调边界；不包含管理后台前端页面改造。
 
 ## 状态与边界
 
 | 项目 | 说明 |
 | --- | --- |
 | 契约状态 | active contract，机器可读 schema 以 `docs/services/gateway/api/public.openapi.yaml` 为准。 |
-| 当前实现 | Gateway 已注册 route，但仍按稳定 `not_implemented` 占位返回。 |
+| 当前实现 | Gateway 已注册 route，并按 owner service 内部统计接口完成聚合。 |
 | 数据归属 | Gateway 只聚合；Auth、Knowledge、Document 和 QA 分别提供自己的权威事实或统计接口。 |
 | 响应 envelope | JSON 成功响应统一为 `{ "data": ..., "requestId": "..." }`，错误响应统一为 `{ "error": ... }`。 |
 | 管理权限 | 需要 `bearerAuth`，并限制为 `admin`、`super_admin` 或等价管理权限。 |
@@ -132,13 +132,13 @@
 
 | 聚合字段 | Owner service | 建议来源 |
 | --- | --- | --- |
-| `userCount` | Auth | `auth_users` 或 Auth 管理员统计接口，排除 `deleted_at IS NOT NULL`。 |
-| `knowledgeBaseCount` | Knowledge | Knowledge runtime 或 adapter 聚合的知识库数量。 |
-| `documentCount` | Knowledge | Knowledge runtime 或 adapter 聚合的文档数量。 |
-| `chunkCount` | Knowledge | Knowledge runtime chunks 或 adapter 暴露的切片统计。 |
-| `reportTemplateCount` | Document | `report_templates` 统计，排除软删除记录。 |
-| `reportRecordCount` | Document | `reports` 统计，排除软删除记录。 |
-| `qaCount` | QA | `messages` 中用户消息或等价 QA 事实聚合，排除已删除会话。 |
+| `userCount` | Auth | `GET /internal/v1/admin/statistics`，统计 Auth 拥有的未软删除用户。 |
+| `knowledgeBaseCount` | Knowledge | `GET /internal/v1/knowledge-statistics`，由 Knowledge adapter/runtime 聚合知识库数量。 |
+| `documentCount` | Knowledge | `GET /internal/v1/knowledge-statistics`，由 Knowledge adapter/runtime 聚合文档数量。 |
+| `chunkCount` | Knowledge | `GET /internal/v1/knowledge-statistics`，由 Knowledge adapter/runtime 聚合可用切片数量。 |
+| `reportTemplateCount` | Document | `GET /admin/statistics`，统计未软删除报告模板。 |
+| `reportRecordCount` | Document | `GET /admin/statistics`，统计未软删除报告记录。 |
+| `qaCount` | QA | `GET /internal/v1/admin/statistics`，统计 QA 拥有的用户提问事实。 |
 
 Gateway 不直接读取其他服务数据库，不复制 owner service 的内部表结构到公开响应，也不把 prompt、工具参数、原始文档内容、对象存储 key、provider 错误或内部 URL 透出到管理后台。
 
@@ -149,12 +149,11 @@ Gateway 不直接读取其他服务数据库，不复制 owner service 的内部
 | 未登录或 access token 无效 | `401 unauthorized` |
 | 调用方不是管理员或缺少等价管理权限 | `403 forbidden` |
 | `days` 或 `granularity` 不合法 | `400 validation_error` |
-| 当前 Gateway 占位实现 | `501 not_implemented` |
 | 任一必需 owner service 不可用或返回不可聚合数据 | `502 dependency_error` |
 
 首个后端实现不返回局部成功，也不把缺失来源填成 `0`。如果后续要引入缓存或局部降级，必须先扩展 OpenAPI 和本文档，明确 `stale`、`partial` 和数据新鲜度字段。
 
-## 后续实现验收
+## 实现验收
 
 - Gateway route 不再返回 `not_implemented`，并保持 `requestId` 贯穿所有 owner 调用。
 - Auth、Knowledge、Document 和 QA 的统计口径与本文字段一致。

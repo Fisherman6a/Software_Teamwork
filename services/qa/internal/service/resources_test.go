@@ -97,23 +97,25 @@ func TestNormalizeCitationPreservesAvailableAttachmentSource(t *testing.T) {
 }
 
 type resourceRepositoryStub struct {
-	activeQAConfig   QAConfigVersion
-	activeLLMConfig  LLMConfigVersion
-	createdQAInput   CreateQAConfigVersionInput
-	createdLLMInput  CreateLLMConfigVersionInput
-	createQACalled   bool
-	createLLMCalled  bool
-	createQAErr      error
-	createLLMErr     error
-	restoredQAID     string
-	restoredLLMID    string
-	savedInput       RetrievalTestInput
-	savedRunErr      error
-	saveCalled       bool
-	messageCitations []Citation
-	citation         Citation
-	lookupCitations  []Citation
-	listEventsCalled bool
+	activeQAConfig        QAConfigVersion
+	activeLLMConfig       LLMConfigVersion
+	createdQAInput        CreateQAConfigVersionInput
+	createdLLMInput       CreateLLMConfigVersionInput
+	createQACalled        bool
+	createLLMCalled       bool
+	createQAErr           error
+	createLLMErr          error
+	restoredQAID          string
+	restoredLLMID         string
+	savedInput            RetrievalTestInput
+	savedRunErr           error
+	saveCalled            bool
+	messageCitations      []Citation
+	citation              Citation
+	lookupCitations       []Citation
+	listEventsCalled      bool
+	adminStatsDays        int
+	adminStatsGranularity string
 }
 
 func (r *resourceRepositoryStub) GetResponseRun(context.Context, string, string) (ResponseRun, error) {
@@ -209,6 +211,11 @@ func (r *resourceRepositoryStub) GetMetricsOverview(context.Context, string, int
 }
 func (r *resourceRepositoryStub) GetMetricsTrend(context.Context, int) (MetricsTrend, error) {
 	return MetricsTrend{}, nil
+}
+func (r *resourceRepositoryStub) GetAdminStatistics(_ context.Context, days int, granularity string) (AdminStatistics, error) {
+	r.adminStatsDays = days
+	r.adminStatsGranularity = granularity
+	return AdminStatistics{QACount: 3, Series: AdminStatisticsSeries{QACount: []AdminStatisticsPoint{{Date: time.Date(2026, 6, 30, 9, 0, 0, 0, time.UTC), Count: 3}}}}, nil
 }
 func (r *resourceRepositoryStub) GetTopQueries(context.Context, int, int) ([]TopQuery, error) {
 	return nil, nil
@@ -892,4 +899,34 @@ func TestGetMetricsOverviewStatsFailureReturnsZero(t *testing.T) {
 	if overview.KnowledgeBaseCount != 0 || overview.DocumentCount != 0 {
 		t.Fatalf("knowledge failure should return zero counts, got kb=%d doc=%d", overview.KnowledgeBaseCount, overview.DocumentCount)
 	}
+}
+
+func TestGetAdminStatisticsValidatesQuery(t *testing.T) {
+	repo := &resourceRepositoryStub{}
+	svc, err := NewResourceService(repo, &knowledgeRetrieverStub{}, resourceLLMTester{}, RuntimeLLMConfig{}, resourceCancellerStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := svc.GetAdminStatistics(context.Background(), 0, "")
+	if err != nil {
+		t.Fatalf("GetAdminStatistics() error = %v", err)
+	}
+	if stats.QACount != 3 || repo.adminStatsDays != 30 || repo.adminStatsGranularity != "daily" {
+		t.Fatalf("stats=%+v query=%d/%q", stats, repo.adminStatsDays, repo.adminStatsGranularity)
+	}
+	if _, err := svc.GetAdminStatistics(context.Background(), 91, "daily"); classifiedCode(err) != CodeValidation {
+		t.Fatalf("days error = %v, want validation", err)
+	}
+	if _, err := svc.GetAdminStatistics(context.Background(), 30, "weekly"); classifiedCode(err) != CodeValidation {
+		t.Fatalf("granularity error = %v, want validation", err)
+	}
+}
+
+func classifiedCode(err error) Code {
+	appErr, _ := Classify(err)
+	if appErr == nil {
+		return ""
+	}
+	return appErr.Code
 }

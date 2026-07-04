@@ -165,6 +165,14 @@ func (fakeResourceService) GetMetricsOverview(context.Context, string, int) (ser
 func (fakeResourceService) GetMetricsTrend(context.Context, int) (service.MetricsTrend, error) {
 	return service.MetricsTrend{}, nil
 }
+func (fakeResourceService) GetAdminStatistics(context.Context, int, string) (service.AdminStatistics, error) {
+	return service.AdminStatistics{
+		QACount: 4,
+		Series: service.AdminStatisticsSeries{
+			QACount: []service.AdminStatisticsPoint{{Date: time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC), Count: 2}},
+		},
+	}, nil
+}
 func (fakeResourceService) GetTopQueries(context.Context, int, int) ([]service.TopQuery, error) {
 	return []service.TopQuery{}, nil
 }
@@ -1001,5 +1009,40 @@ func TestMetricsTrendDoesNotLeakQueryContent(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("metrics response leaked %q", forbidden)
 		}
+	}
+}
+
+func TestAdminStatisticsRequiresAdminAccess(t *testing.T) {
+	server := newTestServer(t, fakeQAService{})
+
+	for _, tc := range []struct {
+		name        string
+		roles       string
+		permissions string
+		want        int
+	}{
+		{name: "missing admin", roles: "standard", want: http.StatusForbidden},
+		{name: "admin role", roles: "admin", want: http.StatusOK},
+		{name: "system permission", permissions: "system:admin", want: http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/internal/v1/admin/statistics?days=7&granularity=hourly", nil)
+			request.Header.Set("X-User-Id", "user-1")
+			request.Header.Set("X-Service-Token", "test-service-token")
+			if tc.roles != "" {
+				request.Header.Set("X-User-Roles", tc.roles)
+			}
+			if tc.permissions != "" {
+				request.Header.Set("X-User-Permissions", tc.permissions)
+			}
+			server.ServeHTTP(recorder, request)
+			if recorder.Code != tc.want {
+				t.Fatalf("status = %d, want %d, body=%s", recorder.Code, tc.want, recorder.Body.String())
+			}
+			if tc.want == http.StatusOK && !strings.Contains(recorder.Body.String(), `"qaCount":4`) {
+				t.Fatalf("response = %s", recorder.Body.String())
+			}
+		})
 	}
 }

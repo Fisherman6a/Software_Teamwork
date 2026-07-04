@@ -1537,6 +1537,66 @@ func TestAdapterKnowledgeStatisticsUsesRuntimeTotals(t *testing.T) {
 	}
 }
 
+func TestAdapterKnowledgeStatisticsWithSeriesScansDocuments(t *testing.T) {
+	state := newFakeVendorState()
+	now := time.Now().UTC().Add(-time.Hour)
+	state.datasets["kb_fake_1"] = map[string]any{"id": "kb_fake_1", "name": "Boiler", "doc_num": 2, "chunk_count": 5, "created_at": now.Format(time.RFC3339)}
+	state.documents["doc_fake_1"] = map[string]any{"id": "doc_fake_1", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "chunk_count": 2, "created_at": now.Format(time.RFC3339)}
+	state.documents["doc_fake_2"] = map[string]any{"id": "doc_fake_2", "kb_id": "kb_fake_1", "dataset_id": "kb_fake_1", "chunk_count": 3, "created_at": now.Format(time.RFC3339)}
+	vendor := startFakeVendor(t, state)
+	defer vendor.Close()
+
+	server := NewServer(adapterconfig.Config{
+		ServiceVersion:   "test",
+		VendorRuntimeURL: vendor.URL,
+		ServiceToken:     testServiceToken,
+	}, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/knowledge-statistics?days=7&granularity=hourly", nil)
+	req.Header.Set("X-Service-Token", testServiceToken)
+	req.Header.Set("X-User-Id", "usr_stats")
+	req.Header.Set("X-User-Permissions", "knowledge:read")
+	rec := httptest.NewRecorder()
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Data struct {
+			KnowledgeBaseCount int64 `json:"knowledgeBaseCount"`
+			DocumentCount      int64 `json:"documentCount"`
+			ChunkCount         int64 `json:"chunkCount"`
+			Series             struct {
+				KnowledgeBaseCount []struct {
+					Count int64 `json:"count"`
+				} `json:"knowledgeBaseCount"`
+				DocumentCount []struct {
+					Count int64 `json:"count"`
+				} `json:"documentCount"`
+				ChunkCount []struct {
+					Count int64 `json:"count"`
+				} `json:"chunkCount"`
+			} `json:"series"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	if body.Data.KnowledgeBaseCount != 1 || body.Data.DocumentCount != 2 || body.Data.ChunkCount != 5 {
+		t.Fatalf("stats=(%d,%d,%d), want (1,2,5)", body.Data.KnowledgeBaseCount, body.Data.DocumentCount, body.Data.ChunkCount)
+	}
+	if len(body.Data.Series.KnowledgeBaseCount) != 1 || body.Data.Series.KnowledgeBaseCount[0].Count != 1 ||
+		len(body.Data.Series.DocumentCount) != 1 || body.Data.Series.DocumentCount[0].Count != 2 ||
+		len(body.Data.Series.ChunkCount) != 1 || body.Data.Series.ChunkCount[0].Count != 5 {
+		t.Fatalf("series=%+v", body.Data.Series)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.listDocumentsCalls != 1 {
+		t.Fatalf("listDocumentsCalls=%d, want 1", state.listDocumentsCalls)
+	}
+}
+
 func TestAdapterUpdateDocumentPreservesTagsInImmediateResponse(t *testing.T) {
 	state := newFakeVendorState()
 	state.documents["doc_fake_1"] = map[string]any{

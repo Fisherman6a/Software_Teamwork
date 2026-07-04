@@ -137,8 +137,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PATCH /api/v1/users/me/profile", s.handleUpdateCurrentUserProfile)
 	s.mux.HandleFunc("POST /api/v1/users/me/password-changes", s.handleChangeCurrentUserPassword)
 	s.mux.HandleFunc("DELETE /api/v1/sessions/current", s.handleDeleteCurrentSession)
+	s.mux.HandleFunc("GET /api/v1/admin/overview", s.handleAdminOverview)
+	s.mux.HandleFunc("GET /api/v1/admin/metrics", s.handleAdminMetrics)
 	for _, route := range activeProxyRoutes {
 		route := route
+		if route.isGatewayOwnedAdminStats() {
+			continue
+		}
 		s.mux.HandleFunc(route.Method+" "+route.Pattern, s.handleProxy(route))
 	}
 	s.mux.HandleFunc("/", s.handleNotFound)
