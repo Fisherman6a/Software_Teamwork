@@ -1,3 +1,4 @@
+import * as echarts from 'echarts/core'
 import {
   AlertCircle,
   BarChart3,
@@ -12,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ApiError } from '@/api/client'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { EChartsWrapper } from '@/components/ui/echarts'
 import { Input } from '@/components/ui/input'
 import { useQAMetricsQueries } from '@/features/qa-admin/qa-admin.queries'
 import type {
@@ -20,6 +22,8 @@ import type {
   QAMetricsTrendPoint,
   QATopQuery,
 } from '@/features/qa-admin/qa-admin.types'
+
+// ── Metric card config ──
 
 type MetricCardConfig = {
   key: keyof QAMetricsOverview
@@ -79,11 +83,25 @@ const metricCards: MetricCardConfig[] = [
   },
 ]
 
+// ── Helpers ──
+
+function isDark(): boolean {
+  if (typeof document === 'undefined') return false
+  return document.documentElement.classList.contains('dark')
+}
+
+function chartTextColor(): string {
+  return isDark() ? '#a1a1aa' : '#71717a'
+}
+
+function chartBorderColor(): string {
+  return isDark() ? '#27272a' : '#e4e4e7'
+}
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     return error.requestId ? `${error.message}（requestId: ${error.requestId}）` : error.message
   }
-
   return error instanceof Error ? error.message : '未知错误'
 }
 
@@ -94,6 +112,8 @@ function formatDate(value: string | undefined): string {
 function formatNumber(value: number | undefined): string {
   return value === undefined ? '-' : value.toLocaleString()
 }
+
+// ── Shared UI ──
 
 function SectionState({ message, tone }: { message: string; tone: 'empty' | 'error' }) {
   return (
@@ -146,45 +166,114 @@ function MetricCard({
   )
 }
 
+// ── ECharts-based charts ──
+
 function TrendChart({ points }: { points: QAMetricsTrendPoint[] }) {
-  const [animated, setAnimated] = useState(false)
-
-  useEffect(() => {
-    setAnimated(true)
-  }, [])
-
   const normalizedPoints = points.map((point) => ({
     date: point.date,
     count: point.count ?? point.questionCount ?? 0,
   }))
-  const maxCount = Math.max(1, ...normalizedPoints.map((point) => point.count))
 
-  return (
-    <div className="space-y-3">
-      <div className="flex h-52 items-end gap-2 border-b border-l border-border px-3 pt-4">
-        {normalizedPoints.map((point) => (
-          <div key={point.date} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-            <div
-              className="w-full rounded-t bg-primary/70 transition-[height] duration-700 ease-out"
-              style={{
-                height: animated ? `${Math.max(4, (point.count / maxCount) * 180)}px` : '0px',
-              }}
-              title={`${point.date}: ${point.count}`}
-            />
-          </div>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground sm:grid-cols-4">
-        {normalizedPoints.slice(-4).map((point) => (
-          <div key={point.date} className="flex justify-between gap-2 rounded-md border px-2 py-1">
-            <span>{point.date}</span>
-            <span className="font-mono text-foreground">{point.count}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+  const textColor = chartTextColor()
+  const borderColor = chartBorderColor()
+
+  const option = useMemo(
+    () => ({
+      grid: { top: 16, right: 16, bottom: 24, left: 48 },
+      xAxis: {
+        type: 'category' as const,
+        data: normalizedPoints.map((p) => p.date),
+        axisLine: { lineStyle: { color: borderColor } },
+        axisTick: { show: false },
+        axisLabel: { color: textColor, fontSize: 11 },
+      },
+      yAxis: {
+        type: 'value' as const,
+        splitLine: { lineStyle: { color: borderColor, type: 'dashed' as const } },
+        axisLabel: { color: textColor, fontSize: 11 },
+      },
+      tooltip: {
+        trigger: 'axis' as const,
+        backgroundColor: isDark() ? '#18181b' : '#fff',
+        borderColor,
+        textStyle: { fontSize: 13 },
+      },
+      series: [
+        {
+          name: '问答数量',
+          type: 'line',
+          data: normalizedPoints.map((p) => p.count),
+          smooth: true,
+          showSymbol: false,
+          lineStyle: { width: 2, color: '#6366f1' },
+          areaStyle: {
+            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+              { offset: 0, color: 'rgba(99,102,241,0.25)' },
+              { offset: 1, color: 'rgba(99,102,241,0.02)' },
+            ]),
+          },
+        },
+      ],
+    }),
+    [normalizedPoints, textColor, borderColor],
   )
+
+  return <EChartsWrapper option={option} style={{ minHeight: 280 }} />
 }
+
+function IntentRoseChart({ items }: { items: QAIntentDistributionItem[] }) {
+  const textColor = chartTextColor()
+  const data = items.map((item) => ({
+    name: item.label ?? item.intent,
+    value: item.count,
+  }))
+
+  const option = useMemo(
+    () => ({
+      tooltip: {
+        trigger: 'item' as const,
+        backgroundColor: isDark() ? '#18181b' : '#fff',
+        borderColor: chartBorderColor(),
+        textStyle: { fontSize: 13 },
+        formatter: '{b}: {c} ({d}%)',
+      },
+      legend: {
+        orient: 'vertical' as const,
+        left: 0,
+        top: 'center',
+        textStyle: { color: textColor, fontSize: 12 },
+        itemWidth: 10,
+        itemHeight: 10,
+        itemGap: 12,
+      },
+      series: [
+        {
+          name: '意图分布',
+          type: 'pie',
+          radius: ['20%', '75%'],
+          center: ['58%', '50%'],
+          roseType: 'area',
+          itemStyle: { borderRadius: 4, borderColor: isDark() ? '#18181b' : '#fff', borderWidth: 2 },
+          label: {
+            color: textColor,
+            fontSize: 11,
+            formatter: '{b}\n{d}%',
+          },
+          emphasis: {
+            label: { fontSize: 14, fontWeight: 'bold' },
+            itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.15)' },
+          },
+          data,
+        },
+      ],
+    }),
+    [data, textColor],
+  )
+
+  return <EChartsWrapper option={option} style={{ minHeight: 300 }} />
+}
+
+// ── Table ──
 
 function TopQueriesTable({ queries }: { queries: QATopQuery[] }) {
   return (
@@ -220,47 +309,21 @@ function TopQueriesTable({ queries }: { queries: QATopQuery[] }) {
   )
 }
 
-function IntentDistribution({ items }: { items: QAIntentDistributionItem[] }) {
-  const [animated, setAnimated] = useState(false)
-
-  useEffect(() => {
-    setAnimated(true)
-  }, [])
-
-  const total = items.reduce((sum, item) => sum + item.count, 0)
-
-  return (
-    <div className="space-y-3">
-      {items.map((item) => {
-        const percent = item.percent ?? (total > 0 ? (item.count / total) * 100 : 0)
-        return (
-          <div key={item.intent} className="space-y-1.5">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="font-medium text-foreground">{item.label ?? item.intent}</span>
-              <span className="font-mono text-muted-foreground">
-                {item.count} / {percent.toFixed(1)}%
-              </span>
-            </div>
-            <div className="h-2 overflow-hidden rounded bg-muted">
-              <div
-                className="h-full bg-primary/70 transition-[width] duration-500 ease-out"
-                style={{
-                  width: animated ? `${Math.min(100, percent)}%` : '0%',
-                }}
-              />
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
+// ── Page ──
 
 export function StatsOverviewPage() {
   const [overviewDays, setOverviewDays] = useState('1')
   const [trendDays, setTrendDays] = useState('30')
   const [rankingDays, setRankingDays] = useState('7')
   const [rankingLimit, setRankingLimit] = useState('10')
+  const [, setDarkModeKey] = useState(0)
+
+  // Re-render charts on theme change
+  useEffect(() => {
+    const observer = new MutationObserver(() => setDarkModeKey((k) => k + 1))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    return () => observer.disconnect()
+  }, [])
 
   const filters = useMemo(
     () => ({
@@ -303,6 +366,7 @@ export function StatsOverviewPage() {
         </Button>
       </div>
 
+      {/* Metric cards */}
       <section className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="w-32 space-y-1 text-sm">
@@ -337,6 +401,7 @@ export function StatsOverviewPage() {
         )}
       </section>
 
+      {/* Trend chart + Intent rose chart */}
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-4 rounded-lg border border-border bg-card p-5">
           <div className="flex flex-wrap items-end justify-between gap-3">
@@ -370,7 +435,7 @@ export function StatsOverviewPage() {
         <div className="space-y-4 rounded-lg border border-border bg-card p-5">
           <div>
             <h4 className="text-lg font-semibold text-foreground">意图分布</h4>
-            <p className="mt-1 text-sm text-muted-foreground">按问答意图聚合占比。</p>
+            <p className="mt-1 text-sm text-muted-foreground">南丁格尔玫瑰图 · 按问答意图聚合占比。</p>
           </div>
           {intentDistributionQuery.isError ? (
             <SectionState
@@ -378,15 +443,16 @@ export function StatsOverviewPage() {
               message={`意图分布加载失败：${getErrorMessage(intentDistributionQuery.error)}`}
             />
           ) : intentDistributionQuery.isLoading ? (
-            <div className="h-52 skeleton-shimmer rounded-lg" />
+            <div className="h-72 skeleton-shimmer rounded-lg" />
           ) : (intentDistributionQuery.data ?? []).length === 0 ? (
             <SectionState tone="empty" message="当前窗口内暂无意图分布数据。" />
           ) : (
-            <IntentDistribution items={intentDistributionQuery.data ?? []} />
+            <IntentRoseChart items={intentDistributionQuery.data ?? []} />
           )}
         </div>
       </section>
 
+      {/* Top queries */}
       <section className="space-y-4 rounded-lg border border-border bg-card p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
