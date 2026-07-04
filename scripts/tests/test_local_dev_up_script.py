@@ -3,6 +3,7 @@ import signal
 import shutil
 import stat
 import subprocess
+import sys
 import textwrap
 import tempfile
 import time
@@ -114,7 +115,7 @@ class LocalStartupScriptTests(unittest.TestCase):
                 result = self.run_start(
                     root,
                     args=["--backend-only", "--no-runtime"],
-                    extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "0"},
+                    extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "1"},
                 )
 
                 self.assertEqual(0, result.returncode, result.stderr)
@@ -122,7 +123,7 @@ class LocalStartupScriptTests(unittest.TestCase):
                 self.assertIn("host process groups", result.stdout)
                 for service in ["auth", "file", "knowledge", "ai-gateway", "qa", "document", "gateway"]:
                     self.assertTrue((root / ".local" / "run" / f"{service}.pid").exists())
-                service_env = (root / "service-env.log").read_text(encoding="utf-8")
+                service_env = self.wait_for_service_env(root, "auth-server", "qa-server")
                 self.assertIn(f"auth-server PWD={root / 'services' / 'auth'}", service_env)
                 self.assertIn(f"qa-server PWD={root / 'services' / 'qa'}", service_env)
                 self.assertNotIn(f"qa-server PWD={root} ", service_env)
@@ -148,13 +149,13 @@ class LocalStartupScriptTests(unittest.TestCase):
                 result = self.run_start(
                     root,
                     args=["--backend-only", "--no-runtime"],
-                    extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "0"},
+                    extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "1"},
                 )
 
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn("using AI_GATEWAY_LOCAL_CHAT_MODEL for host-run QA MODEL_ID", result.stdout)
                 self.assertIn("using AI_GATEWAY_LOCAL_CHAT_MODEL for host-run Document model", result.stdout)
-                service_env = (root / "service-env.log").read_text(encoding="utf-8")
+                service_env = self.wait_for_service_env(root, "qa-server", "document-server")
                 self.assertIn("MODEL_ID=deepseek-ai/DeepSeek-V4-Flash", service_env)
                 self.assertIn("DOCUMENT_AI_GATEWAY_MODEL=deepseek-ai/DeepSeek-V4-Flash", service_env)
             finally:
@@ -169,7 +170,7 @@ class LocalStartupScriptTests(unittest.TestCase):
             self.create_runtime_files(root)
 
             try:
-                result = self.run_start(root, args=["--backend-only"], extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "0"})
+                result = self.run_start(root, args=["--backend-only"], extra_env={"LOCAL_STARTUP_CHECK_SECONDS": "1"})
 
                 self.assertEqual(0, result.returncode, result.stderr)
                 self.assertIn("runtime mode 'full' are running", result.stdout)
@@ -268,6 +269,13 @@ class LocalStartupScriptTests(unittest.TestCase):
         self.write_executable(fake_bin / "curl", "#!/usr/bin/env bash\nprintf '200'\nexit 0\n")
         self.write_executable(fake_bin / "uv", "#!/usr/bin/env bash\necho \"$*\" >> \"$FAKE_UV_CALLS\"\nexit 0\n")
         self.write_executable(fake_bin / "git", "#!/usr/bin/env bash\necho 0123456789abcdef0123456789abcdef01234567\n")
+        self.write_executable(
+            fake_bin / "setsid",
+            f"""\
+            #!/usr/bin/env bash
+            exec {sys.executable!r} -c 'import os, sys; os.getpgrp() == os.getpid() or os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' "$@"
+            """,
+        )
         self.write_executable(
             fake_bin / "tail",
             "#!/usr/bin/env bash\nexit 0\n",
@@ -396,6 +404,18 @@ class LocalStartupScriptTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(textwrap.dedent(content), encoding="utf-8")
         path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+    def wait_for_service_env(self, root: Path, *service_markers: str) -> str:
+        log_path = root / "service-env.log"
+        deadline = time.monotonic() + 5
+        service_env = ""
+        while time.monotonic() < deadline:
+            if log_path.exists():
+                service_env = log_path.read_text(encoding="utf-8")
+                if all(marker in service_env for marker in service_markers):
+                    return service_env
+            time.sleep(0.05)
+        return service_env
 
     def cleanup_started_processes(self, root: Path) -> None:
         run_dir = root / ".local" / "run"

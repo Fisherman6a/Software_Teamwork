@@ -426,14 +426,12 @@ func renderSQL(cfg localSeedConfig, credentials []encryptedCredential) string {
 	b.WriteString(fmt.Sprintf("    AND temperature = %s\n", cfg.QATemperature))
 	b.WriteString("  );\n\n")
 	b.WriteString("INSERT INTO llm_config_versions (\n")
-	b.WriteString("    version_no, provider, profile_id, api_endpoint, api_key_encrypted,\n")
-	b.WriteString("    api_key_last4, token_header, model_name, timeout_seconds, temperature,\n")
-	b.WriteString("    max_tokens, is_active, created_by_user_id\n")
+	b.WriteString("    version_no, provider, profile_id, model_name, timeout_seconds,\n")
+	b.WriteString("    temperature, max_tokens, is_active, created_by_user_id\n")
 	b.WriteString(")\n")
 	b.WriteString("SELECT\n")
 	b.WriteString("    (SELECT COALESCE(MAX(version_no), 0) + 1 FROM llm_config_versions),\n")
-	b.WriteString("    'ai-gateway', 'default-chat', null, null, null, 'X-Service-Token',\n")
-	b.WriteString(fmt.Sprintf("    %s, %d, %s, %d, true, 'usr_local_admin'\n",
+	b.WriteString(fmt.Sprintf("    'ai-gateway', 'default-chat', %s, %d, %s, %d, true, 'usr_local_admin'\n",
 		sqlString(cfg.ChatModel),
 		cfg.QATimeoutSeconds,
 		cfg.QATemperature,

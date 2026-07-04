@@ -27,6 +27,7 @@ class AIGatewayLocalSeedRendererTests(unittest.TestCase):
         self.assertIn("cred-local-chat", result.stdout)
         self.assertIn("provider_credentials", result.stdout)
         self.assertIn("llm_config_versions", result.stdout)
+        self.assertIn("version_no, provider, profile_id, model_name, timeout_seconds", result.stdout)
         self.assertIn("deepseek-ai/DeepSeek-V4-Flash", result.stdout)
         self.assertIn("BAAI/bge-m3", result.stdout)
         self.assertIn("BAAI/bge-reranker-v2-m3", result.stdout)
@@ -34,6 +35,10 @@ class AIGatewayLocalSeedRendererTests(unittest.TestCase):
         self.assertIn("decode(", result.stdout)
         self.assertIn("'ests'", result.stdout)
         self.assertNotIn(api_key, result.stdout)
+        self.assertNotIn("api_endpoint", result.stdout)
+        self.assertNotIn("api_key_encrypted", result.stdout)
+        self.assertNotIn("api_key_last4", result.stdout)
+        self.assertNotIn("token_header", result.stdout)
 
     def test_missing_required_env_fails_with_key_names(self) -> None:
         env = self.enabled_env()

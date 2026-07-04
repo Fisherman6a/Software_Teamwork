@@ -406,7 +406,8 @@ configure_app_version_current_sha() {
     local sha
     sha="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
     if [[ "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
-      export GATEWAY_APP_VERSION_CURRENT_SHA="${sha,,}"
+      GATEWAY_APP_VERSION_CURRENT_SHA="$(to_lower "$sha")"
+      export GATEWAY_APP_VERSION_CURRENT_SHA
       log_info "using repository HEAD for Gateway app-version freshness: ${GATEWAY_APP_VERSION_CURRENT_SHA:0:8}"
     fi
   fi
