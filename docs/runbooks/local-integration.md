@@ -249,8 +249,8 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
 Infra 拉取慢：
 
 - 默认是 Compose 里的 Docker Hub pinned tags。
-- 中国大陆网络先运行 `./scripts/local/dev-up.sh --china`，本次进程会使用 DaoCloud
-  registry rewrite；`.env.local` 不会被脚本改写。
+- 中国大陆网络先运行 `./scripts/local/dev-up.sh --china`，本次进程会使用
+  `docker.1ms.run` registry rewrite；`.env.local` 不会被脚本改写。
 - 已配置 Docker daemon mirror 时，运行 `python3 scripts/check_docker_environment.py --profile all --clean-env`。
 - 代理只作为最后选择；shell proxy、daemon proxy 和 registry rewrite 是三条不同路径。
   验证官方 Docker Hub 路径经 shell/Docker 代理可达时，运行

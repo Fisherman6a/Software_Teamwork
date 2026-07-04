@@ -374,11 +374,12 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
   committed config. Existing daemon mirrors or proxies are acceptable only
   after `python3 scripts/check_docker_environment.py --profile all --clean-env`
   proves their manifest path is healthy.
-- The current mainland China Elasticsearch registry rewrite is
-  `docker.m.daocloud.io/elasticsearch:8.15.3`. Do not restore
-  `docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3`
-  unless manifest probes prove that nested path is usable again and docs/tests
-  are updated in the same change.
+- The current mainland China Docker registry rewrite uses `docker.1ms.run`.
+  The Elasticsearch rewrite is `docker.1ms.run/elasticsearch:8.15.3`.
+  `docker.1panel.live/elasticsearch:8.15.3` was not available in local manifest
+  probes, and DaoCloud Elasticsearch layer pulls were too slow for the normal
+  path; do not switch mirrors without manifest probes and docs/tests updates in
+  the same change.
 - Local Docker image tags must stay pinned and version-aligned across Compose,
   README/runbooks, and `docs/architecture/technology-decisions.md`.
 - PostgreSQL seed scripts may create local/demo data only after service-owned
@@ -429,8 +430,8 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.1 -dir migrations postgres "$
 | Generated provider credential decrypts in SQL but AI Gateway invocation fails with credential decrypt errors | Regenerate credentials with the service crypto contract: `SHA-256(AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY)` as AES-GCM key and keyed HMAC fingerprint derived from `ai-gateway credential fingerprint v1`; do not invent a bash/OpenSSL-only format. |
 | Required Docker image is unavailable locally | Document `docker compose pull <service>` commands and report Docker runtime validation as skipped. |
 | Same component appears with multiple Docker tags | Use the documented baseline or record the reason in the implementation document. |
-| Compose infrastructure image pull is slow or blocked | Prefer `./scripts/local/dev-up.sh --china`, which applies pinned DaoCloud `*_IMAGE` values for that run, or local untracked `.env.local` overrides; if using daemon mirror, prove it with `scripts/check_docker_environment.py`; use Docker daemon proxy only when registry rewrite and mirror paths are unavailable. |
-| `dev-up.sh --china` selects `docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3` | Replace it with `docker.m.daocloud.io/elasticsearch:8.15.3` or fail preflight with a targeted Elasticsearch image diagnostic. |
+| Compose infrastructure image pull is slow or blocked | Prefer `./scripts/local/dev-up.sh --china`, which applies pinned `docker.1ms.run` `*_IMAGE` values for that run, or local untracked `.env.local` overrides; if using daemon mirror, prove it with `scripts/check_docker_environment.py`; use Docker daemon proxy only when registry rewrite and mirror paths are unavailable. |
+| `dev-up.sh --china` selects a registry whose Elasticsearch manifest or layer pull is unhealthy | Replace it with a registry whose full image set passes manifest probes and an Elasticsearch pull smoke, then update docs/tests in the same change. |
 | File calls return `401 unauthorized` while `file /readyz` is healthy | Verify `FILE_INTERNAL_SERVICE_TOKEN` on file and matching `KNOWLEDGE_SERVICE_TOKEN`, `DOCUMENT_FILE_SERVICE_TOKEN`, or propagated `X-Service-Token` on callers. |
 | Gateway readiness fails | Check Redis and Auth first, then search logs by `X-Request-Id`. |
 | Auth/document/ai-gateway readiness fails | Inspect PostgreSQL, host-run migration status, and service logs. |

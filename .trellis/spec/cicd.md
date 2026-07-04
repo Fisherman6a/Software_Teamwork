@@ -868,10 +868,11 @@ Rules:
   selected by `dev-up.sh --china` or local untracked `.env.local` overrides,
   daemon mirrors are local machine state, and proxies are last-resort
   environment state. Keep these paths documented and diagnosable.
-- The explicit mainland China Elasticsearch rewrite is
-  `docker.m.daocloud.io/elasticsearch:8.15.3`. The nested DaoCloud path
-  `docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3`
-  is not an accepted normal path unless manifest probes and docs are updated in
+- The explicit mainland China Docker registry rewrite uses `docker.1ms.run`.
+  The Elasticsearch rewrite is `docker.1ms.run/elasticsearch:8.15.3`.
+  `docker.1panel.live/elasticsearch:8.15.3` was not available in local manifest
+  probes, and DaoCloud Elasticsearch layer pulls were too slow for the normal
+  path; do not switch mirrors without manifest probes and docs/tests updates in
   the same change.
 - Docker/Compose PR checks must run `python3 scripts/check_docker_policy.py`
   before Compose config validation. Keep this checker aligned with Docker policy
@@ -923,7 +924,7 @@ Runtime rules:
   non-sensitive defaults and profile overrides. Root `.env.example` is the
   local secret template, and startup scripts render runtime env through
   `scripts/config/load-profile.sh`.
-- Treat missing active DaoCloud/TUNA/goproxy.cn entries in committed profiles as
+- Treat missing active third-party Docker registry/TUNA/goproxy.cn entries in committed profiles as
   intentional under the current source policy, not as a mainland registry
   regression. `scripts/check_docker_policy.py` should reject active committed
   `*_IMAGE` mirror defaults while allowing commented examples and local

@@ -81,9 +81,9 @@ class LocalDevUpScriptTests(unittest.TestCase):
             env_text = (root / ".env.local").read_text(encoding="utf-8")
             self.assertIn("GOPROXY=https://proxy.golang.org,direct", env_text)
             docker_env = (root / "docker-env.log").read_text(encoding="utf-8")
-            self.assertIn("POSTGRES_IMAGE=docker.m.daocloud.io/library/postgres:16-alpine", docker_env)
+            self.assertIn("POSTGRES_IMAGE=docker.1ms.run/library/postgres:16-alpine", docker_env)
             self.assertIn(
-                "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.m.daocloud.io/elasticsearch:8.15.3",
+                "KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE=docker.1ms.run/elasticsearch:8.15.3",
                 docker_env,
             )
             self.assertNotIn("docker.m.daocloud.io/docker.elastic.co/elasticsearch/elasticsearch:8.15.3", docker_env)
@@ -130,7 +130,7 @@ class LocalDevUpScriptTests(unittest.TestCase):
             self.assertIn("HTTP_PROXY=http://127.0.0.1:7890", docker_env)
             self.assertIn("HTTPS_PROXY=http://127.0.0.1:7890", docker_env)
             self.assertIn("NO_PROXY=localhost,127.0.0.1,::1", docker_env)
-            self.assertNotIn("docker.m.daocloud.io/library/postgres", docker_env)
+            self.assertNotIn("docker.1ms.run/library/postgres", docker_env)
 
     def test_skip_knowledge_runtime_deps_does_not_require_or_call_uv(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -173,7 +173,7 @@ profile 渲染结果里的 `GOPROXY` / `GOSUMDB`；`dev-up.sh` 执行 goose migr
 
 中国大陆网络使用大陆镜像时，不要把仓库默认文件改成第三方代理；运行
 `./scripts/local/dev-up.sh --china` 和 `./scripts/local/run-backend.sh --china` 即可。
-如果已有 `.env.local` 仍保留 TUNA、DaoCloud、`goproxy.cn` 或
+如果已有 `.env.local` 仍保留 TUNA、旧 Docker registry rewrite、`goproxy.cn` 或
 `sum.golang.google.cn`，脚本会继续尊重这些本地值并提示你这是本地覆盖。想回到官方
 默认值，重新复制 `.env.example` 后再恢复私有配置，或手动改回官方地址。
 
@@ -185,7 +185,7 @@ superadmin / LocalDemoAdmin#12345
 ```
 
 Docker 镜像默认使用 Compose 里的 Docker Hub pinned tags。中国大陆网络可用
-`./scripts/local/dev-up.sh --china` 在本次进程切换到 DaoCloud registry rewrite；企业
+`./scripts/local/dev-up.sh --china` 在本次进程切换到 `docker.1ms.run` registry rewrite；企业
 镜像仓库可在本机 `.env.local` 设置 `POSTGRES_IMAGE`、`REDIS_IMAGE`、
 `MINIO_IMAGE`、`MINIO_MC_IMAGE` 和 `KNOWLEDGE_RUNTIME_ELASTICSEARCH_IMAGE`，
 但不要提交为默认值。

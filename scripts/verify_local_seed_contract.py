@@ -179,7 +179,7 @@ REQUIRED_DEV_UP_TOKENS = [
     "checking Go module settings",
     "--china",
     "using selected default for this run",
-    "docker.m.daocloud.io/library/postgres:16-alpine",
+    "docker.1ms.run/library/postgres:16-alpine",
     "goose@v3.27.1",
     "psql",
     "INFRA_SERVICES=(postgres redis minio elasticsearch)",
