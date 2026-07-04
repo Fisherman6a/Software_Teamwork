@@ -262,13 +262,36 @@ function SelectContent({ className, children, ...props }: SelectContentProps) {
   const [flip, setFlip] = React.useState(false)
   const [availableHeight, setAvailableHeight] = React.useState(360)
 
+  // Find the nearest constraining ancestor bounding rect.
+  // Checks scrollable containers, dialog popups, then falls back to viewport.
+  const getContainerBounds = React.useCallback((el: HTMLElement) => {
+    let current: HTMLElement | null = el.parentElement
+    while (current) {
+      const style = window.getComputedStyle(current)
+      const overflowY = style.overflowY
+      const slot = current.getAttribute('data-slot')
+      // Scrollable/clipping container or dialog popup
+      if (
+        overflowY === 'auto' ||
+        overflowY === 'scroll' ||
+        overflowY === 'hidden' ||
+        slot === 'dialog-content'
+      ) {
+        return current.getBoundingClientRect()
+      }
+      current = current.parentElement
+    }
+    return { top: 0, bottom: window.innerHeight, left: 0, right: window.innerWidth } as DOMRect
+  }, [])
+
   // Measure content and decide flip direction on open
   React.useLayoutEffect(() => {
     if (!open || !triggerRef.current) return
 
     const triggerRect = triggerRef.current.getBoundingClientRect()
-    const spaceBelow = window.innerHeight - triggerRect.bottom - 8
-    const spaceAbove = triggerRect.top - 8
+    const container = getContainerBounds(triggerRef.current)
+    const spaceBelow = container.bottom - triggerRect.bottom - 8
+    const spaceAbove = triggerRect.top - container.top - 8
 
     // Measure actual content height
     if (innerRef.current) {
@@ -283,7 +306,7 @@ function SelectContent({ className, children, ...props }: SelectContentProps) {
         setAvailableHeight(Math.min(h, spaceBelow, 360))
       }
     }
-  }, [open, children, triggerRef])
+  }, [open, children, triggerRef, getContainerBounds])
 
   React.useEffect(() => {
     if (!open) {
