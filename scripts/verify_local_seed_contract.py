@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -654,14 +655,39 @@ def validate_gitignore(content: str) -> list[str]:
 def validate_executable_entrypoints(root: Path) -> list[str]:
     issues: list[str] = []
     for relative in PUBLIC_LOCAL_ENTRYPOINTS:
+        relative_text = relative.as_posix()
         path = root / relative
         try:
-            mode = path.stat().st_mode
+            executable = is_executable_entrypoint(root, relative, path)
         except OSError:
             continue
-        if mode & 0o111 == 0:
-            issues.append(f"{relative} must be executable because docs run it as ./{relative}")
+        if not executable:
+            issues.append(
+                f"{relative_text} must be executable because docs run it as ./{relative_text}"
+            )
     return issues
+
+
+def is_executable_entrypoint(root: Path, relative: Path, path: Path) -> bool:
+    tracked_mode = git_tracked_mode(root, relative)
+    if tracked_mode:
+        return tracked_mode.endswith("755")
+    return path.stat().st_mode & 0o111 != 0
+
+
+def git_tracked_mode(root: Path, relative: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--stage", "--", relative.as_posix()],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    return result.stdout.split(maxsplit=1)[0]
 
 
 def validate_forbidden_content(root: Path) -> list[str]:

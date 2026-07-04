@@ -4,7 +4,7 @@ This document is the human-readable audit list for gateway active API paths. The
 
 ## Audit Result
 
-- Active operations: `114`.
+- Active operations: `115`.
 - Every `/api/v1/**` active operation has `operationId`, `tags`, `x-owner-service`, security, at least one `2XX` response, and at least one `4XX` response.
 - `/healthz` and `/readyz` are operational routes owned by `gateway`; they intentionally do not use bearer auth.
 - No stable active path uses action-style segments such as `/login`, `/logout`, `/search`, `/generate`, `/export`, `/retry`, or `/revoke`.

@@ -1,4 +1,5 @@
 import importlib
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -33,10 +34,16 @@ class LocalSeedContractTests(unittest.TestCase):
             script.parent.mkdir(parents=True)
             script.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
             script.chmod(0o644)
+            subprocess.run(["git", "init"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "add", "scripts/local/start.sh"], cwd=root, check=True)
 
             issues = verifier.validate_executable_entrypoints(root)
 
-            script.chmod(0o755)
+            subprocess.run(
+                ["git", "update-index", "--chmod=+x", "scripts/local/start.sh"],
+                cwd=root,
+                check=True,
+            )
             fixed_issues = verifier.validate_executable_entrypoints(root)
 
         self.assertIssueContains(issues, "scripts/local/start.sh must be executable")
