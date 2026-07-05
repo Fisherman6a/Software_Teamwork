@@ -176,7 +176,7 @@ docker compose -f deploy/docker-compose.cloud.yml --env-file .env.docker.cloud l
 ./scripts/docker/clean.sh --yes
 ```
 
-云端 Docker path 的 migration 和 seed 在容器内执行。默认 `DOCKER_SEED_ENABLED=false`，seed 容器直接成功退出，并允许省略 `POSTGRES_ADMIN_URL`、`PADDLEOCR_ACCESS_TOKEN` 和 `AI_GATEWAY_LOCAL_PROVIDER_*`。如果临时云库确实要写入本地 demo seed，显式设置 `DOCKER_SEED_ENABLED=true`；此时 `POSTGRES_ADMIN_URL` 用于静态 seed 中的 `\connect`，`AI_GATEWAY_LOCAL_SEED_ENABLED=true` 会写入云端模型 provider profile，`PADDLEOCR_ACCESS_TOKEN` 会把默认 parser config 切到 `paddleocr_cloud`。启动脚本和 seed 容器都会拒绝 `local-dev-*`、`local-demo-*`、`change-me` 和 `<...>` 占位 secret。托管 Redis 需要 ACL/TLS 时，同时配置 Gateway 的 `GATEWAY_REDIS_USERNAME` / `GATEWAY_REDIS_TLS_ENABLED` 和 Document 的 `DOCUMENT_REDIS_USERNAME` / `DOCUMENT_REDIS_TLS_ENABLED`。
+云端 Docker path 的 migration 和 seed 在容器内执行。默认 `DOCKER_SEED_ENABLED=false`，seed 容器直接成功退出，并允许省略 `POSTGRES_ADMIN_URL`、`PADDLEOCR_ACCESS_TOKEN` 和 `AI_GATEWAY_LOCAL_PROVIDER_*`。如果临时云库确实要写入本地 demo seed，显式设置 `DOCKER_SEED_ENABLED=true`；此时 `POSTGRES_ADMIN_URL` 用于静态 seed 中的 `\connect`，`AI_GATEWAY_LOCAL_SEED_ENABLED=true` 会写入云端模型 provider profile，`PADDLEOCR_ACCESS_TOKEN` 会把默认 parser config 切到 `paddleocr_cloud`。启动脚本和 seed 容器都会拒绝 `local-dev-*`、`local-demo-*`、`change-me` 和 `<...>` 占位 secret。Seed 关闭时，QA/Document 不会从 `AI_GATEWAY_LOCAL_CHAT_MODEL` 回填运行时模型；需要覆盖 profile model 时显式设置 `MODEL_ID` 或 `DOCUMENT_AI_GATEWAY_MODEL`。托管 Redis 需要 ACL/TLS 时，同时配置 Gateway 的 `GATEWAY_REDIS_USERNAME` / `GATEWAY_REDIS_TLS_ENABLED` 和 Document 的 `DOCUMENT_REDIS_USERNAME` / `DOCUMENT_REDIS_TLS_ENABLED`。
 
 不要把 `.env.docker.cloud` 提交到仓库。它不经过 `config/ctl` 渲染，也不会被 `./scripts/local/start.sh` 使用。
 

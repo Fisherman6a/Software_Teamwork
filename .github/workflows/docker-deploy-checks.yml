@@ -28,6 +28,7 @@ on:
       - 'scripts/tests/test_check_docker_environment.py'
       - 'scripts/tests/test_check_docker_policy.py'
       - 'scripts/tests/test_cloud_docker_start_script.py'
+      - 'scripts/tests/test_docker_deploy_workflow_detect.py'
       - 'scripts/tests/test_local_dev_up_script.py'
       - 'scripts/tests/test_local_seed_contract.py'
       - '.github/workflows/docker-deploy-checks.yml'
@@ -58,6 +59,7 @@ on:
       - 'scripts/tests/test_check_docker_environment.py'
       - 'scripts/tests/test_check_docker_policy.py'
       - 'scripts/tests/test_cloud_docker_start_script.py'
+      - 'scripts/tests/test_docker_deploy_workflow_detect.py'
       - 'scripts/tests/test_local_dev_up_script.py'
       - 'scripts/tests/test_local_seed_contract.py'
       - '.github/workflows/docker-deploy-checks.yml'
@@ -94,6 +96,8 @@ jobs:
             const workflowPath = '.github/workflows/docker-deploy-checks.yml';
             const startupScriptPattern =
               /^(?:scripts\/local\/(?:lib\/)?[^/]+\.sh|scripts\/docker\/[^/]+\.sh|deploy\/docker\/full\/[^/]+\.sh)$/u;
+            const cloudDockerSupportFilePattern =
+              /^deploy\/docker\/full\/.+$/u;
             const dockerArtifactPattern =
               /^(?:(?:services|apps)\/.*(?:Dockerfile(?:\..*)?|(?:docker-compose|compose)[^/]*\.ya?ml)|deploy\/(?!docker-compose\.yml$).*(?:docker-compose|compose)[^/]*\.ya?ml)$/u;
             const dockerPolicyPaths = new Set([
@@ -126,6 +130,7 @@ jobs:
               'scripts/tests/test_check_docker_environment.py',
               'scripts/tests/test_check_docker_policy.py',
               'scripts/tests/test_cloud_docker_start_script.py',
+              'scripts/tests/test_docker_deploy_workflow_detect.py',
               'scripts/tests/test_local_dev_up_script.py',
               'scripts/tests/test_reset_dev_data_script.py',
               'scripts/tests/test_knowledge_runtime_dependency_split.py',
@@ -169,6 +174,7 @@ jobs:
               (file) =>
                 dockerPolicyPaths.has(file) ||
                 startupScriptPattern.test(file) ||
+                cloudDockerSupportFilePattern.test(file) ||
                 dockerArtifactPattern.test(file)
             );
             const fullDockerCheckChanged = workflowChanged;
@@ -193,6 +199,11 @@ jobs:
                 }
 
                 if (cloudDeployComposeDependencyPattern.test(file)) {
+                  composeFiles.add(cloudDeployComposeFile);
+                  continue;
+                }
+
+                if (cloudDockerSupportFilePattern.test(file)) {
                   composeFiles.add(cloudDeployComposeFile);
                 }
               }
@@ -231,6 +242,7 @@ jobs:
             scripts.tests.test_check_docker_policy \
             scripts.tests.test_check_docker_environment \
             scripts.tests.test_cloud_docker_start_script \
+            scripts.tests.test_docker_deploy_workflow_detect \
             scripts.tests.test_local_dev_up_script \
             scripts.tests.test_reset_dev_data_script \
             scripts.tests.test_knowledge_runtime_dependency_split \

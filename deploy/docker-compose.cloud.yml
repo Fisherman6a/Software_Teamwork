@@ -210,7 +210,7 @@ services:
       DOCUMENT_FILE_SERVICE_URL: http://file:8082
       DOCUMENT_AI_GATEWAY_URL: http://ai-gateway:8086/internal/v1
       DOCUMENT_AI_GATEWAY_PROFILE_ID: ${DOCUMENT_AI_GATEWAY_PROFILE_ID:-default-chat}
-      DOCUMENT_AI_GATEWAY_MODEL: ${DOCUMENT_AI_GATEWAY_MODEL:-${AI_GATEWAY_LOCAL_CHAT_MODEL:-}}
+      DOCUMENT_AI_GATEWAY_MODEL: ${DOCUMENT_AI_GATEWAY_MODEL:-}
       DOCUMENT_KNOWLEDGE_SERVICE_URL: http://knowledge:8083
     healthcheck:
       <<: *service-healthcheck
@@ -242,7 +242,7 @@ services:
       FILE_SERVICE_BASE_URL: http://file:8082
       AI_GATEWAY_URL: http://ai-gateway:8086/internal/v1/chat/completions
       AI_GATEWAY_PROFILE_ID: ${AI_GATEWAY_PROFILE_ID:-default-chat}
-      MODEL_ID: ${MODEL_ID:-${AI_GATEWAY_LOCAL_CHAT_MODEL:-}}
+      MODEL_ID: ${MODEL_ID:-}
       AI_GATEWAY_TOKEN: ${INTERNAL_SERVICE_TOKEN:?set INTERNAL_SERVICE_TOKEN}
       AI_GATEWAY_TIMEOUT: ${AI_GATEWAY_TIMEOUT:-120s}
       MCP_TRANSPORT: streamable_http

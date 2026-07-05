@@ -888,6 +888,11 @@ Rules:
   changes should validate both files, and changes to
   `deploy/docker/cloud.env.example` should validate the cloud compose file with
   `--env-file deploy/docker/cloud.env.example`.
+- Approved cloud Docker support files under `deploy/docker/full/**`, including
+  Dockerfiles, `.dockerignore`, `nginx.conf`, and shell entrypoints, must
+  trigger the Docker policy job. These changes should also validate
+  `deploy/docker-compose.cloud.yml` because they affect the explicit cloud app
+  stack even though they are not compose files themselves.
 - Docker environment diagnostics belong in `scripts/check_docker_environment.py`.
   CI may run it with `--skip-network`; local investigations may run manifest
   probes with `--profile all --clean-env`. Use `--clean-env` for direct

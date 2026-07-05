@@ -11,6 +11,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class CloudDockerStartScriptTests(unittest.TestCase):
+    def test_cloud_compose_does_not_use_seed_model_as_runtime_fallback(self) -> None:
+        compose = (REPO_ROOT / "deploy" / "docker-compose.cloud.yml").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / "deploy" / "docker" / "cloud.env.example").read_text(encoding="utf-8")
+
+        self.assertIn("DOCUMENT_AI_GATEWAY_MODEL: ${DOCUMENT_AI_GATEWAY_MODEL:-}", compose)
+        self.assertIn("MODEL_ID: ${MODEL_ID:-}", compose)
+        self.assertNotIn("DOCUMENT_AI_GATEWAY_MODEL:-${AI_GATEWAY_LOCAL_CHAT_MODEL", compose)
+        self.assertNotIn("MODEL_ID:-${AI_GATEWAY_LOCAL_CHAT_MODEL", compose)
+        self.assertIn("AI_GATEWAY_LOCAL_CHAT_MODEL=", env_example)
+        self.assertNotIn("AI_GATEWAY_LOCAL_CHAT_MODEL=<cloud-chat-model>", env_example)
+
     def test_start_allows_preseeded_cloud_stack_without_seed_only_values(self) -> None:
         result, docker_calls = self.run_start(
             self.base_cloud_env()

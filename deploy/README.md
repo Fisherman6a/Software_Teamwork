@@ -161,7 +161,9 @@ cp deploy/docker/cloud.env.example .env.docker.cloud
   `AI_GATEWAY_LOCAL_PROVIDER_API_KEY`、`AI_GATEWAY_LOCAL_CHAT_MODEL`。
   模板默认 `DOCKER_SEED_ENABLED=false`。只有临时云库明确要写入本地 demo 用户、
   parser config、model profiles 和 QA 设置时，才改为 true；启动脚本会拒绝
-  `local-dev-*`、`local-demo-*`、`change-me` 和 `<...>` 占位 secret。
+  `local-dev-*`、`local-demo-*`、`change-me` 和 `<...>` 占位 secret。Seed 关闭时
+  `AI_GATEWAY_LOCAL_CHAT_MODEL` 不会回填到 QA/Document 运行时请求；只有显式
+  `MODEL_ID` / `DOCUMENT_AI_GATEWAY_MODEL` 才会覆盖 AI Gateway profile 中的模型。
 
 启动：
 

@@ -309,6 +309,10 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.0 -dir migrations postgres "$
   `POSTGRES_ADMIN_URL`, `PADDLEOCR_ACCESS_TOKEN`, or
   `AI_GATEWAY_LOCAL_PROVIDER_*`. When seed is enabled, startup should still fail
   before build/up if required seed values are missing.
+- In the seed-disabled cloud path, Document and QA runtime model override envs
+  must not fall back to seed-only `AI_GATEWAY_LOCAL_CHAT_MODEL`. Use explicit
+  `DOCUMENT_AI_GATEWAY_MODEL` and `MODEL_ID` only when an operator intentionally
+  wants to override the model stored on the AI Gateway profile.
 - The cloud Docker app stack must default `DOCKER_SEED_ENABLED=false` in both
   the compose interpolation default and `deploy/docker/cloud.env.example`. This
   prevents copied cloud templates from writing local demo users, demo model
