@@ -384,3 +384,36 @@ Added an independent cloud-backed Docker app stack with wrapper scripts, cloud e
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Fix cloud Docker PR review findings
+
+**Date**: 2026-07-05
+**Task**: Fix cloud Docker PR review findings
+**Branch**: `EIR9264/feat/docker-cloud-startup`
+
+### Summary
+
+Addressed PR review findings by adding authenticated/TLS Redis options for Document cloud asynq wiring and enforcing cloud Compose boundaries in Docker policy tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7b917ea8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

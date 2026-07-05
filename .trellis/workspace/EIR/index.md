@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 16
+- **Total Sessions**: 17
 - **Last Active**: 2026-07-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~386 | Active |
+| `journal-1.md` | ~419 | Active |
 | `journal-0.md` | ~170 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 17 | 2026-07-05 | Fix cloud Docker PR review findings | `7b917ea8` | `EIR9264/feat/docker-cloud-startup` |
 | 16 | 2026-07-05 | Add cloud Docker app startup | `bb4153d9` | `EIR9264/feat/docker-cloud-startup` |
 | 15 | 2026-07-04 | Consolidate local startup setup | `5bff71ce` | `EIR/fix/local-startup-downloads-opt-in` |
 | 14 | 2026-07-04 | Local startup scripts check-first flow | `2edcbbbd`, `f1508c14` | `EIR/fix/local-startup-downloads-opt-in` |
