@@ -22,6 +22,10 @@ type MockSidebarProps = {
   sessions: MockSidebarSession[]
 }
 
+type MockChatInputProps = {
+  onFileSelect?: (file: File) => void
+}
+
 const qaHookState = vi.hoisted(() => ({
   createPending: false,
   createSession: vi.fn(),
@@ -30,6 +34,7 @@ const qaHookState = vi.hoisted(() => ({
   refetchSessions: vi.fn(),
   renameSession: vi.fn(),
   sessionsData: { items: [] as QASession[] },
+  uploadFile: vi.fn(),
   uploadSessionId: null as string | null,
   uploadState: { phase: 'idle' } as
     | { phase: 'idle' }
@@ -52,7 +57,14 @@ vi.mock('@/api/conversations', () => ({
 vi.mock('@/components/chat', () => ({
   AttachmentList: () => null,
   AttachmentUploadStatus: () => null,
-  ChatInput: () => null,
+  ChatInput: ({ onFileSelect }: MockChatInputProps) => (
+    <button
+      type="button"
+      onClick={() => onFileSelect?.(new File(['guide'], 'guide.pdf', { type: 'application/pdf' }))}
+    >
+      添加附件
+    </button>
+  ),
   ChatMessages: () => null,
   ChatSidebar: ({
     activeId,
@@ -87,7 +99,7 @@ vi.mock('@/components/chat', () => ({
   ),
   useAttachmentUpload: () => ({
     dismissUpload: () => undefined,
-    uploadFile: () => undefined,
+    uploadFile: qaHookState.uploadFile,
     uploadSessionId: qaHookState.uploadSessionId,
     uploadState: qaHookState.uploadState,
   }),
@@ -196,6 +208,7 @@ describe('ChatPage create conversation action', () => {
     qaHookState.listSessions.mockReset()
     qaHookState.refetchSessions.mockReset()
     qaHookState.renameSession.mockReset()
+    qaHookState.uploadFile.mockReset()
     qaHookState.sessionsData = { items: [] }
     qaHookState.listSessions.mockResolvedValue({ items: [], page: { total: 0 } })
     qaHookState.uploadSessionId = null
@@ -338,6 +351,28 @@ describe('ChatPage create conversation action', () => {
     await waitFor(() => expect(qaHookState.createSession).toHaveBeenCalledWith('新对话'))
     await waitFor(() => expect(screen.getByTestId('active-session')).toHaveTextContent(next.id))
     expect(screen.getByTestId('session-count')).toHaveTextContent('1')
+  })
+
+  it('creates a conversation before uploading an attachment from the initial empty state', async () => {
+    const next = makeSession({ id: 'session-upload' })
+    qaHookState.createSession.mockResolvedValueOnce(next)
+    qaHookState.uploadFile.mockResolvedValue(undefined)
+    setChatState({ activeId: null, sessions: [] })
+
+    renderWithProviders(<ChatPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: '添加附件' }))
+
+    await waitFor(() => expect(qaHookState.createSession).toHaveBeenCalledWith('新对话'))
+    await waitFor(() => {
+      expect(qaHookState.uploadFile).toHaveBeenCalledWith(expect.any(File), next.id)
+    })
+    await waitFor(() => expect(screen.getByTestId('active-session')).toHaveTextContent(next.id))
+    expect(useChatStore.getState().attachmentsBySession[next.id]?.[0]).toMatchObject({
+      filename: 'guide.pdf',
+      sessionId: next.id,
+      status: 'uploaded',
+    })
   })
 
   it('passes clear-all handlers to the sidebar and deletes the confirmed sessions', async () => {

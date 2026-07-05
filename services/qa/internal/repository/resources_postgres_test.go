@@ -38,6 +38,18 @@ func TestMessageCitationLegacySelectDoesNotRequireSnapshotMigrationColumns(t *te
 	}
 }
 
+func TestIntentDistributionQueryUsesResponseRunsIntentType(t *testing.T) {
+	if !strings.Contains(intentDistributionQuery, "FROM response_runs") {
+		t.Fatalf("intent distribution query should aggregate response_runs: %s", intentDistributionQuery)
+	}
+	if !strings.Contains(intentDistributionQuery, "intent_type") {
+		t.Fatalf("intent distribution query should aggregate intent_type: %s", intentDistributionQuery)
+	}
+	if strings.Contains(intentDistributionQuery, "FROM messages") || strings.Contains(intentDistributionQuery, "m.intent") {
+		t.Fatalf("intent distribution query should not aggregate message intent: %s", intentDistributionQuery)
+	}
+}
+
 func TestAgentConfigFromCreateInputPreservesExplicitEmptyToolWhitelist(t *testing.T) {
 	config := agentConfigFromCreateInput(service.CreateQAConfigVersionInput{
 		Agent:            service.AgentConfig{EnabledToolNames: []string{}},

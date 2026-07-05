@@ -1,5 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
-import { Brain, Check, ChevronDown, ChevronRight, Download, Loader2, Wrench } from 'lucide-react'
+import {
+  Brain,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Download,
+  Loader2,
+  ThumbsUp,
+  Wrench,
+} from 'lucide-react'
 import { Children, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -53,6 +62,50 @@ function truncateText(text: string, maxLength: number): string {
 function formatPercent(value: number | null | undefined): string | undefined {
   if (typeof value !== 'number') return undefined
   return `${Math.round(value * 100)}%`
+}
+
+const MESSAGE_LIKE_STORAGE_KEY = 'qa-message-likes'
+
+function readLikedMessages(): Record<string, true> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = window.localStorage.getItem(MESSAGE_LIKE_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!isRecord(parsed)) return {}
+    const likedMessages: Record<string, true> = {}
+    for (const [messageId, liked] of Object.entries(parsed)) {
+      if (typeof messageId === 'string' && messageId.trim() && liked === true) {
+        likedMessages[messageId] = true
+      }
+    }
+    return likedMessages
+  } catch {
+    return {}
+  }
+}
+
+function isMessageLiked(messageId: string): boolean {
+  return readLikedMessages()[messageId] === true
+}
+
+function persistMessageLike(messageId: string, liked: boolean) {
+  if (typeof window === 'undefined') return
+  const likes = readLikedMessages()
+  if (liked) {
+    likes[messageId] = true
+  } else {
+    delete likes[messageId]
+  }
+  try {
+    if (Object.keys(likes).length === 0) {
+      window.localStorage.removeItem(MESSAGE_LIKE_STORAGE_KEY)
+    } else {
+      window.localStorage.setItem(MESSAGE_LIKE_STORAGE_KEY, JSON.stringify(likes))
+    }
+  } catch {
+    // Local persistence is best-effort; keep the in-memory UI response.
+  }
 }
 
 function downloadFilename(citation: CitationLike): string {
@@ -923,6 +976,39 @@ function StreamingContent({
   )
 }
 
+function MessageLikeAction({ messageId }: { messageId: string }) {
+  const [liked, setLiked] = useState(() => isMessageLiked(messageId))
+
+  useEffect(() => {
+    setLiked(isMessageLiked(messageId))
+  }, [messageId])
+
+  function handleToggle() {
+    const next = !liked
+    setLiked(next)
+    persistMessageLike(messageId, next)
+  }
+
+  return (
+    <div className="mt-3 flex justify-end border-t border-border/40 pt-2">
+      <Button
+        aria-label={liked ? '取消点赞此回答' : '点赞此回答'}
+        aria-pressed={liked}
+        className={cn(
+          'h-7 gap-1.5 px-2 text-xs',
+          liked && 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/15',
+        )}
+        onClick={handleToggle}
+        size="sm"
+        variant="ghost"
+      >
+        <ThumbsUp className={cn('size-3.5', liked && 'fill-current')} />
+        <span>{liked ? '已赞' : '点赞'}</span>
+      </Button>
+    </div>
+  )
+}
+
 /* ── Single message bubble ── */
 function MessageBubble({
   msg,
@@ -956,6 +1042,7 @@ function MessageBubble({
     msg.status === 'cancelled' ||
     msg.status === 'failed' ||
     (!msg.status && !isStreaming)
+  const canLikeMessage = !isUser && msg.status === 'completed' && !effectiveStreaming
 
   return (
     <div className={cn('flex gap-2', isUser ? 'flex-row-reverse' : '')}>
@@ -1049,6 +1136,8 @@ function MessageBubble({
               onDownload={onArtifactDownload}
             />
           ))}
+
+        {canLikeMessage && <MessageLikeAction messageId={msg.id} />}
       </div>
     </div>
   )

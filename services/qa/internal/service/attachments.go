@@ -25,11 +25,23 @@ const AttachmentErrorCodeParseFailed = "attachment_parse_failed"
 const maxSessionAttachmentBytes = int64(100 << 20)
 
 var allowedAttachmentContentTypes = map[string]struct{}{
-	"application/pdf": {},
-	"image/png":       {},
-	"image/jpeg":      {},
-	"text/plain":      {},
-	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+	"application/json":              {},
+	"application/pdf":               {},
+	"application/rtf":               {},
+	"application/xml":               {},
+	"image/png":                     {},
+	"image/jpeg":                    {},
+	"text/csv":                      {},
+	"text/html":                     {},
+	"text/markdown":                 {},
+	"text/plain":                    {},
+	"text/xml":                      {},
+	"application/msword":            {},
+	"application/vnd.ms-excel":      {},
+	"application/vnd.ms-powerpoint": {},
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   {},
+	"application/vnd.openxmlformats-officedocument.presentationml.presentation": {},
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         {},
 }
 
 type SessionAttachment struct {

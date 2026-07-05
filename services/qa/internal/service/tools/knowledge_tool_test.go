@@ -172,3 +172,33 @@ func TestKnowledgeToolAllowsAllAccessibleBasesWhenDefaultListEmpty(t *testing.T)
 		t.Fatalf("knowledgeBaseIDs=%+v, want model-provided KB when default list is empty", retriever.input.KnowledgeBaseIDs)
 	}
 }
+
+func TestGenerateSearchSummaryDeduplicatesRepeatedChunkContent(t *testing.T) {
+	repeated := "a）发电厂和有人值班变电站内的变压器，一般每天一次，每周进行一次夜间巡视： b）无人值班变电站内一般每10天一次。5.1.3 在下列情况下应对变压器进行特殊巡视检查，增加巡视频次。"
+	results := []RetrievalTestResult{{
+		RankNo: 1, KnowledgeBaseID: "kb-1", DocumentID: "doc-1", DocumentName: "DL 572.pdf", ChunkID: "chunk-1", ContentPreview: repeated, Score: 0.37,
+	}, {
+		RankNo: 2, KnowledgeBaseID: "kb-2", DocumentID: "doc-2", DocumentName: "DL 572 copy.pdf", ChunkID: "chunk-2", ContentPreview: repeated, Score: 0.37,
+	}, {
+		RankNo: 3, KnowledgeBaseID: "kb-1", DocumentID: "doc-1", DocumentName: "DL 572.pdf", ChunkID: "chunk-3", ContentPreview: "6.4.1 变压器跳闸后，应立即查明原因。如综合判断证明变压器跳闸不是由于内部故障所引起，可重新投入运行。", Score: 0.32,
+	}}
+
+	summary := generateSearchSummary(results, 1)
+	var decoded struct {
+		HitCount int `json:"hit_count"`
+		Returned int `json:"returned"`
+		Results  []struct {
+			ChunkID string `json:"chunk_id"`
+			Preview string `json:"preview"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(summary), &decoded); err != nil {
+		t.Fatalf("decode summary: %v\n%s", err, summary)
+	}
+	if decoded.HitCount != 2 || decoded.Returned != 2 || len(decoded.Results) != 2 {
+		t.Fatalf("summary=%s", summary)
+	}
+	if decoded.Results[0].ChunkID != "chunk-1" || decoded.Results[1].ChunkID != "chunk-3" {
+		t.Fatalf("deduped result order/chunks=%+v", decoded.Results)
+	}
+}

@@ -3,6 +3,7 @@ from pathlib import Path
 
 RUNTIME_RESTFUL_API_ALLOWLIST = frozenset(
     {
+        "attachment_parse_api.py",
         "chunk_api.py",
         "dataset_api.py",
         "document_api.py",

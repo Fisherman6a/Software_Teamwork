@@ -10,6 +10,7 @@ from api.route_registry import (
 
 def test_runtime_route_allowlist_keeps_knowledge_core_routes():
     assert RUNTIME_RESTFUL_API_ALLOWLIST == {
+        "attachment_parse_api.py",
         "chunk_api.py",
         "dataset_api.py",
         "document_api.py",
@@ -32,6 +33,7 @@ def test_runtime_route_allowlist_excludes_unrelated_ragflow_routes():
 def test_filter_runtime_restful_api_paths_preserves_input_order():
     paths = [
         Path("file_api.py"),
+        Path("attachment_parse_api.py"),
         Path("dataset_api.py"),
         Path("mcp_api.py"),
         Path("document_api.py"),
@@ -40,6 +42,7 @@ def test_filter_runtime_restful_api_paths_preserves_input_order():
     ]
 
     assert filter_runtime_restful_api_paths(paths) == [
+        Path("attachment_parse_api.py"),
         Path("dataset_api.py"),
         Path("document_api.py"),
         Path("system_api.py"),

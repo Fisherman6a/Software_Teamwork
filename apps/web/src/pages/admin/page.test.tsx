@@ -42,6 +42,13 @@ const adminUser: UserSummary = {
   username: 'admin',
 }
 
+const standardReportUser: UserSummary = {
+  id: 'standard-report-1',
+  permissions: ['report:read', 'report:write'],
+  roles: ['standard'],
+  username: 'standard-report',
+}
+
 describe('AdminPage layout transitions', () => {
   beforeEach(() => {
     routerMocks.pathname = '/admin/knowledge/search'
@@ -66,5 +73,21 @@ describe('AdminPage layout transitions', () => {
     expect(contentMain).toBeInstanceOf(HTMLElement)
     expect(sidebar).not.toHaveClass('page-enter-right')
     expect(contentMain).toHaveClass('page-enter-right')
+  })
+
+  it('hides report template materials from standard report users in the admin sidebar', () => {
+    routerMocks.pathname = '/admin/reports/records'
+    useAuthStore.setState({
+      accessToken: 'opaque-test-token',
+      error: null,
+      status: 'authenticated',
+      user: standardReportUser,
+      userName: standardReportUser.username,
+    })
+
+    renderWithProviders(<AdminPage />)
+
+    expect(screen.getByRole('link', { name: '报告记录' })).toBeVisible()
+    expect(screen.queryByRole('link', { name: '模板素材' })).not.toBeInTheDocument()
   })
 })

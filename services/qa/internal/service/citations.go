@@ -207,7 +207,11 @@ func citationFromRecord(record map[string]any) (Citation, bool) {
 }
 
 func citationSnapshotKey(citation Citation) string {
+	if textKey := citationTextSnapshotKey(citation); textKey != "" {
+		return "text\x00" + textKey
+	}
 	return strings.Join([]string{
+		"source",
 		citation.KnowledgeBaseID,
 		citation.DocumentID,
 		citation.AttachmentID,
@@ -215,6 +219,28 @@ func citationSnapshotKey(citation Citation) string {
 		citation.Text,
 		citation.ContentPreview,
 	}, "\x00")
+}
+
+func citationTextSnapshotKey(citation Citation) string {
+	best := ""
+	for _, value := range []string{citation.Text, citation.ContentPreview, citation.Context} {
+		normalized := normalizedCitationText(value)
+		if len([]rune(normalized)) > len([]rune(best)) {
+			best = normalized
+		}
+	}
+	if len([]rune(best)) < 40 {
+		return ""
+	}
+	return best
+}
+
+func normalizedCitationText(value string) string {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Join(fields, " ")
 }
 
 func firstString(record map[string]any, keys ...string) string {

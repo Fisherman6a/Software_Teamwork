@@ -24,6 +24,7 @@ type UseReportEventStreamOptions = {
 
 type ReportEventStreamState = {
   error: ApiError | null
+  sectionTablesById: Record<string, Record<string, unknown>[]>
   outlineText: string
   sectionTextById: Record<string, string>
   status: ReportEventStreamStatus
@@ -51,6 +52,7 @@ type ReportStreamControllers = {
 const emptyStreamState: ReportEventStreamState = {
   error: null,
   outlineText: '',
+  sectionTablesById: {},
   sectionTextById: {},
   status: 'idle',
 }
@@ -305,6 +307,15 @@ function sectionDeltaToReadableText(rawText: string): string {
   return text ?? ''
 }
 
+function sectionDeltaToTables(rawText: string): Record<string, unknown>[] | null {
+  if (!isJsonLike(rawText)) return null
+
+  const parsed = parseJsonSafely(rawText)
+  if (!isRecord(parsed) || !Array.isArray(parsed.tables)) return null
+
+  return parsed.tables.filter(isRecord)
+}
+
 function feedReadableTarget(
   target: ReadableTextTarget,
   incomingText: string,
@@ -383,7 +394,19 @@ function createReportStreamControllers(
       feedReadableTarget(outline, text, outlineDeltaToReadableText)
     },
     feedSection: (sectionId, text) => {
-      feedReadableTarget(getSectionTarget(sectionId), text, sectionDeltaToReadableText)
+      const target = getSectionTarget(sectionId)
+      feedReadableTarget(target, text, sectionDeltaToReadableText)
+
+      const tables = sectionDeltaToTables(target.rawText)
+      if (!tables) return
+      setState((prev) => ({
+        ...prev,
+        sectionTablesById: {
+          ...prev.sectionTablesById,
+          [sectionId]: tables,
+        },
+        status: 'streaming',
+      }))
     },
     finish: () => {
       outline.controller.finish()

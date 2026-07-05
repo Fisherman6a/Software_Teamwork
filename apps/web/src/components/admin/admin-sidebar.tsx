@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 
+import { reportTemplateManagementAccess } from '@/lib/access'
 import type { PermissionRequirement } from '@/lib/permissions'
 import { canAccess } from '@/lib/permissions'
 import { cn } from '@/lib/utils'
@@ -58,7 +59,7 @@ const menuItems: AdminNavigationItem[] = [
         key: 'report-templates',
         label: '模板素材',
         path: '/admin/reports/templates',
-        requirement: { any: ['report:write', 'reports:write'] },
+        requirement: reportTemplateManagementAccess,
       },
       {
         key: 'report-document-model',

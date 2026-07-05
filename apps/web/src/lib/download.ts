@@ -6,3 +6,12 @@ export function downloadFromUrl(url: string, filename?: string) {
   }
   anchor.click()
 }
+
+export function downloadBlob(blob: Blob, filename?: string) {
+  const url = URL.createObjectURL(blob)
+  try {
+    downloadFromUrl(url, filename)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}

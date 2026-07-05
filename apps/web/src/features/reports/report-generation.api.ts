@@ -188,6 +188,10 @@ export function createReportFile(payload: {
   })
 }
 
+export function getReportFile(reportFileId: string): Promise<ReportFile> {
+  return gatewayRequest<ReportFile>(`/report-files/${encodeURIComponent(reportFileId)}`)
+}
+
 export function downloadReportFile(reportFileId: string): Promise<Blob> {
   return gatewayFileRequest(`/report-files/${encodeURIComponent(reportFileId)}/content`)
 }

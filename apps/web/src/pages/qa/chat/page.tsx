@@ -574,8 +574,29 @@ export function ChatPage() {
     [activeId, setActiveId],
   )
 
+  // ── Mutations ──
+  const createSessionMut = useCreateSession()
+  const deleteSessionMut = useDeleteSession()
+  const renameSessionMut = useRenameSession()
+
   // ── Three-phase state machine: empty → transitioning → active ──
   const [chatPhase, setChatPhase] = useState<'empty' | 'active'>('empty')
+
+  const ensureActiveSession = useCallback(async (): Promise<string | null> => {
+    const currentActiveId = useChatStore.getState().activeId
+    if (currentActiveId) return currentActiveId
+
+    try {
+      const newSession = await createSessionMut.mutateAsync(NEW_QA_SESSION_TITLE)
+      addSession(newSession)
+      setSelectedKnowledgeBaseIds([])
+      setActiveId(newSession.id)
+      return newSession.id
+    } catch {
+      setError('创建会话失败，请检查网络连接')
+      return null
+    }
+  }, [addSession, createSessionMut, setActiveId, setError])
 
   // ── Attachment upload hook ──
   const handleAttachmentReady = useCallback(
@@ -614,11 +635,6 @@ export function ChatPage() {
     handleAttachmentReady,
     handleAttachCleanup,
   )
-
-  // ── Mutations ──
-  const createSessionMut = useCreateSession()
-  const deleteSessionMut = useDeleteSession()
-  const renameSessionMut = useRenameSession()
 
   // ── SSE cleanup ref ──
   const abortRef = useRef<(() => void) | null>(null)
@@ -790,34 +806,35 @@ export function ChatPage() {
   // ══════════════════════════════════════════════════════════════════════════
 
   const handleFileSelect = useCallback(
-    (file: File) => {
-      if (!activeId) return
+    async (file: File) => {
+      const targetSessionId = await ensureActiveSession()
+      if (!targetSessionId) return
 
       // Clean up any stale temp-* items from a previous aborted upload before
       // adding the new one, so they don't accumulate in the list indefinitely.
-      const current = useChatStore.getState().attachmentsBySession[activeId] ?? []
+      const current = useChatStore.getState().attachmentsBySession[targetSessionId] ?? []
       for (const a of current) {
         if (a.id.startsWith('temp-')) {
-          removeAttachment(activeId, a.id)
+          removeAttachment(targetSessionId, a.id)
         }
       }
 
       // Optimistically add the attachment to the store
       const tempAttachment: SessionAttachmentSummary = {
         id: `temp-${Date.now()}`,
-        sessionId: activeId,
+        sessionId: targetSessionId,
         filename: file.name,
         contentType: file.type || 'application/octet-stream',
         sizeBytes: file.size,
         status: 'uploaded',
         createdAt: new Date().toISOString(),
       }
-      addAttachment(activeId, tempAttachment)
+      addAttachment(targetSessionId, tempAttachment)
 
       // Start the actual upload + polling flow
-      uploadFile(file)
+      void uploadFile(file, targetSessionId)
     },
-    [activeId, addAttachment, removeAttachment, uploadFile],
+    [addAttachment, ensureActiveSession, removeAttachment, uploadFile],
   )
 
   const [deleteAttachmentTarget, setDeleteAttachmentTarget] = useState<{
@@ -1715,7 +1732,6 @@ export function ChatPage() {
                 onFileSelect={handleFileSelect}
                 onAttachError={(msg) => setError(msg)}
                 attachmentCount={visibleAttachmentCount}
-                disableAttach={!activeId}
               />
             </div>
             {chatPhase === 'empty' && activeMessages.length === 0 && (

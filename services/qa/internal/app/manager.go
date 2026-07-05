@@ -492,7 +492,7 @@ func (m *Manager) buildState(ctx context.Context, runtimeConfig service.RuntimeC
 		ToolTimeout:            toolTimeout,
 		MaxToolResultBytes:     m.cfg.MaxToolResultBytes,
 		ReasoningFilterFactory: service.NewReasoningFilter,
-		ToolResultPolicy:       service.NewKnowledgeRetrievalStopPolicy(m.cfg.KnowledgeMCPAlias),
+		ToolResultPolicy:       service.NewAgentToolResultPolicy(m.cfg.KnowledgeMCPAlias),
 	})
 	if err != nil {
 		closeClients(clients)

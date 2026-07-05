@@ -140,6 +140,48 @@ func TestAttachmentToolClientKeepsUsableResultsWhenLongExcerptsHitResultBudget(t
 	}
 }
 
+func TestAttachmentToolClientFallsBackToBoundChunksWhenKeywordSearchMisses(t *testing.T) {
+	client, err := NewAttachmentToolClient(AttachmentToolConfig{Searcher: attachmentSearcherStub{
+		results: nil,
+		reportResults: []SessionAttachmentHit{{
+			AttachmentID:   "att-1",
+			ChunkID:        "chunk-1",
+			Filename:       "essay.docx",
+			ContentPreview: "科技创新与国家治理",
+			Content:        "正文讨论科技创新、人工智能、数据安全和国家治理现代化。",
+			PageNumber:     1,
+			ChunkIndex:     1,
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := contextutil.WithUserID(context.Background(), "user-1")
+	ctx = contextutil.WithSessionID(ctx, "sess-1")
+	ctx = contextutil.WithMessageAttachmentIDs(ctx, []string{"att-1"})
+
+	result, err := client.CallTool(ctx, ToolSearchSessionAttachments, json.RawMessage(`{"query":"电力行业"}`))
+	if err != nil || result.IsError {
+		t.Fatalf("CallTool() = %+v err=%v", result, err)
+	}
+	var decoded struct {
+		HitCount  int    `json:"hit_count"`
+		MatchMode string `json:"match_mode"`
+		Results   []struct {
+			ContentExcerpt string `json:"content_excerpt"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(result.Content), &decoded); err != nil {
+		t.Fatalf("decode result: %v\n%s", err, result.Content)
+	}
+	if decoded.HitCount != 1 || decoded.MatchMode != attachmentMatchModeBroadFallback || len(decoded.Results) != 1 {
+		t.Fatalf("fallback summary = %+v content=%s", decoded, result.Content)
+	}
+	if !strings.Contains(decoded.Results[0].ContentExcerpt, "科技创新") {
+		t.Fatalf("fallback result did not include parsed chunk content: %s", result.Content)
+	}
+}
+
 func TestAttachmentToolClientIncludesReportSourceFromBoundAttachments(t *testing.T) {
 	client, err := NewAttachmentToolClient(AttachmentToolConfig{Searcher: attachmentSearcherStub{
 		results: []SessionAttachmentHit{{

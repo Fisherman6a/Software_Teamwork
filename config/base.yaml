@@ -210,6 +210,10 @@ env:
     sensitive: true
   FILE_SERVICE_BASE_URL:
     value: http://localhost:8082
+  KNOWLEDGE_RUNTIME_URL:
+    value: http://127.0.0.1:9380
+  KNOWLEDGE_RUNTIME_TOKEN_HEADER:
+    value: X-Service-Token
   KNOWLEDGE_MCP_ADDR:
     fromEnv: KNOWLEDGE_MCP_ADDR
   KNOWLEDGE_MCP_CALLER_ID:

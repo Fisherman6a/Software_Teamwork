@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { adminShellAccess } from './access'
+import { adminShellAccess, reportTemplateManagementAccess } from './access'
 import { canAccess } from './permissions'
 import type { UserSummary } from './types'
 
@@ -83,6 +83,29 @@ describe('shared access requirements', () => {
           permissions: [],
         },
         adminShellAccess,
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps report template management behind administrator authority', () => {
+    expect(
+      canAccess(
+        {
+          ...businessUser,
+          permissions: ['report:read', 'report:write'],
+        },
+        reportTemplateManagementAccess,
+      ),
+    ).toBe(false)
+
+    expect(
+      canAccess(
+        {
+          ...businessUser,
+          roles: ['admin'],
+          permissions: ['report:read', 'report:write'],
+        },
+        reportTemplateManagementAccess,
       ),
     ).toBe(true)
   })

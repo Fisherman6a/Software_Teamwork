@@ -99,3 +99,50 @@ def test_ensure_paddleocr_from_config_requires_token(monkeypatch):
 
     assert got is None
     assert called is False
+
+
+def test_ensure_ocr_provider_reloads_created_instance(monkeypatch):
+    provider = SimpleNamespace(id="provider-1", provider_name="PaddleOCR")
+    created = SimpleNamespace(id="instance-1", instance_name="PaddleOCR-VL")
+    calls = {"instance_queries": 0}
+
+    monkeypatch.setattr(
+        module.RuntimeModelProviderService,
+        "get_by_scope_id_and_provider_name",
+        lambda scope_id, provider_name: provider,
+    )
+
+    def fake_get_instance(provider_id, api_key):
+        calls["instance_queries"] += 1
+        return None if calls["instance_queries"] == 1 else created
+
+    monkeypatch.setattr(
+        module.RuntimeModelInstanceService,
+        "get_by_provider_id_and_api_key",
+        fake_get_instance,
+    )
+    monkeypatch.setattr(
+        module.RuntimeModelInstanceService,
+        "create_instance",
+        lambda **_kwargs: 1,
+    )
+    monkeypatch.setattr(
+        module.RuntimeModelService,
+        "get_by_provider_id_and_instance_id_and_model_type_and_model_name",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        module.RuntimeModelService,
+        "insert",
+        lambda **_kwargs: 1,
+    )
+
+    got = module._ensure_ocr_provider_from_env(
+        "scope-1",
+        "PaddleOCR",
+        "PaddleOCR-VL",
+        {"PADDLEOCR_ACCESS_TOKEN": "sk-secret"},
+    )
+
+    assert got == "PaddleOCR-VL@PaddleOCR-VL@PaddleOCR"
+    assert calls["instance_queries"] == 2

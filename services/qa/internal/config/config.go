@@ -77,18 +77,21 @@ type Config struct {
 	MCPServerTokenHeader string
 	MCPToolTimeout       time.Duration
 
-	SystemPrompt             string
-	MaxIterations            int
-	MaxToolResultBytes       int
-	WorkDir                  string
-	MaxFileBytes             int
-	EnableCommandTool        bool
-	CommandTimeout           time.Duration
-	AttachmentTTL            time.Duration
-	AttachmentMaxBytes       int64
-	AttachmentMaxPerSession  int
-	AttachmentProcessTimeout time.Duration
-	FileServiceURL           string
+	SystemPrompt                string
+	MaxIterations               int
+	MaxToolResultBytes          int
+	WorkDir                     string
+	MaxFileBytes                int
+	EnableCommandTool           bool
+	CommandTimeout              time.Duration
+	AttachmentTTL               time.Duration
+	AttachmentMaxBytes          int64
+	AttachmentMaxPerSession     int
+	AttachmentProcessTimeout    time.Duration
+	FileServiceURL              string
+	KnowledgeRuntimeURL         string
+	KnowledgeRuntimeToken       string
+	KnowledgeRuntimeTokenHeader string
 }
 
 func Load() (Config, error) {
@@ -97,34 +100,41 @@ func Load() (Config, error) {
 	if knowledgeMCPToken == "" {
 		knowledgeMCPToken = serviceToken
 	}
+	knowledgeRuntimeToken := strings.TrimSpace(os.Getenv("KNOWLEDGE_RUNTIME_SERVICE_TOKEN"))
+	if knowledgeRuntimeToken == "" {
+		knowledgeRuntimeToken = serviceToken
+	}
 	aiGatewayToken := strings.TrimSpace(os.Getenv("AI_GATEWAY_TOKEN"))
 	if aiGatewayToken == "" {
 		aiGatewayToken = serviceToken
 	}
 	cfg := Config{
-		HTTPAddr:                envOr("QA_HTTP_ADDR", ":8084"),
-		DatabaseURL:             strings.TrimSpace(os.Getenv("QA_DATABASE_URL")),
-		EncryptionKey:           envOr("QA_CONFIG_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
-		AdminUserIDs:            splitCSV(os.Getenv("QA_ADMIN_USER_IDS")),
-		ServiceToken:            serviceToken,
-		KnowledgeURL:            envOr("KNOWLEDGE_SERVICE_URL", "http://localhost:8083"),
-		KnowledgeMCPURL:         strings.TrimSpace(os.Getenv("KNOWLEDGE_MCP_URL")),
-		KnowledgeMCPToken:       knowledgeMCPToken,
-		KnowledgeMCPTokenHeader: envOr("KNOWLEDGE_MCP_TOKEN_HEADER", "X-Service-Token"),
-		KnowledgeMCPAlias:       envOr("KNOWLEDGE_MCP_ALIAS", "knowledge"),
-		AIGatewayURL:            envOr("AI_GATEWAY_URL", defaultAIGatewayURL),
-		AIGatewayToken:          aiGatewayToken,
-		AIGatewayTokenHeader:    envOr("AI_GATEWAY_TOKEN_HEADER", defaultAIGatewayTokenHeader),
-		AIGatewayProfileID:      strings.TrimSpace(os.Getenv("AI_GATEWAY_PROFILE_ID")),
-		ModelID:                 strings.TrimSpace(os.Getenv("MODEL_ID")),
-		MCPTransport:            strings.ToLower(envOr("MCP_TRANSPORT", TransportDisabled)),
-		MCPServerCommand:        strings.TrimSpace(os.Getenv("MCP_SERVER_COMMAND")),
-		MCPServerURL:            strings.TrimSpace(os.Getenv("MCP_SERVER_URL")),
-		MCPServerAlias:          envOr("MCP_SERVER_ALIAS", "env_default"),
-		MCPServerToken:          os.Getenv("MCP_SERVER_TOKEN"),
-		MCPServerTokenHeader:    envOr("MCP_SERVER_TOKEN_HEADER", "Authorization"),
-		SystemPrompt:            envOr("AGENT_SYSTEM_PROMPT", defaultSystemPrompt),
-		WorkDir:                 strings.TrimSpace(os.Getenv("AGENT_WORKDIR")),
+		HTTPAddr:                    envOr("QA_HTTP_ADDR", ":8084"),
+		DatabaseURL:                 strings.TrimSpace(os.Getenv("QA_DATABASE_URL")),
+		EncryptionKey:               envOr("QA_CONFIG_ENCRYPTION_KEY", "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+		AdminUserIDs:                splitCSV(os.Getenv("QA_ADMIN_USER_IDS")),
+		ServiceToken:                serviceToken,
+		KnowledgeURL:                envOr("KNOWLEDGE_SERVICE_URL", "http://localhost:8083"),
+		KnowledgeMCPURL:             strings.TrimSpace(os.Getenv("KNOWLEDGE_MCP_URL")),
+		KnowledgeMCPToken:           knowledgeMCPToken,
+		KnowledgeMCPTokenHeader:     envOr("KNOWLEDGE_MCP_TOKEN_HEADER", "X-Service-Token"),
+		KnowledgeMCPAlias:           envOr("KNOWLEDGE_MCP_ALIAS", "knowledge"),
+		KnowledgeRuntimeURL:         strings.TrimSpace(os.Getenv("KNOWLEDGE_RUNTIME_URL")),
+		KnowledgeRuntimeToken:       knowledgeRuntimeToken,
+		KnowledgeRuntimeTokenHeader: envOr("KNOWLEDGE_RUNTIME_TOKEN_HEADER", "X-Service-Token"),
+		AIGatewayURL:                envOr("AI_GATEWAY_URL", defaultAIGatewayURL),
+		AIGatewayToken:              aiGatewayToken,
+		AIGatewayTokenHeader:        envOr("AI_GATEWAY_TOKEN_HEADER", defaultAIGatewayTokenHeader),
+		AIGatewayProfileID:          strings.TrimSpace(os.Getenv("AI_GATEWAY_PROFILE_ID")),
+		ModelID:                     strings.TrimSpace(os.Getenv("MODEL_ID")),
+		MCPTransport:                strings.ToLower(envOr("MCP_TRANSPORT", TransportDisabled)),
+		MCPServerCommand:            strings.TrimSpace(os.Getenv("MCP_SERVER_COMMAND")),
+		MCPServerURL:                strings.TrimSpace(os.Getenv("MCP_SERVER_URL")),
+		MCPServerAlias:              envOr("MCP_SERVER_ALIAS", "env_default"),
+		MCPServerToken:              os.Getenv("MCP_SERVER_TOKEN"),
+		MCPServerTokenHeader:        envOr("MCP_SERVER_TOKEN_HEADER", "Authorization"),
+		SystemPrompt:                envOr("AGENT_SYSTEM_PROMPT", defaultSystemPrompt),
+		WorkDir:                     strings.TrimSpace(os.Getenv("AGENT_WORKDIR")),
 	}
 
 	var err error
@@ -217,6 +227,14 @@ func (c Config) Validate() error {
 	}
 	if !validHeaderName(c.KnowledgeMCPTokenHeader) {
 		return errors.New("KNOWLEDGE_MCP_TOKEN_HEADER is invalid")
+	}
+	if c.KnowledgeRuntimeURL != "" {
+		if err := validateHTTPURL("KNOWLEDGE_RUNTIME_URL", c.KnowledgeRuntimeURL); err != nil {
+			return err
+		}
+	}
+	if !validHeaderName(c.KnowledgeRuntimeTokenHeader) {
+		return errors.New("KNOWLEDGE_RUNTIME_TOKEN_HEADER is invalid")
 	}
 	if !validMCPAlias(c.KnowledgeMCPAlias) {
 		return errors.New("KNOWLEDGE_MCP_ALIAS must match ^[a-z0-9_]{2,32}$")

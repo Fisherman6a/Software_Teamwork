@@ -18,6 +18,8 @@ const (
 	maxAttachmentContentExcerptRunes = 1500
 	maxAttachmentReportSourceBytes   = 20_000
 	maxAttachmentReportSourceChunks  = 200
+	attachmentMatchModeKeyword       = "keyword"
+	attachmentMatchModeBroadFallback = "broad_fallback"
 )
 
 type SessionAttachmentHit struct {
@@ -151,11 +153,22 @@ func (c *AttachmentToolClient) searchSessionAttachments(ctx context.Context, arg
 	if err != nil {
 		return toolFailure("search_failed", "session attachment search failed"), nil
 	}
+	matchMode := attachmentMatchModeKeyword
+	if len(results) == 0 {
+		fallbackResults, err := c.searcher.ListSessionAttachmentReportSource(toolCtx, userID, sessionID, targetIDs, limit)
+		if err != nil {
+			return toolFailure("search_failed", "session attachment fallback search failed"), nil
+		}
+		if len(fallbackResults) > 0 {
+			results = fallbackResults
+			matchMode = attachmentMatchModeBroadFallback
+		}
+	}
 	startCitationNo := contextutil.CitationNoFromContext(ctx)
 	if startCitationNo <= 0 {
 		startCitationNo = 1
 	}
-	content := generateAttachmentSearchSummary(results, startCitationNo)
+	content := generateAttachmentSearchSummary(results, startCitationNo, matchMode)
 	if input.IncludeReportSource {
 		sourceChunks, err := c.searcher.ListSessionAttachmentReportSource(toolCtx, userID, sessionID, targetIDs, maxAttachmentReportSourceChunks)
 		if err != nil {
@@ -167,42 +180,54 @@ func (c *AttachmentToolClient) searchSessionAttachments(ctx context.Context, arg
 	return agent.ToolResult{Content: content}, nil
 }
 
-func generateAttachmentSearchSummary(results []SessionAttachmentHit, startCitationNo int) string {
+func generateAttachmentSearchSummary(results []SessionAttachmentHit, startCitationNo int, matchMode string) string {
+	matchMode = normalizeAttachmentMatchMode(matchMode)
 	if len(results) == 0 {
-		return `{"hit_count":0,"message":"No relevant attachment chunks found"}`
+		payload, _ := json.Marshal(map[string]any{
+			"hit_count":  0,
+			"match_mode": matchMode,
+			"message":    "No relevant attachment chunks found",
+		})
+		return string(payload)
 	}
 	for _, budget := range attachmentResultBudgets {
-		payload := marshalAttachmentSearchSummary(results, len(results), startCitationNo, budget.previewRunes, budget.contextRunes, budget.excerptRunes, false)
+		payload := marshalAttachmentSearchSummary(results, len(results), startCitationNo, budget.previewRunes, budget.contextRunes, budget.excerptRunes, false, matchMode)
 		if len(payload) <= maxAttachmentResultSize {
 			return string(payload)
 		}
 	}
 	for returned := len(results) - 1; returned >= 1; returned-- {
 		budget := attachmentResultBudgets[len(attachmentResultBudgets)-1]
-		payload := marshalAttachmentSearchSummary(results[:returned], len(results), startCitationNo, budget.previewRunes, budget.contextRunes, budget.excerptRunes, true)
+		payload := marshalAttachmentSearchSummary(results[:returned], len(results), startCitationNo, budget.previewRunes, budget.contextRunes, budget.excerptRunes, true, matchMode)
 		if len(payload) <= maxAttachmentResultSize {
 			return string(payload)
 		}
 	}
 	budget := attachmentResultBudgets[len(attachmentResultBudgets)-1]
-	payload := marshalAttachmentSearchSummary(results[:1], len(results), startCitationNo, 60, 20, budget.excerptRunes, true)
+	payload := marshalAttachmentSearchSummary(results[:1], len(results), startCitationNo, 60, 20, budget.excerptRunes, true, matchMode)
 	if len(payload) <= maxAttachmentResultSize {
 		return string(payload)
 	}
 	truncated, _ := json.Marshal(map[string]any{
-		"hit_count": len(results),
-		"returned":  0,
-		"truncated": true,
-		"message":   "Results truncated due to size limit",
+		"hit_count":  len(results),
+		"match_mode": matchMode,
+		"returned":   0,
+		"truncated":  true,
+		"message":    "Results truncated due to size limit",
 	})
 	return string(truncated)
 }
 
-func marshalAttachmentSearchSummary(results []SessionAttachmentHit, totalHits, startCitationNo, previewRunes, contextRunes, excerptRunes int, truncated bool) []byte {
+func marshalAttachmentSearchSummary(results []SessionAttachmentHit, totalHits, startCitationNo, previewRunes, contextRunes, excerptRunes int, truncated bool, matchMode string) []byte {
+	matchMode = normalizeAttachmentMatchMode(matchMode)
 	summary := map[string]any{
-		"hit_count": totalHits,
-		"returned":  len(results),
-		"results":   make([]map[string]any, 0, len(results)),
+		"hit_count":  totalHits,
+		"match_mode": matchMode,
+		"returned":   len(results),
+		"results":    make([]map[string]any, 0, len(results)),
+	}
+	if matchMode == attachmentMatchModeBroadFallback {
+		summary["message"] = "No exact keyword matches; returning parsed chunks from bound attachments for broader review"
 	}
 	if truncated {
 		summary["truncated"] = true
@@ -229,6 +254,15 @@ func marshalAttachmentSearchSummary(results []SessionAttachmentHit, totalHits, s
 	}
 	payload, _ := json.Marshal(summary)
 	return payload
+}
+
+func normalizeAttachmentMatchMode(matchMode string) string {
+	switch matchMode {
+	case attachmentMatchModeBroadFallback:
+		return attachmentMatchModeBroadFallback
+	default:
+		return attachmentMatchModeKeyword
+	}
 }
 
 type attachmentReportSource struct {

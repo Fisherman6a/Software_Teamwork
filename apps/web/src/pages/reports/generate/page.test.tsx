@@ -165,6 +165,7 @@ function createKnowledgeSelectionFetchMock(options: {
   knowledgeError?: boolean
   outlineJobStatus?: 'running' | 'succeeded'
   outlines?: unknown[]
+  saveSectionBodies?: Record<string, unknown>[]
   sectionBodies?: Record<string, unknown>[]
   sections?: unknown[]
   streamFrames?: string[]
@@ -323,6 +324,27 @@ function createKnowledgeSelectionFetchMock(options: {
           },
         ],
         requestId: 'req-outlines',
+      })
+    }
+    if (
+      request.method === 'PATCH' &&
+      url.pathname.endsWith('/reports/rpt-knowledge-selection/sections/section-knowledge')
+    ) {
+      const body = (await request.clone().json()) as Record<string, unknown>
+      options.saveSectionBodies?.push(body)
+      return jsonResponse({
+        data: {
+          content: typeof body.content === 'string' ? body.content : '已保存正文',
+          generationStatus: 'succeeded',
+          id: 'section-knowledge',
+          numbering: '1',
+          reportId: 'rpt-knowledge-selection',
+          sortOrder: 1,
+          tables: Array.isArray(body.tables) ? body.tables : [],
+          title: typeof body.title === 'string' ? body.title : 'Knowledge section',
+          updatedAt: '2026-07-03T00:04:00Z',
+        },
+        requestId: 'req-save-section',
       })
     }
     if (url.pathname.endsWith('/reports/rpt-knowledge-selection/sections')) {
@@ -1111,9 +1133,126 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByLabelText('章节正文')).toHaveValue(streamedBody)
     expect(screen.queryByDisplayValue(new RegExp(previousPersistedBody))).not.toBeInTheDocument()
     expect(screen.queryByDisplayValue(/content/)).not.toBeInTheDocument()
-    expect(screen.queryByDisplayValue(/Metric/)).not.toBeInTheDocument()
-    expect(screen.queryByDisplayValue(/Peak load/)).not.toBeInTheDocument()
+    expect((screen.getByLabelText('章节正文') as HTMLTextAreaElement).value).not.toMatch(/Metric/)
+    expect((screen.getByLabelText('章节正文') as HTMLTextAreaElement).value).not.toMatch(
+      /Peak load/,
+    )
+    const tableRegion = await screen.findByLabelText('章节表格')
+    expect(within(tableRegion).getByLabelText('表格 1 表头 1')).toHaveValue('Metric')
+    expect(within(tableRegion).getByLabelText('表格 1 表头 2')).toHaveValue('Value')
+    expect(within(tableRegion).getByLabelText('表格 1 第 1 行第 1 列')).toHaveValue('Peak load')
+    expect(within(tableRegion).getByLabelText('表格 1 第 1 行第 2 列')).toHaveValue('102 MW')
     expect(screen.queryByText(/实时正文预览/)).not.toBeInTheDocument()
+  })
+
+  it('renders persisted generated section tables beside the section editor', async () => {
+    const contentBodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      createKnowledgeSelectionFetchMock({
+        contentBodies,
+        contentJobStatus: 'succeeded',
+        sections: [
+          {
+            content: '已生成正文',
+            generatedAt: '2026-07-03T00:02:30Z',
+            generationStatus: 'succeeded',
+            id: 'section-knowledge',
+            numbering: '1',
+            reportId: 'rpt-knowledge-selection',
+            sortOrder: 1,
+            tables: [
+              {
+                footnote: '按运行日报估算',
+                headers: ['指标', '数值'],
+                rows: [
+                  ['最高负荷', '102 MW'],
+                  ['平均煤耗', '298 g/kWh'],
+                ],
+              },
+            ],
+            title: 'Knowledge section',
+          },
+        ],
+      }),
+    )
+
+    renderWithProviders(<ReportGeneratePage />)
+
+    await createReportAndReachOutlineStep()
+    fireEvent.click(screen.getByRole('button', { name: /^生成正文$/ }))
+
+    expect(await screen.findByDisplayValue('已生成正文')).toBeVisible()
+    expect(screen.getByLabelText('章节正文')).toHaveValue('已生成正文')
+    expect((screen.getByLabelText('章节正文') as HTMLTextAreaElement).value).not.toMatch(/最高负荷/)
+
+    const tableRegion = await screen.findByLabelText('章节表格')
+    expect(within(tableRegion).getByLabelText('表格 1 表头 1')).toHaveValue('指标')
+    expect(within(tableRegion).getByLabelText('表格 1 表头 2')).toHaveValue('数值')
+    expect(within(tableRegion).getByLabelText('表格 1 第 1 行第 1 列')).toHaveValue('最高负荷')
+    expect(within(tableRegion).getByLabelText('表格 1 第 1 行第 2 列')).toHaveValue('102 MW')
+    expect(within(tableRegion).getByLabelText('表格 1 第 2 行第 1 列')).toHaveValue('平均煤耗')
+    expect(within(tableRegion).getByLabelText('表格 1 第 2 行第 2 列')).toHaveValue('298 g/kWh')
+    expect(within(tableRegion).getByLabelText('表格 1 备注')).toHaveValue('按运行日报估算')
+  })
+
+  it('saves edited generated section tables with the section body', async () => {
+    const contentBodies: Record<string, unknown>[] = []
+    const saveSectionBodies: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      'fetch',
+      createKnowledgeSelectionFetchMock({
+        contentBodies,
+        contentJobStatus: 'succeeded',
+        saveSectionBodies,
+        sections: [
+          {
+            content: '已生成正文',
+            generatedAt: '2026-07-03T00:02:30Z',
+            generationStatus: 'succeeded',
+            id: 'section-knowledge',
+            numbering: '1',
+            reportId: 'rpt-knowledge-selection',
+            sortOrder: 1,
+            tables: [
+              {
+                footnote: '按运行日报估算',
+                headers: ['指标', '数值'],
+                rows: [['最高负荷', '102 MW']],
+              },
+            ],
+            title: 'Knowledge section',
+          },
+        ],
+      }),
+    )
+
+    renderWithProviders(<ReportGeneratePage />)
+
+    await createReportAndReachOutlineStep()
+    fireEvent.click(screen.getByRole('button', { name: /^生成正文$/ }))
+
+    const tableRegion = await screen.findByLabelText('章节表格')
+    fireEvent.change(within(tableRegion).getByLabelText('表格 1 第 1 行第 2 列'), {
+      target: { value: '108 MW' },
+    })
+    fireEvent.change(within(tableRegion).getByLabelText('表格 1 备注'), {
+      target: { value: '人工校核' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^保存章节$/ }))
+
+    await waitFor(() => expect(saveSectionBodies).toHaveLength(1))
+    expect(saveSectionBodies[0]).toMatchObject({
+      content: '已生成正文',
+      tables: [
+        {
+          footnote: '人工校核',
+          headers: ['指标', '数值'],
+          rows: [['最高负荷', '108 MW']],
+        },
+      ],
+      title: 'Knowledge section',
+    })
   })
 
   it('does not duplicate streamed section text when polling returns persisted content during a live job', async () => {
@@ -1340,12 +1479,13 @@ describe('ReportGeneratePage', () => {
     expect(await screen.findByText(/restore progress 1 \/ 2/)).toBeVisible()
     expect((await screen.findAllByText('restore-section-1')).length).toBeGreaterThan(0)
     const sectionList = screen.getByLabelText('章节列表')
-    expect(sectionList).not.toHaveClass('lg:max-h-[620px]')
-    expect(sectionList).not.toHaveClass('lg:overflow-y-auto')
+    expect(sectionList).toHaveClass('flex')
+    expect(sectionList).toHaveClass('self-stretch')
     const sectionScroller = sectionList.querySelector('.space-y-2')
     expect(sectionScroller).toBeInstanceOf(HTMLElement)
-    expect(sectionScroller).toHaveClass('max-h-[28rem]')
+    expect(sectionScroller).toHaveClass('flex-1')
     expect(sectionScroller).toHaveClass('overflow-y-auto')
+    expect(sectionScroller).not.toHaveClass('max-h-[28rem]')
     expect(sectionScroller).not.toHaveClass('max-h-64')
 
     firstRender.unmount()

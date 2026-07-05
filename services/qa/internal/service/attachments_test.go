@@ -326,6 +326,38 @@ func TestAttachmentServiceUploadRejectsUnsupportedContentType(t *testing.T) {
 	}
 }
 
+func TestAttachmentServiceUploadAcceptsRuntimeParseDocumentTypes(t *testing.T) {
+	cases := []string{
+		"application/pdf",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation",
+		"text/csv",
+		"text/markdown",
+		"text/html",
+		"application/json",
+	}
+	for _, contentType := range cases {
+		t.Run(contentType, func(t *testing.T) {
+			repo := &attachmentRepoStub{conversation: Conversation{ID: "sess-1"}}
+			svc, err := NewAttachmentService(repo, &testFileClient{data: map[string][]byte{}}, testParserClient{}, AttachmentServiceConfig{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := svc.Upload(context.Background(), "user-1", "sess-1", CreateAttachmentInput{
+				Filename: "manual.dat", ContentType: contentType + "; charset=utf-8", SizeBytes: 4,
+				Body: bytes.NewReader([]byte("test")),
+			})
+			if err != nil {
+				t.Fatalf("Upload() error = %v", err)
+			}
+			if result.Attachment.ContentType != contentType {
+				t.Fatalf("content type = %q, want %q", result.Attachment.ContentType, contentType)
+			}
+		})
+	}
+}
+
 func TestAttachmentServiceUploadRejectsSessionSizeQuota(t *testing.T) {
 	repo := &attachmentRepoStub{
 		conversation: Conversation{ID: "sess-1"},

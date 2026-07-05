@@ -25,6 +25,9 @@ func setRequiredEnvironment(t *testing.T) {
 	t.Setenv("KNOWLEDGE_MCP_TOKEN_HEADER", "")
 	t.Setenv("KNOWLEDGE_MCP_ALIAS", "")
 	t.Setenv("KNOWLEDGE_MCP_TIMEOUT", "")
+	t.Setenv("KNOWLEDGE_RUNTIME_URL", "")
+	t.Setenv("KNOWLEDGE_RUNTIME_SERVICE_TOKEN", "")
+	t.Setenv("KNOWLEDGE_RUNTIME_TOKEN_HEADER", "")
 }
 
 func TestLoadDefaultConfiguration(t *testing.T) {
@@ -43,6 +46,10 @@ func TestLoadDefaultConfiguration(t *testing.T) {
 		cfg.KnowledgeMCPTokenHeader != "X-Service-Token" || cfg.KnowledgeMCPAlias != "knowledge" ||
 		cfg.KnowledgeMCPTimeout != 30*time.Second {
 		t.Fatalf("unexpected Knowledge MCP defaults: %+v", cfg)
+	}
+	if cfg.KnowledgeRuntimeURL != "" || cfg.KnowledgeRuntimeToken != "test-service-token" ||
+		cfg.KnowledgeRuntimeTokenHeader != "X-Service-Token" {
+		t.Fatalf("unexpected Knowledge runtime defaults: %+v", cfg)
 	}
 	if cfg.HTTPAddr != ":8084" || cfg.ShutdownTimeout != 10*time.Second || cfg.MaxRequestBytes != 1<<20 {
 		t.Fatalf("unexpected HTTP defaults: %+v", cfg)
@@ -66,6 +73,37 @@ func TestLoadDefaultConfiguration(t *testing.T) {
 		if !strings.Contains(cfg.SystemPrompt, want) {
 			t.Fatalf("default system prompt missing %q", want)
 		}
+	}
+}
+
+func TestLoadKnowledgeRuntimeParserConfiguration(t *testing.T) {
+	setRequiredEnvironment(t)
+	t.Setenv("KNOWLEDGE_RUNTIME_URL", "http://127.0.0.1:9380")
+	t.Setenv("KNOWLEDGE_RUNTIME_SERVICE_TOKEN", "runtime-token")
+	t.Setenv("KNOWLEDGE_RUNTIME_TOKEN_HEADER", "X-Runtime-Token")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.KnowledgeRuntimeURL != "http://127.0.0.1:9380" ||
+		cfg.KnowledgeRuntimeToken != "runtime-token" ||
+		cfg.KnowledgeRuntimeTokenHeader != "X-Runtime-Token" {
+		t.Fatalf("unexpected Knowledge runtime config: %+v", cfg)
+	}
+}
+
+func TestLoadRejectsInvalidKnowledgeRuntimeConfiguration(t *testing.T) {
+	for name, setup := range map[string]func(*testing.T){
+		"url":    func(t *testing.T) { t.Setenv("KNOWLEDGE_RUNTIME_URL", "file:///tmp/runtime") },
+		"header": func(t *testing.T) { t.Setenv("KNOWLEDGE_RUNTIME_TOKEN_HEADER", "bad:header") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			setRequiredEnvironment(t)
+			setup(t)
+			if _, err := Load(); err == nil {
+				t.Fatal("expected invalid Knowledge runtime configuration to fail")
+			}
+		})
 	}
 }
 

@@ -10,7 +10,7 @@ import {
 
 import { DEFAULT_ADMIN_USERS_SEARCH, normalizeAdminUsersSearch } from '@/features/auth'
 import { AppLayout } from '@/layouts/app-layout'
-import { adminShellAccess } from '@/lib/access'
+import { adminShellAccess, reportTemplateManagementAccess } from '@/lib/access'
 import type { PermissionRequirement } from '@/lib/permissions'
 import { canAccess } from '@/lib/permissions'
 import { KnowledgeConfig } from '@/pages/admin/knowledge-config'
@@ -285,7 +285,7 @@ const reportRecordsRoute = createRoute({
 const reportTemplatesRoute = createRoute({
   getParentRoute: () => reportsRoute,
   path: 'templates',
-  beforeLoad: requireAuth(reportWriteAccess),
+  beforeLoad: requireAuth(reportTemplateManagementAccess),
   component: ReportTemplatesPage,
 })
 
@@ -483,7 +483,7 @@ const adminReportRecordsRoute = createRoute({
 const adminReportTemplatesRoute = createRoute({
   getParentRoute: () => adminRoute,
   path: 'reports/templates',
-  beforeLoad: requireAuth(reportWriteAccess),
+  beforeLoad: requireAuth(reportTemplateManagementAccess),
   component: ReportTemplatesPage,
 })
 

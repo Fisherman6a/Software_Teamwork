@@ -290,7 +290,11 @@ func generateSearchSummary(results []RetrievalTestResult, startCitationNo int) s
 		return `{"hit_count": 0, "message": "No relevant results found"}`
 	}
 
+	results = dedupeRetrievalResultsByContent(results)
 	totalHits := len(results)
+	if totalHits == 0 {
+		return `{"hit_count": 0, "message": "No relevant results found"}`
+	}
 	maxResults := totalHits
 	if maxResults > 10 {
 		maxResults = 10
@@ -359,6 +363,40 @@ func generateSearchSummary(results []RetrievalTestResult, startCitationNo int) s
 	}
 	payload, _ := json.Marshal(truncatedSummary)
 	return string(payload)
+}
+
+func dedupeRetrievalResultsByContent(results []RetrievalTestResult) []RetrievalTestResult {
+	if len(results) < 2 {
+		return results
+	}
+	seen := map[string]struct{}{}
+	deduped := make([]RetrievalTestResult, 0, len(results))
+	for _, result := range results {
+		key := retrievalResultContentKey(result)
+		if key == "" {
+			key = strings.Join([]string{result.KnowledgeBaseID, result.DocumentID, result.ChunkID}, "\x00")
+		}
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		deduped = append(deduped, result)
+	}
+	return deduped
+}
+
+func retrievalResultContentKey(result RetrievalTestResult) string {
+	return normalizedCitationTextKey(result.ContentPreview)
+}
+
+func normalizedCitationTextKey(value string) string {
+	fields := strings.Fields(strings.TrimSpace(value))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Join(fields, " ")
 }
 
 func truncateString(s string, maxLen int) string {

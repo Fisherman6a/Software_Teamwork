@@ -153,8 +153,8 @@ export function useAttachmentUpload(
   )
 
   const uploadFile = useCallback(
-    async (file: File) => {
-      if (!sessionId) return
+    async (file: File, targetSessionId = sessionId) => {
+      if (!targetSessionId) return
 
       // Clean up the previous upload's real attachment (if any) so it doesn't
       // become an orphan consuming quota on the backend.
@@ -167,7 +167,7 @@ export function useAttachmentUpload(
       }
 
       const token = ++uploadTokenRef.current
-      uploadSessionIdRef.current = sessionId
+      uploadSessionIdRef.current = targetSessionId
       realAttachmentIdRef.current = null
 
       // Cancel any previous in-flight request
@@ -178,7 +178,7 @@ export function useAttachmentUpload(
       setState({ phase: 'uploading', filename: file.name })
 
       try {
-        const attachment = await uploadSessionAttachment(sessionId, file, controller.signal)
+        const attachment = await uploadSessionAttachment(targetSessionId, file, controller.signal)
         if (token !== uploadTokenRef.current) return
         realAttachmentIdRef.current = attachment.id
         startPoll(attachment, 0, token)

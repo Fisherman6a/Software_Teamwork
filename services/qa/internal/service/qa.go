@@ -417,10 +417,8 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	defer release()
 
 	now := s.now().UTC()
-	intent := input.Mode
-	if intent == "" {
-		intent = "unknown"
-	}
+	intent := resolveAskIntent(input)
+	input.Mode = intent
 	userMessage := Message{ID: newID("msg"), ConversationID: conversationID, Role: agent.RoleUser, Content: strings.TrimSpace(input.Message), Intent: intent, Status: "completed", CreatedAt: now}
 	assistantMessage := Message{ID: newID("msg"), ConversationID: conversationID, Role: agent.RoleAssistant, Intent: intent, Status: "streaming", CreatedAt: now}
 
@@ -488,7 +486,7 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	}
 	for _, item := range history.Items {
 		if item.Status == "completed" && (item.Role == agent.RoleUser || item.Role == agent.RoleAssistant) {
-			messages = append(messages, agent.Message{Role: item.Role, Content: item.Content})
+			messages = append(messages, agent.Message{Role: item.Role, Content: messageContentForAgent(item)})
 		}
 	}
 	messages = append(messages, agent.Message{Role: agent.RoleUser, Content: userMessage.Content})
@@ -651,6 +649,16 @@ func (s *QAService) Ask(ctx context.Context, userID, conversationID string, inpu
 	}, onToolObservation)
 	if runErr == nil && invocationErr != nil {
 		runErr = fmt.Errorf("save model invocation: %w", invocationErr)
+	}
+	if errors.Is(runErr, agent.ErrMaxIterations) {
+		if content, ok := asyncReportCompletionMessage(toolObservations); ok {
+			result.Final = agent.Message{Role: agent.RoleAssistant, Content: content}
+			if result.Iterations == 0 {
+				result.Iterations = maxStartedIteration(iterationStartedAt)
+			}
+			result.Messages = append(result.Messages, result.Final)
+			runErr = nil
+		}
 	}
 	if runErr != nil {
 		status, reason, errorCode, publicMessage := classifyRunError(runErr)
@@ -1043,6 +1051,58 @@ func validateAskInput(input AskInput) error {
 	return nil
 }
 
+func resolveAskIntent(input AskInput) string {
+	mode := strings.TrimSpace(input.Mode)
+	if mode != "" && mode != "unknown" {
+		return mode
+	}
+	message := strings.ToLower(strings.TrimSpace(input.Message))
+	if hasAny(message, []string{
+		"报告生成",
+		"生成报告",
+		"写报告",
+		"出报告",
+		"导出报告",
+		"生成docx",
+		"生成 docx",
+		"导出docx",
+		"导出 docx",
+		"generate report",
+		"create report",
+		"write report",
+		"export report",
+		"report generation",
+		"docx report",
+	}) {
+		return "report_generation"
+	}
+	if isGeneralChatIntentMessage(message) {
+		return "general_chat"
+	}
+	return "knowledge_qa"
+}
+
+func isGeneralChatIntentMessage(message string) bool {
+	message = strings.Trim(message, " \t\r\n.,!?！？。~，")
+	if message == "" {
+		return false
+	}
+	switch message {
+	case "你好", "您好", "早上好", "下午好", "晚上好", "谢谢", "感谢", "hello", "hi", "thanks", "thank you":
+		return true
+	}
+	return utf8.RuneCountInString(message) <= 12 && hasAny(message, []string{"你是谁", "谢谢", "感谢", "who are you"})
+}
+
+func hasAny(value string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateAskRetrieval(retrieval RetrievalOptions) error {
 	fields := map[string]string{}
 	if (retrieval.topKSet || retrieval.TopK != 0) && (retrieval.TopK <= 0 || retrieval.TopK > 100) {
@@ -1111,6 +1171,82 @@ func requestDirective(input AskInput) string {
 		parts = append(parts, "When a knowledge tool supports knowledge-base filtering, restrict it to: "+strings.Join(knowledgeBaseIDs, ", ")+".")
 	}
 	return strings.Join(parts, " ")
+}
+
+func messageContentForAgent(message Message) string {
+	content := message.Content
+	if message.Role != agent.RoleAssistant || len(message.Artifacts) == 0 {
+		return content
+	}
+	context := reportArtifactContext(message.Artifacts)
+	if context == "" {
+		return content
+	}
+	if strings.TrimSpace(content) == "" {
+		return context
+	}
+	return content + "\n\n" + context
+}
+
+func reportArtifactContext(artifacts []ReportArtifact) string {
+	lines := make([]string, 0, len(artifacts)+1)
+	for _, artifact := range artifacts {
+		if artifact == nil || artifactString(artifact, "artifactType") != "report_generation" {
+			continue
+		}
+		parts := make([]string, 0, 8)
+		for _, field := range []string{"reportId", "jobId", "jobType", "jobStatus", "reportStatus", "reportFileId", "fileStatus", "reportName"} {
+			if value := safeReportArtifactContextValue(artifact, field); value != "" {
+				parts = append(parts, field+"="+value)
+			}
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		lines = append(lines, "- "+strings.Join(parts, ", "))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Available report artifacts from previous assistant turns. Reuse these IDs for follow-up report generation requests instead of creating a new report unless the user asks for a new report:\n" + strings.Join(lines, "\n")
+}
+
+func safeReportArtifactContextValue(artifact ReportArtifact, key string) string {
+	value := artifactString(artifact, key)
+	if value == "" || containsUnsafeReportArtifactContextValue(value) {
+		return ""
+	}
+	return value
+}
+
+func artifactString(artifact ReportArtifact, key string) string {
+	value, ok := artifact[key].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func containsUnsafeReportArtifactContextValue(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(trimmed, "/api/v1/report-files/") || strings.HasPrefix(trimmed, "/api/v1/reports/") {
+		return false
+	}
+	if strings.Contains(lower, "://") {
+		return true
+	}
+	for _, marker := range []string{
+		"api_key", "apikey", "authorization:", "bearer ", "token=", "sk-",
+		"object key", "objectkey", "file_ref", "system prompt", "developer prompt",
+		"tool arguments", "tool result", "mcp result", "raw provider", "provider raw",
+		"raw error", "localhost", "127.0.0.1", "minio",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func toolProgressPayload(summary string, event agent.Event, observation agent.ToolObservation, modelInvocationID string, includeResult bool) map[string]any {

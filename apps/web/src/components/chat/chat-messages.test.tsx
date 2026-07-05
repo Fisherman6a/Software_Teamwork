@@ -424,6 +424,41 @@ describe('ChatMessages ThinkPanel', () => {
     expect(screen.getByText('纯文本回答')).toBeInTheDocument()
   })
 
+  it('persists the assistant message like state in localStorage', () => {
+    const message = {
+      content: '纯文本回答',
+      createdAt: '2026-07-03T00:00:00.000Z',
+      id: 'assistant-like-1',
+      role: 'assistant',
+      sessionId: 'session-1',
+      status: 'completed',
+      thinking: [],
+    } satisfies QAMessage
+
+    const view = renderMessage(message)
+    const likeButton = screen.getByRole('button', { name: '点赞此回答' })
+
+    expect(likeButton).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(likeButton)
+
+    expect(screen.getByRole('button', { name: '取消点赞此回答' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(window.localStorage.getItem('qa-message-likes')).toBe(
+      JSON.stringify({ 'assistant-like-1': true }),
+    )
+
+    view.unmount()
+    renderMessage(message)
+
+    expect(screen.getByRole('button', { name: '取消点赞此回答' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
   it('keeps report artifacts visible at message level after completion', () => {
     const onArtifactDownload = vi.fn()
     const artifact: QAReportArtifact = {
@@ -463,6 +498,280 @@ describe('ChatMessages ThinkPanel', () => {
       '/api/v1/report-files/file-1/content',
       '巡检报告.docx',
     )
+  })
+
+  it('polls active report artifact jobs and renders completed over total progress', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            createdAt: '2026-07-03T00:00:00Z',
+            id: 'job-progress',
+            jobType: 'content_generation',
+            progress: { completed: 2, total: 4 },
+            reportId: 'report-progress',
+            status: 'running',
+          },
+          requestId: 'req-job-progress',
+        }),
+        {
+          headers: { 'Content-Type': 'application/json' },
+          status: 200,
+        },
+      ),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const artifact: QAReportArtifact = {
+      artifactType: 'report_generation',
+      jobId: 'job-progress',
+      jobStatus: 'accepted',
+      jobType: 'content_generation',
+      reportId: 'report-progress',
+      reportName: '巡检报告',
+    }
+
+    renderMessage({
+      ...assistantWithThinking([], '报告生成中'),
+      artifacts: [artifact],
+    } as QAMessage & { artifacts: QAReportArtifact[] })
+
+    expect(await screen.findByText('生成进度')).toBeInTheDocument()
+    expect(screen.getByText('2/4')).toBeInTheDocument()
+    expect(screen.getByText('生成中')).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled()
+    })
+    const request = fetchMock.mock.calls[0]?.[0]
+    expect(request).toBeInstanceOf(Request)
+    expect(request instanceof Request ? new URL(request.url).pathname : undefined).toBe(
+      '/api/v1/report-jobs/job-progress',
+    )
+  })
+
+  it('creates a DOCX report file before downloading a completed artifact without file metadata', async () => {
+    const onArtifactDownload = vi.fn()
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      const url = new URL(request.url)
+
+      if (request.method === 'POST' && url.pathname === '/api/v1/report-files') {
+        return new Response(
+          JSON.stringify({
+            data: {
+              createdAt: '2026-07-03T00:00:00Z',
+              filename: '巡检报告.docx',
+              format: 'docx',
+              id: 'file-created',
+              jobId: 'job-export',
+              reportId: 'report-download',
+              status: 'pending',
+            },
+            requestId: 'req-create-file',
+          }),
+          {
+            headers: { 'Content-Type': 'application/json' },
+            status: 202,
+          },
+        )
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/report-files/file-created') {
+        return new Response(
+          JSON.stringify({
+            data: {
+              contentPath: '/api/v1/report-files/file-created/content',
+              createdAt: '2026-07-03T00:00:00Z',
+              filename: '巡检报告.docx',
+              format: 'docx',
+              id: 'file-created',
+              jobId: 'job-export',
+              reportId: 'report-download',
+              status: 'succeeded',
+            },
+            requestId: 'req-get-file',
+          }),
+          {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200,
+          },
+        )
+      }
+
+      return new Response(JSON.stringify({ error: { code: 'not_found', message: 'not found' } }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 404,
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const artifact: QAReportArtifact = {
+      artifactType: 'report_generation',
+      jobId: 'job-outline',
+      jobStatus: 'succeeded',
+      jobType: 'outline_generation',
+      reportId: 'report-download',
+      reportName: '巡检报告',
+    }
+
+    renderMessage(
+      {
+        ...assistantWithThinking([], '报告已生成'),
+        artifacts: [artifact],
+        status: 'completed',
+      } as QAMessage & { artifacts: QAReportArtifact[] },
+      onArtifactDownload,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /生成并下载/ }))
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(expect.any(Request))
+      expect(onArtifactDownload).toHaveBeenCalledWith(
+        '/api/v1/report-files/file-created/content',
+        '巡检报告.docx',
+      )
+    })
+
+    const createRequest = fetchMock.mock.calls
+      .map((call) => call[0])
+      .find(
+        (input): input is Request =>
+          input instanceof Request && new URL(input.url).pathname === '/api/v1/report-files',
+      )
+    expect(createRequest?.method).toBe('POST')
+    await expect(createRequest?.json()).resolves.toMatchObject({
+      format: 'docx',
+      reportId: 'report-download',
+    })
+  })
+
+  it('opens and saves QA report artifact sections from the document editor', async () => {
+    const patchBodies: unknown[] = []
+    const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init)
+      const url = new URL(request.url)
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/reports/report-edit') {
+        return new Response(
+          JSON.stringify({
+            data: {
+              createdAt: '2026-07-03T00:00:00Z',
+              id: 'report-edit',
+              name: '巡检报告',
+              reportType: 'inspection',
+              status: 'generated',
+            },
+            requestId: 'req-report',
+          }),
+          {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200,
+          },
+        )
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/v1/reports/report-edit/sections') {
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                content: '原始正文',
+                generationStatus: 'succeeded',
+                id: 'section-1',
+                level: 1,
+                numbering: '1',
+                reportId: 'report-edit',
+                tables: [
+                  {
+                    headers: ['项目', '结果'],
+                    rows: [['油温', '正常']],
+                  },
+                ],
+                title: '运行概况',
+              },
+            ],
+            requestId: 'req-sections',
+          }),
+          {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200,
+          },
+        )
+      }
+
+      if (
+        request.method === 'PATCH' &&
+        url.pathname === '/api/v1/reports/report-edit/sections/section-1'
+      ) {
+        patchBodies.push(await request.json())
+        return new Response(
+          JSON.stringify({
+            data: {
+              content: '已编辑正文',
+              generationStatus: 'succeeded',
+              id: 'section-1',
+              level: 1,
+              manualEdited: true,
+              numbering: '1',
+              reportId: 'report-edit',
+              title: '运行概况',
+            },
+            requestId: 'req-save-section',
+          }),
+          {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200,
+          },
+        )
+      }
+
+      return new Response(JSON.stringify({ error: { code: 'not_found', message: 'not found' } }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 404,
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const artifact: QAReportArtifact = {
+      artifactType: 'report_generation',
+      jobStatus: 'succeeded',
+      reportId: 'report-edit',
+      reportName: '巡检报告',
+    }
+
+    renderMessage({
+      ...assistantWithThinking([], '报告已生成'),
+      artifacts: [artifact],
+      status: 'completed',
+    } as QAMessage & { artifacts: QAReportArtifact[] })
+
+    fireEvent.click(screen.getByRole('button', { name: /查看编辑/ }))
+
+    expect(await screen.findByText('文档章节')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('原始正文')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: '项目' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('章节正文'), {
+      target: { value: '已编辑正文' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /保存章节/ }))
+
+    await waitFor(() => {
+      expect(patchBodies).toHaveLength(1)
+    })
+    expect(patchBodies[0]).toMatchObject({
+      content: '已编辑正文',
+      manualEdited: true,
+      tables: [
+        {
+          headers: ['项目', '结果'],
+          rows: [['油温', '正常']],
+        },
+      ],
+      title: '运行概况',
+    })
   })
 })
 

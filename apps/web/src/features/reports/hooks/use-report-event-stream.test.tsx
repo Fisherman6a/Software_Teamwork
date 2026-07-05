@@ -174,6 +174,13 @@ describe('useReportEventStream', () => {
     expect(result.current.sectionTextById['section-1']).not.toContain('Metric')
     expect(result.current.sectionTextById['section-1']).not.toContain('Peak load')
     expect(result.current.sectionTextById['section-1']).not.toContain('table-only evidence')
+    expect(result.current.sectionTablesById['section-1']).toEqual([
+      {
+        footnote: 'table-only evidence',
+        headers: ['Metric', 'Value'],
+        rows: [['Peak load', '102 MW']],
+      },
+    ])
   })
 
   it('continues typing readable body text from partial JSON chunks', () => {

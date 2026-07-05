@@ -45,6 +45,7 @@ import {
   getCreateReportDefaults,
   getReportMaterialDisplayDetails,
   isReportTypeDraftDefaultValue,
+  ReportSectionTables,
   useCancelReportJob,
   useCreateReportFileMutation,
   useCreateReportJobMutation,
@@ -96,7 +97,13 @@ type StreamedSectionDraft = {
   userEdited: boolean
 }
 
+type SectionTableDraft = {
+  tables: Record<string, unknown>[]
+  userEdited: boolean
+}
+
 const maxOutlineUndoSteps = 15
+const emptyReportSectionTables: Record<string, unknown>[] = []
 
 function cloneOutline(nodes: ReportOutlineNode[]): ReportOutlineNode[] {
   return nodes.map((node) => ({
@@ -766,6 +773,9 @@ export function ReportGeneratePage() {
     () => restoredSession?.activeSectionId ?? '',
   )
   const [sectionDraft, setSectionDraft] = useState('')
+  const [sectionTableDrafts, setSectionTableDrafts] = useState<Record<string, SectionTableDraft>>(
+    {},
+  )
   const [streamedSectionDrafts, setStreamedSectionDrafts] = useState<
     Record<string, StreamedSectionDraft>
   >({})
@@ -876,6 +886,12 @@ export function ReportGeneratePage() {
     [currentOutlineSections, effectiveJob, sectionGenerationReset],
   )
   const activeSection = sections.find((item) => item.id === activeSectionId) ?? sections[0]
+  const activeSectionTableDraft = activeSection ? sectionTableDrafts[activeSection.id] : undefined
+  const activeSectionTables = activeSection
+    ? (activeSectionTableDraft?.tables ??
+      reportEventStream.sectionTablesById[activeSection.id] ??
+      activeSection.tables)
+    : undefined
   const selectedTemplate = templates.find((template) => template.id === form.templateId)
   const selectedReportType = reportTypes.find(
     (type) => type.code === (currentReport?.reportType ?? form.reportType),
@@ -952,6 +968,7 @@ export function ReportGeneratePage() {
   useEffect(() => {
     if (!isContentLiveGenerationJob || !reportEventStreamResetKey) return
     setStreamedSectionDrafts({})
+    setSectionTableDrafts({})
     setManuallyEditedSectionDraftIds([])
   }, [isContentLiveGenerationJob, reportEventStreamResetKey])
 
@@ -1019,6 +1036,25 @@ export function ReportGeneratePage() {
       setSectionDraft('')
     }
   }, [activeSection, streamedSectionDrafts])
+
+  useEffect(() => {
+    if (!activeSection) return
+    const streamedTables = reportEventStream.sectionTablesById[activeSection.id]
+    const sourceTables = streamedTables ?? activeSection.tables ?? emptyReportSectionTables
+
+    setSectionTableDrafts((prev) => {
+      const existing = prev[activeSection.id]
+      if (existing?.userEdited) return prev
+      if (existing && existing.tables === sourceTables) return prev
+      return {
+        ...prev,
+        [activeSection.id]: {
+          tables: sourceTables,
+          userEdited: false,
+        },
+      }
+    })
+  }, [activeSection, reportEventStream.sectionTablesById])
 
   useEffect(() => {
     if (jobQuery.data) {
@@ -1228,12 +1264,24 @@ export function ReportGeneratePage() {
     })
   }
 
+  const handleSectionTablesChange = (tables: Record<string, unknown>[]) => {
+    if (!activeSection) return
+    setSectionTableDrafts((prev) => ({
+      ...prev,
+      [activeSection.id]: {
+        tables,
+        userEdited: true,
+      },
+    }))
+  }
+
   const handleRestartDraft = () => {
     writeReportGenerateSession(null)
     setStep('draft')
     setForm(createInitialReportForm())
     setSelectedMaterialIds([])
     setSelectedKnowledgeBaseIds([])
+    setSectionTableDrafts({})
     setStreamedSectionDrafts({})
     setManuallyEditedSectionDraftIds([])
     setCurrentReport(null)
@@ -1295,6 +1343,7 @@ export function ReportGeneratePage() {
     setLastJob(null)
     setActiveSectionId('')
     setSectionDraft('')
+    setSectionTableDrafts({})
     setShowVersions(false)
     setLatestFile(null)
     setOutlineEditor({ future: [], nodes: [], past: [], sourceKey: '' })
@@ -1412,11 +1461,20 @@ export function ReportGeneratePage() {
     }
 
     try {
+      const tables =
+        activeSectionTableDraft?.userEdited && activeSectionTables ? activeSectionTables : undefined
       await saveSectionMutation.mutateAsync({
         sectionId: activeSection.id,
+        tables,
         title: activeSection.title,
         content: sectionDraft,
       })
+      if (tables) {
+        setSectionTableDrafts((prev) => ({
+          ...prev,
+          [activeSection.id]: { tables, userEdited: false },
+        }))
+      }
       setNotice('章节正文已保存。')
     } catch (error) {
       setNotice(formatReportGatewayError(error, '章节保存失败'))
@@ -2151,9 +2209,9 @@ export function ReportGeneratePage() {
                 />
               ) : (
                 <>
-                  <div aria-label="章节列表" className="min-h-0">
+                  <div aria-label="章节列表" className="flex min-h-0 flex-col self-stretch">
                     <h2 className="mb-3 text-base font-semibold">章节列表</h2>
-                    <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+                    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                       {sections.map((section) => (
                         <button
                           key={section.id}
@@ -2271,6 +2329,13 @@ export function ReportGeneratePage() {
                       maxLength={50000}
                       value={sectionDraft}
                       onChange={(event) => handleSectionDraftChange(event.target.value)}
+                    />
+
+                    <ReportSectionTables
+                      className="mt-4 space-y-3"
+                      editable
+                      tables={activeSectionTables}
+                      onChange={handleSectionTablesChange}
                     />
                   </div>
                 </>

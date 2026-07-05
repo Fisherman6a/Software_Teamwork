@@ -76,7 +76,7 @@ func New(ctx context.Context, cfg config.Config, observer agent.Observer) (*Runt
 		MaxToolResultBytes:     cfg.MaxToolResultBytes,
 		Observer:               observer,
 		ReasoningFilterFactory: service.NewReasoningFilter,
-		ToolResultPolicy:       service.KnowledgeRetrievalStopPolicy,
+		ToolResultPolicy:       service.AgentToolResultPolicy,
 	})
 	if err != nil {
 		closeRemote(remoteTools)

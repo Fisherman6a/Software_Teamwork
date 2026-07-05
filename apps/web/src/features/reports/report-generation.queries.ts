@@ -15,6 +15,7 @@ import {
   deleteReportTemplate,
   downloadReportFile,
   getReport,
+  getReportFile,
   getReportJob,
   getReportSettings,
   getReportStatisticsOverview,
@@ -152,6 +153,7 @@ export const reportKeys = {
   outlines: (reportId: string) => [...reportKeys.all, reportId, 'outlines'] as const,
   sections: (reportId: string) => [...reportKeys.all, reportId, 'sections'] as const,
   job: (jobId: string) => [...reportKeys.all, 'jobs', jobId] as const,
+  file: (reportFileId: string) => [...reportKeys.all, 'files', reportFileId] as const,
   events: (reportId: string) => [...reportKeys.all, reportId, 'events'] as const,
   sectionVersions: (reportId: string, sectionId: string) =>
     [...reportKeys.all, reportId, 'sections', sectionId, 'versions'] as const,
@@ -341,13 +343,15 @@ export function useUpdateReportSectionMutation(reportId: string) {
   return useMutation({
     mutationFn: ({
       sectionId,
+      tables,
       title,
       content,
     }: {
       sectionId: string
+      tables?: Record<string, unknown>[]
       title?: string
       content?: string
-    }) => updateReportSection(reportId, sectionId, { title, content }),
+    }) => updateReportSection(reportId, sectionId, { content, tables, title }),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: reportKeys.sections(reportId),
@@ -359,6 +363,20 @@ export function useUpdateReportSectionMutation(reportId: string) {
 export function useCreateReportFileMutation() {
   return useMutation({
     mutationFn: createReportFile,
+  })
+}
+
+export function useReportFileQuery(reportFileId: string | null) {
+  return useQuery({
+    queryKey: reportKeys.file(reportFileId ?? ''),
+    queryFn: () => getReportFile(reportFileId ?? ''),
+    enabled: Boolean(reportFileId),
+    refetchInterval: (query) => {
+      const file = query.state.data
+      if (!file) return false
+      if (file.status === 'pending' || file.status === 'running') return activeReportPollIntervalMs
+      return false
+    },
   })
 }
 

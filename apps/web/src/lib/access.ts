@@ -17,3 +17,7 @@ export const adminShellAccess: PermissionRequirement = {
     'reports:write',
   ],
 }
+
+export const reportTemplateManagementAccess: PermissionRequirement = {
+  authorities: ['admin', 'super_admin', 'system:admin'],
+}

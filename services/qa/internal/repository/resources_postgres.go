@@ -786,11 +786,14 @@ func (r *Postgres) GetTopQueries(ctx context.Context, days, limit int) ([]servic
 	}
 	return items, rows.Err()
 }
+
+const intentDistributionQuery = `SELECT COALESCE(intent_type,'unknown'),count(*) FROM response_runs WHERE started_at>=now()-make_interval(days=>$1) GROUP BY COALESCE(intent_type,'unknown') ORDER BY count(*) DESC`
+
 func (r *Postgres) GetIntentDistribution(ctx context.Context, days int) ([]service.IntentDistribution, error) {
 	if days <= 0 {
 		days = 7
 	}
-	rows, err := r.pool.Query(ctx, `SELECT COALESCE(intent,'unknown'),count(*) FROM messages WHERE role='user' AND created_at>=now()-make_interval(days=>$1) GROUP BY COALESCE(intent,'unknown') ORDER BY count(*) DESC`, days)
+	rows, err := r.pool.Query(ctx, intentDistributionQuery, days)
 	if err != nil {
 		return nil, err
 	}

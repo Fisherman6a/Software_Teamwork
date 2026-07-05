@@ -1,12 +1,18 @@
 import { Link } from '@tanstack/react-router'
-import { FilePlus2, Search, Trash2 } from 'lucide-react'
+import { Download, FilePlus2, Search, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { ConfirmDialog, InlineNotice, StateBlock, TableSkeleton } from '@/components/common'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { Report } from '@/features/reports'
-import { formatReportGatewayError, useDeleteReport, useReportsQuery } from '@/features/reports'
+import {
+  formatReportGatewayError,
+  useDeleteReport,
+  useDownloadReportFileMutation,
+  useReportsQuery,
+} from '@/features/reports'
+import { downloadBlob } from '@/lib/download'
 import { canAccess } from '@/lib/permissions'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -26,9 +32,11 @@ export function ReportRecordsPage() {
   const [keyword, setKeyword] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<Report | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
   const user = useAuthStore((state) => state.user)
   const reportsQuery = useReportsQuery(keyword)
   const deleteMutation = useDeleteReport()
+  const downloadMutation = useDownloadReportFileMutation()
   const canWriteReports = canAccess(user, reportWriteAccess)
   const reports = reportsQuery.data?.items ?? []
   const reportError = reportsQuery.isError
@@ -43,6 +51,17 @@ export function ReportRecordsPage() {
       setDeleteTarget(null)
     } catch (error) {
       setDeleteError(formatReportGatewayError(error, '删除报告失败'))
+    }
+  }
+
+  const handleDownload = async (report: Report) => {
+    if (!report.latestReportFileId || downloadMutation.isPending) return
+    setDownloadError(null)
+    try {
+      const blob = await downloadMutation.mutateAsync(report.latestReportFileId)
+      downloadBlob(blob, `${report.name || 'report'}.docx`)
+    } catch (error) {
+      setDownloadError(formatReportGatewayError(error, '下载报告文件失败'))
     }
   }
 
@@ -83,6 +102,12 @@ export function ReportRecordsPage() {
         </InlineNotice>
       )}
 
+      {downloadError && (
+        <InlineNotice className="mb-4" variant="error" title="报告文件下载失败">
+          {downloadError}
+        </InlineNotice>
+      )}
+
       {reportsQuery.isLoading ? (
         <TableSkeleton columns={6} showToolbar={false} />
       ) : reportsQuery.isError ? (
@@ -104,7 +129,7 @@ export function ReportRecordsPage() {
                 <th className="px-4 py-3 font-medium">年份</th>
                 <th className="px-4 py-3 font-medium">状态</th>
                 <th className="px-4 py-3 font-medium">更新时间</th>
-                <th className="w-16 px-4 py-3 font-medium">操作</th>
+                <th className="w-28 px-4 py-3 font-medium">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -123,16 +148,28 @@ export function ReportRecordsPage() {
                     {formatDate(report.updatedAt ?? report.createdAt)}
                   </td>
                   <td className="px-4 py-3">
-                    {canWriteReports && (
+                    <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        aria-label="删除报告"
-                        onClick={() => setDeleteTarget(report)}
+                        aria-label={`下载报告 ${report.name}`}
+                        disabled={!report.latestReportFileId || downloadMutation.isPending}
+                        title={report.latestReportFileId ? '下载报告' : '暂无可下载文件'}
+                        onClick={() => void handleDownload(report)}
                       >
-                        <Trash2 className="size-3 text-destructive" />
+                        <Download className="size-3" />
                       </Button>
-                    )}
+                      {canWriteReports && (
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="删除报告"
+                          onClick={() => setDeleteTarget(report)}
+                        >
+                          <Trash2 className="size-3 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -286,6 +286,35 @@ func (documentReportToolRunner) RunWithToolResultCallback(_ context.Context, inp
 	return agent.Result{Final: final, Messages: messages, Iterations: 1}, nil
 }
 
+type maxIterationsPendingReportRunner struct{}
+
+const pendingReportToolResultContent = `{"status":"succeeded","job":{"id":"job-1","reportId":"rpt-1","jobType":"outline_generation","status":"running"}}`
+
+func (maxIterationsPendingReportRunner) RunWithObserver(ctx context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
+	return maxIterationsPendingReportRunner{}.RunWithToolResultCallback(ctx, input, observer, nil)
+}
+
+func (maxIterationsPendingReportRunner) RunWithToolResultCallback(_ context.Context, input []agent.Message, observer agent.Observer, toolObserver agent.ToolObserver) (agent.Result, error) {
+	for iteration := 1; iteration <= 2; iteration++ {
+		observer(agent.Event{Type: agent.EventModelStarted, Iteration: iteration})
+		observer(agent.Event{Type: agent.EventModelCompleted, Iteration: iteration, Usage: agent.TokenUsage{PromptTokens: 5, CompletionTokens: 2, TotalTokens: 7}})
+		observer(agent.Event{Type: agent.EventToolStarted, Iteration: iteration, ToolCallID: "call-doc-1", ToolName: "document__get_generation_status"})
+		if toolObserver != nil {
+			toolObserver(agent.ToolObservation{Type: agent.EventToolCompleted, Iteration: iteration, ToolCallID: "call-doc-1", ToolName: "document__get_generation_status", Result: pendingReportToolResultContent})
+		}
+		observer(agent.Event{Type: agent.EventToolCompleted, Iteration: iteration, ToolCallID: "call-doc-1", ToolName: "document__get_generation_status"})
+	}
+	toolResult := agent.Message{
+		Role:       agent.RoleTool,
+		Name:       "document__get_generation_status",
+		ToolCallID: "call-doc-1",
+		Content:    pendingReportToolResultContent,
+	}
+	messages := append([]agent.Message{}, input...)
+	messages = append(messages, toolResult)
+	return agent.Result{Messages: messages, Iterations: 2}, agent.ErrMaxIterations
+}
+
 func (citationToolRunner) RunWithObserver(_ context.Context, input []agent.Message, observer agent.Observer) (agent.Result, error) {
 	observer(agent.Event{Type: agent.EventModelStarted, Iteration: 1})
 	observer(agent.Event{Type: agent.EventToolStarted, Iteration: 1, ToolCallID: "call-1", ToolName: "search_knowledge"})
@@ -621,6 +650,72 @@ func TestAskPersistsConversationMessagesAndDisplayableSteps(t *testing.T) {
 	}
 }
 
+func TestAskResolvesFallbackIntent(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      AskInput
+		wantIntent string
+	}{
+		{
+			name:       "empty mode defaults to knowledge QA",
+			input:      AskInput{Message: "锅炉巡检要求是什么"},
+			wantIntent: "knowledge_qa",
+		},
+		{
+			name:       "unknown mode defaults to knowledge QA",
+			input:      AskInput{Message: "变压器油温上限", Mode: "unknown"},
+			wantIntent: "knowledge_qa",
+		},
+		{
+			name:       "report keywords classify as report generation",
+			input:      AskInput{Message: "根据附件生成报告"},
+			wantIntent: "report_generation",
+		},
+		{
+			name:       "greeting classifies as general chat",
+			input:      AskInput{Message: "你好"},
+			wantIntent: "general_chat",
+		},
+		{
+			name:       "greeting prefix with domain question remains knowledge QA",
+			input:      AskInput{Message: "你好，请问变压器油温上限是多少？"},
+			wantIntent: "knowledge_qa",
+		},
+		{
+			name:       "explicit mode wins",
+			input:      AskInput{Message: "你好", Mode: "knowledge_qa"},
+			wantIntent: "knowledge_qa",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+			runner := &fakeAgentRunner{}
+			qa, err := NewQAService(repository, fakeRuntimeProvider{runner: runner, prompt: "system prompt"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var events []ProgressEvent
+			_, err = qa.Ask(context.Background(), "user-id", "conversation-id", tt.input, func(event ProgressEvent) {
+				events = append(events, event)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(repository.messages) != 2 {
+				t.Fatalf("messages=%+v, want user and assistant messages", repository.messages)
+			}
+			if repository.messages[0].Intent != tt.wantIntent || repository.messages[1].Intent != tt.wantIntent {
+				t.Fatalf("message intents=%q/%q, want %q", repository.messages[0].Intent, repository.messages[1].Intent, tt.wantIntent)
+			}
+			if len(events) == 0 || events[0].Intent != tt.wantIntent {
+				t.Fatalf("events=%+v, want first intent %q", events, tt.wantIntent)
+			}
+		})
+	}
+}
+
 func TestAskRejectsUnsupportedDataAnalysis(t *testing.T) {
 	err := validateAskInput(AskInput{Message: "分析表格", Mode: "data_analysis"})
 	appErr, ok := Classify(err)
@@ -658,6 +753,69 @@ func TestAskAddsAttachmentAndKnowledgeRAGDirective(t *testing.T) {
 	} {
 		if !strings.Contains(directive, want) {
 			t.Fatalf("directive=%q, want %q", directive, want)
+		}
+	}
+}
+
+func TestAskAddsPreviousReportArtifactContext(t *testing.T) {
+	repository := &fakeRepository{
+		conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Title: "报告对话", Status: "active"},
+		messages: []Message{
+			{
+				ID:             "msg-user-1",
+				ConversationID: "conversation-id",
+				Role:           agent.RoleUser,
+				Content:        "生成停电操作报告目录",
+				Status:         "completed",
+			},
+			{
+				ID:             "msg-assistant-1",
+				ConversationID: "conversation-id",
+				Role:           agent.RoleAssistant,
+				Content:        "报告目录已生成。",
+				Status:         "completed",
+				Artifacts: []ReportArtifact{
+					{
+						"artifactType": "report_generation",
+						"reportId":     "report-1",
+						"jobId":        "job-1",
+						"jobType":      "outline_generation",
+						"jobStatus":    "succeeded",
+						"reportName":   "停电操作相关报告",
+					},
+				},
+			},
+		},
+	}
+	runner := &fakeAgentRunner{}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: runner, prompt: "system prompt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err = qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{
+		Message: "很好，继续生成报告正文",
+		Mode:    "report_generation",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	var artifactContext string
+	for _, message := range runner.input {
+		if message.Role == agent.RoleAssistant && strings.Contains(message.Content, "Available report artifacts") {
+			artifactContext = message.Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"reportId=report-1",
+		"jobId=job-1",
+		"jobType=outline_generation",
+		"jobStatus=succeeded",
+		"Reuse these IDs",
+	} {
+		if !strings.Contains(artifactContext, want) {
+			t.Fatalf("artifact context=%q, want %q", artifactContext, want)
 		}
 	}
 }
@@ -1151,6 +1309,32 @@ func TestAskPersistsMaxIterationsReason(t *testing.T) {
 	}
 	if len(repository.invocations) != 1 || repository.invocations[0].Status != "completed" || repository.invocations[0].TotalTokens != 5 {
 		t.Fatalf("invocations=%+v", repository.invocations)
+	}
+}
+
+func TestAskCompletesMaxIterationsWithPendingReportArtifact(t *testing.T) {
+	repository := &fakeRepository{conversation: Conversation{ID: "conversation-id", OwnerUserID: "user-id", Status: "active"}}
+	qa, err := NewQAService(repository, fakeRuntimeProvider{runner: maxIterationsPendingReportRunner{}, prompt: "system", maxIterations: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := qa.Ask(context.Background(), "user-id", "conversation-id", AskInput{Message: "generate report", Mode: "report_generation"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ResponseRun.Status != "completed" || repository.finalization.Status != "completed" || repository.finalization.TerminationReason != "completed" {
+		t.Fatalf("result=%+v finalization=%+v", result.ResponseRun, repository.finalization)
+	}
+	if !strings.Contains(result.AssistantMessage.Content, "报告生成任务已创建") {
+		t.Fatalf("assistant content=%q", result.AssistantMessage.Content)
+	}
+	if len(repository.savedEvents) == 0 || repository.savedEvents[len(repository.savedEvents)-1].EventType != "answer.completed" {
+		t.Fatalf("saved events=%+v, want answer.completed", repository.savedEvents)
+	}
+	for _, event := range repository.savedEvents {
+		if event.EventType == "error" {
+			t.Fatalf("unexpected error event after async report fallback: %+v", repository.savedEvents)
+		}
 	}
 }
 
@@ -1811,6 +1995,27 @@ func TestExtractCitationsFromToolResultSupportsKnowledgeSummaryFields(t *testing
 	}
 	if citation.Text != "" || citation.ContentPreview != "safe preview" || citation.Context != "safe context" {
 		t.Fatalf("unexpected citation text fields=%+v", citation)
+	}
+}
+
+func TestCitationsFromAgentMessagesDeduplicatesEquivalentTextAcrossChunks(t *testing.T) {
+	result := `{"results":[` +
+		`{"citation_no":1,"knowledge_base_id":"kb-1","document_id":"doc-1","document_name":"DL 572.pdf","chunk_id":"chunk-1","preview":"a）发电厂和有人值班变电站内的变压器，一般每天一次，每周进行一次夜间巡视： b）无人值班变电站内一般每10天一次。5.1.3 在下列情况下应对变压器进行特殊巡视检查，增加巡视频次。"},` +
+		`{"citation_no":2,"knowledge_base_id":"kb-2","document_id":"doc-2","document_name":"DL 572 copy.pdf","chunk_id":"chunk-2","preview":"a）发电厂和有人值班变电站内的变压器，一般每天一次，每周进行一次夜间巡视： b）无人值班变电站内一般每10天一次。5.1.3 在下列情况下应对变压器进行特殊巡视检查，增加巡视频次。"},` +
+		`{"citation_no":3,"knowledge_base_id":"kb-1","document_id":"doc-1","document_name":"DL 572.pdf","chunk_id":"chunk-3","preview":"6.4.1 变压器跳闸后，应立即查明原因。如综合判断证明变压器跳闸不是由于内部故障所引起，可重新投入运行。"}` +
+		`]}`
+
+	citations := citationsFromAgentMessages("message-1", "run-1", []agent.Message{{
+		Role: agent.RoleTool, Name: "search_knowledge", Content: result,
+	}})
+	if len(citations) != 2 {
+		t.Fatalf("citations=%+v", citations)
+	}
+	if citations[0].CitationNo != 1 || citations[0].ChunkID != "chunk-1" {
+		t.Fatalf("first citation=%+v", citations[0])
+	}
+	if citations[1].CitationNo != 2 || citations[1].ChunkID != "chunk-3" {
+		t.Fatalf("second citation=%+v", citations[1])
 	}
 }
 

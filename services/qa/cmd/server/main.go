@@ -81,7 +81,20 @@ func main() {
 		logger.Error("file client initialization failed", "service", "qa", "error", err)
 		os.Exit(1)
 	}
-	parserClient := attachmentclient.PlainTextParserClient{}
+	var parserClient service.AttachmentParserClient = attachmentclient.PlainTextParserClient{}
+	if cfg.KnowledgeRuntimeURL != "" {
+		parserClient, err = attachmentclient.NewRuntimeParserClient(attachmentclient.RuntimeParserConfig{
+			BaseURL:      cfg.KnowledgeRuntimeURL,
+			ServiceToken: cfg.KnowledgeRuntimeToken,
+			TokenHeader:  cfg.KnowledgeRuntimeTokenHeader,
+			Timeout:      cfg.AttachmentProcessTimeout,
+			MaxReadBytes: cfg.AttachmentMaxBytes,
+		})
+		if err != nil {
+			logger.Error("knowledge runtime parser client initialization failed", "service", "qa", "error", err)
+			os.Exit(1)
+		}
+	}
 	attachmentService, err := service.NewAttachmentService(repo, fileClient, parserClient, service.AttachmentServiceConfig{TTL: cfg.AttachmentTTL, MaxBytes: cfg.AttachmentMaxBytes, MaxPerSession: cfg.AttachmentMaxPerSession, ProcessTimeout: cfg.AttachmentProcessTimeout})
 	if err != nil {
 		logger.Error("attachment service initialization failed", "service", "qa", "error", err)
