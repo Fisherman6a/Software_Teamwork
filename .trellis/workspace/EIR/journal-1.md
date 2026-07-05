@@ -351,3 +351,36 @@ Removed the split local check entrypoint, moved preflight and preparation into s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: Add cloud Docker app startup
+
+**Date**: 2026-07-05
+**Task**: Add cloud Docker app startup
+**Branch**: `EIR9264/feat/docker-cloud-startup`
+
+### Summary
+
+Added an independent cloud-backed Docker app stack with wrapper scripts, cloud env template, migration and seed jobs, frontend serving, policy updates, docs, and validation coverage.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb4153d9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
