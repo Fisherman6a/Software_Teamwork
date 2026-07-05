@@ -417,3 +417,36 @@ Addressed PR review findings by adding authenticated/TLS Redis options for Docum
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: Fix cloud Docker CI coverage
+
+**Date**: 2026-07-05
+**Task**: Fix cloud Docker CI coverage
+**Branch**: `EIR9264/feat/docker-cloud-startup`
+
+### Summary
+
+Updated Docker/deploy CI to include the cloud compose stack in the allowlisted compose matrix with the cloud env template, added cloud Docker shell script syntax coverage, and recorded the CI contract in the Trellis CI/CD spec.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fd255cff` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
