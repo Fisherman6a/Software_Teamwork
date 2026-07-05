@@ -11,7 +11,8 @@ Usage: ./scripts/docker/start.sh [--env-file PATH] [compose up args...]
 
 Build and start the cloud-backed Docker app stack. Copy the template once:
   cp deploy/docker/cloud.env.example .env.docker.cloud
-Then fill cloud PostgreSQL, Redis, object storage, Knowledge runtime, OCR, and model provider credentials.
+Then fill cloud PostgreSQL, Redis, object storage, Knowledge runtime, and service secrets.
+OCR/model provider seed credentials are required only when DOCKER_SEED_ENABLED=true.
 EOF
 }
 
@@ -45,8 +46,53 @@ append_missing_values() {
   done
 }
 
+is_missing_key() {
+  local key="$1"
+  local missing_key
+  for missing_key in "${missing[@]}"; do
+    if [[ "$missing_key" == "$key" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+is_unsafe_cloud_value() {
+  local value lower
+  value="${1:-}"
+  lower="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$value" == *"<"* || "$value" == *">"* ]]; then
+    return 0
+  fi
+  case "$lower" in
+    *local-dev*|*local-demo*|*change-me*) return 0 ;;
+    sha256:26c6719c056dabe8530ea09f1e8f7593cbcf98a060731c0fc786a5eb48e71ce7) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+append_unsafe_values() {
+  local key value
+  for key in "$@"; do
+    value="$(read_env_value "$key" || true)"
+    if [[ -n "$value" ]] && is_unsafe_cloud_value "$value"; then
+      if [[ "$value" == *"<"* || "$value" == *">"* ]] && is_missing_key "$key"; then
+        continue
+      fi
+      unsafe+=("$key")
+    fi
+  done
+}
+
 validate_cloud_env() {
   local required=(
+    INTERNAL_SERVICE_TOKEN
+    AUTH_GATEWAY_ADMIN_SERVICE_TOKEN
+    GATEWAY_AUTH_ADMIN_SERVICE_TOKEN
+    TOKEN_HASH_SECRET
+    AI_GATEWAY_SERVICE_TOKEN_HASHES
+    AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY
+    AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY_REF
     AUTH_DATABASE_URL
     FILE_DATABASE_URL
     KNOWLEDGE_DATABASE_URL
@@ -61,6 +107,12 @@ validate_cloud_env() {
     FILE_MINIO_BUCKET
     VENDOR_RUNTIME_URL
     VENDOR_RUNTIME_SERVICE_TOKEN
+    MCP_SERVER_TOKEN
+    KNOWLEDGE_MCP_TOKEN
+  )
+  local optional_secret_values=(
+    GATEWAY_REDIS_PASSWORD
+    DOCUMENT_REDIS_PASSWORD
   )
   local seed_required=(
     POSTGRES_ADMIN_URL
@@ -72,22 +124,32 @@ validate_cloud_env() {
     AI_GATEWAY_LOCAL_CHAT_MODEL
   )
   local missing=()
+  local unsafe=()
   append_missing_values "${required[@]}"
+  append_unsafe_values "${required[@]}" "${optional_secret_values[@]}"
 
   local docker_seed_enabled ai_gateway_seed_enabled
   docker_seed_enabled="$(read_env_value DOCKER_SEED_ENABLED || true)"
   if ! is_false_value "$docker_seed_enabled"; then
     append_missing_values "${seed_required[@]}"
+    append_unsafe_values "${seed_required[@]}"
     ai_gateway_seed_enabled="$(read_env_value AI_GATEWAY_LOCAL_SEED_ENABLED || true)"
     if ! is_false_value "$ai_gateway_seed_enabled"; then
       append_missing_values "${provider_seed_required[@]}"
+      append_unsafe_values "${provider_seed_required[@]}"
     fi
   fi
 
+  local failed=0
   if (( ${#missing[@]} > 0 )); then
     log_error "fill these cloud values in $ENV_FILE before starting: ${missing[*]}"
-    return 1
+    failed=1
   fi
+  if (( ${#unsafe[@]} > 0 )); then
+    log_error "replace local/demo placeholder values in $ENV_FILE before starting: ${unsafe[*]}"
+    failed=1
+  fi
+  return "$failed"
 }
 
 args=()

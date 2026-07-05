@@ -31,6 +31,7 @@ ALLOWED_DOCKER_SUPPORT_FILES = {
     CLOUD_COMPOSE_FILE.as_posix(),
     "deploy/docker/cloud.env.example",
 }
+CLOUD_STACK_POLICY_MARKER = "Approved second Docker startup path"
 ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "minio", "minio-init", "elasticsearch")
 ALLOWED_PROFILE_COMPOSE_SERVICES: dict[str, tuple[str, ...]] = {}
 ALLOWED_CLOUD_COMPOSE_SERVICES = (
@@ -143,7 +144,10 @@ def validate_no_business_docker_artifacts(root: Path) -> list[str]:
                 continue
             for pattern, label in DISALLOWED_BUSINESS_DOCKER_ARTIFACTS:
                 if pattern.match(rel):
-                    issues.append(f"{rel}: {label} is not allowed; local Docker is infra-only")
+                    issues.append(
+                        f"{rel}: {label} is not allowed; root local Docker is infra-only and "
+                        f"only {CLOUD_COMPOSE_FILE.as_posix()} may define the cloud app stack"
+                    )
                     break
     return issues
 
@@ -330,7 +334,10 @@ def validate_compose_file(root: Path, compose_file: Path) -> list[str]:
         issues.append(f"{rel}: must not disable Go checksum verification with GOSUMDB=off")
 
     if "build:" in content and rel != CLOUD_COMPOSE_FILE.as_posix():
-        issues.append(f"{rel}: Compose must not use `build:`; local Docker is pull-only infrastructure")
+        issues.append(
+            f"{rel}: Compose must not use `build:`; root local Docker is pull-only infrastructure "
+            f"and only {CLOUD_COMPOSE_FILE.as_posix()} may build the cloud app stack"
+        )
     if "GOPROXY:" in content and GO_PROXY_COMPOSE not in content:
         issues.append(f"{rel}: Go build args must default to `{GO_PROXY_COMPOSE}`")
     if "GOSUMDB:" in content and GO_SUMDB_COMPOSE not in content:
@@ -404,6 +411,11 @@ def validate_local_compose(rel: str, content: str) -> list[str]:
 
 def validate_cloud_compose(rel: str, content: str) -> list[str]:
     issues: list[str] = []
+    if CLOUD_STACK_POLICY_MARKER not in content:
+        issues.append(
+            f"{rel}: cloud Docker app stack must declare the approved second startup path policy marker"
+        )
+
     service_blocks = extract_compose_service_blocks(content)
     service_names = set(service_blocks)
     allowed = set(ALLOWED_CLOUD_COMPOSE_SERVICES)

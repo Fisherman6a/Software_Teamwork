@@ -49,7 +49,7 @@ CI 自动化用于保护 `develop`，只放入可以在 GitHub Actions 中稳定
 | `frontend.yml` | `apps/web/**`、根前端依赖文件和 workflow | 执行 `bun install --frozen-lockfile`、`bun run --cwd apps/web check`、`build`、`test:unit` 和 Playwright E2E smoke。 |
 | `go-services.yml` | `services/{ai-gateway,auth,document,file,gateway,knowledge,qa}` | 根据变更路径只选择受影响服务，执行 `go test ./...`、`go build ./cmd/server`；QA 额外 build `./cmd/agent`；Knowledge 或 workflow 变更时额外用 PostgreSQL 16 和 `KNOWLEDGE_TEST_DATABASE_URL` 执行 repository lifecycle integration test。 |
 | `go-migrations.yml` | 有 SQL migration 的后端服务 | 校验 migration 文件名并用 `goose@v3.27.0` 对 PostgreSQL 16 apply。 |
-| `docker-deploy-checks.yml` | `deploy/docker-compose.yml`、`deploy/docker-compose.cloud.yml`、Docker runbook/spec、Docker policy/environment scripts | 执行 `python3 scripts/check_docker_policy.py`、Docker policy/environment 单元测试、`check_docker_environment.py --skip-network --clean-env`，并对根级 infra-only Compose 和 cloud Docker app stack 执行 `docker compose ... config --quiet`；不执行生产部署。 |
+| `docker-deploy-checks.yml` | `deploy/docker-compose.yml`、`deploy/docker-compose.cloud.yml`、Docker runbook/spec、Docker policy/environment scripts | 执行 `python3 scripts/check_docker_policy.py`、Docker policy/environment 单元测试、`check_docker_environment.py --skip-network --clean-env`，并对根级 infra-only Compose 和 cloud Docker app stack 执行 `docker compose ... config --quiet`；cloud 模板默认 seed disabled，不执行生产部署。 |
 | `gateway-contract.yml` | Gateway OpenAPI active API | 执行 verifier unit tests 和 `python3 scripts/verify_gateway_active_api.py`。 |
 | `check-api-types.yml` | 前端 Gateway 类型漂移 | 在 `apps/web` 执行 `bun run api:generate`，本地等价命令为 `bun run --cwd apps/web api:generate`，并要求 generated diff 干净。 |
 | `commitlint.yml` / `pr-guard.yml` | 协作规则 | 检查提交格式、PR body、issue 关联和 base 更新要求。 |
@@ -205,7 +205,7 @@ prompts, document text, embedding payloads, or provider raw bodies.
 | 服务能力、stub/501 状态、worker、provider adapter 或 migration 变化 | 对应服务 `docs/implementation.md`。 |
 | OpenAPI / Gateway active path / 数据模型变化 | OpenAPI、owner map、README、service boundaries 或相关契约文档；契约语义变化需先交管理组决策。 |
 | runtime dependency / Compose / CI 变化 | `technology-decisions.md`、runbook 或本文。 |
-| Docker infra Compose、cloud Docker app stack、基础设施镜像、Docker daemon mirror、registry rewrite 变化 | `docs/runbooks/docker-image-pull-environment.md`、`deploy/README.md`、`.env.example`、`deploy/docker/cloud.env.example`、`config/README.md`、`docs/architecture/technology-decisions.md`、`scripts/check_docker_policy.py`、`scripts/check_docker_environment.py` 和相关 Trellis spec；Compose 基础镜像覆盖变量必须保持 pinned 默认，不得把正常路径改成 `latest`。 |
+| Docker infra Compose、cloud Docker app stack、基础设施镜像、Docker daemon mirror、registry rewrite 变化 | `docs/runbooks/docker-image-pull-environment.md`、`deploy/README.md`、`.env.example`、`deploy/docker/cloud.env.example`、`config/README.md`、`docs/architecture/technology-decisions.md`、`scripts/check_docker_policy.py`、`scripts/check_docker_environment.py` 和相关 Trellis spec；Compose 基础镜像覆盖变量必须保持 pinned 默认，cloud 模板必须保持 seed safe by default，不得把正常路径改成 `latest`。 |
 | Knowledge runtime、Python packaging 或 HTTP tests 变化 | Knowledge README、`technology-decisions.md`、runbook 和本文。 |
 | open PR 或未合入能力 | 只能写 pending、待合入或 follow-up，不得写成已实现。 |
 

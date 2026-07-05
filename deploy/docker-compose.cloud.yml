@@ -1,3 +1,5 @@
+# Approved second Docker startup path: this cloud app stack may build app/web
+# containers, while the root deploy/docker-compose.yml remains infra-only.
 x-go-build-args: &go-build-args
   IMAGE_REGISTRY_PREFIX: ${DOCKER_IMAGE_REGISTRY_PREFIX:-}
   GO_IMAGE: ${GO_DOCKER_IMAGE:-golang:1.25-alpine}
@@ -74,7 +76,7 @@ services:
       PADDLEOCR_BASE_URL: ${PADDLEOCR_BASE_URL:-https://paddleocr.aistudio-app.com}
       PADDLEOCR_ACCESS_TOKEN: ${PADDLEOCR_ACCESS_TOKEN:-}
       PADDLEOCR_ALGORITHM: ${PADDLEOCR_ALGORITHM:-PP-StructureV3}
-      DOCKER_SEED_ENABLED: ${DOCKER_SEED_ENABLED:-true}
+      DOCKER_SEED_ENABLED: ${DOCKER_SEED_ENABLED:-false}
     command: ["docker-seed"]
     restart: "no"
 

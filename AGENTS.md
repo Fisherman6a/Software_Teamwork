@@ -45,6 +45,7 @@ Managed by Trellis. Edits outside this block are preserved; edits inside may be 
 - `./scripts/local/clean.sh` 先执行 stop，再删除本地 infra Compose 容器和 PostgreSQL/MinIO/Elasticsearch 数据卷；不会删除 Docker images、`.env.local`、`.local/tools` 或 `.local/bin`。非交互确认用 `--yes`。
 - 根级 Docker Compose `deploy/docker-compose.yml` 只允许拉取并启动基础设施：`postgres`、`redis`、`minio`、`minio-init`、`elasticsearch`。默认 host-run 联调中 Auth、File、Knowledge、QA、Document、AI Gateway、Gateway、Parser 和前端都必须按文档在宿主机启动。
 - `deploy/docker-compose.cloud.yml` 是独立 cloud Docker app stack，可以 `build:` 业务服务和前端镜像，但必须外接云端 PostgreSQL、Redis、对象存储、Knowledge runtime、PaddleOCR/OCR 和模型 provider；不能启动本地 OCR、Knowledge runtime worker、Elasticsearch、PostgreSQL、Redis 或 MinIO。
+- Cloud Docker app stack 是明确批准的第二条启动路径，不是根级本地 Compose 的例外扩散；模板默认 `DOCKER_SEED_ENABLED=false`，不要把 `local-dev-*`、`local-demo-*`、`change-me` 或 `<...>` 占位 secret 用于 cloud seed 或网络可达环境。
 - `config/` 是唯一默认配置来源；根 `.env.example` 是本地 secret 模板，用户复制成未跟踪的 `.env.local`。启动脚本只检查 `.env.local` 是否存在，不创建或覆盖它，并通过 `config/ctl` 渲染 `.local/config/<profile>.env` 和 `.env.sh`。
 - 当前源策略是默认官方源、国内网络显式 `--china`；不要把缺少 active DaoCloud/TUNA/goproxy 默认值标记为回归。
 - Go 本地基线是 Go `1.25.x`（脚本最低接受 `go1.25.1`，当前本地基线可用 `go1.25.4`）；迁移工具固定 `goose@v3.27.0`，不要未经说明改回需要更高 Go patch 的版本。

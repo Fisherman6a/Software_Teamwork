@@ -23,10 +23,12 @@ services/ai-gateway/
 deploy/docker-compose.yml
 ```
 
-Current Docker target: local infrastructure Compose only. Business services and
-the Knowledge runtime API/worker run on the host. Local Elasticsearch is
-the only optional Compose profile service, used as Knowledge runtime
-infrastructure when explicitly enabled from local env.
+Current Docker target has two isolated paths. The root/default local Docker
+baseline is infrastructure-only, while business services and the Knowledge
+runtime API/worker run on the host. The separate
+`deploy/docker-compose.cloud.yml` path is an explicitly approved cloud Docker
+app stack that may build app/web containers only while externalizing PostgreSQL,
+Redis, object storage, Knowledge runtime, OCR, and model providers.
 
 ---
 
@@ -905,6 +907,13 @@ Rules:
   The Docker/deploy detect job and policy checker must reject other
   business-service Dockerfiles, service-level Compose files, and non-root
   deploy Compose files.
+- The cloud Docker app stack seed path must be safe by default. The committed
+  cloud env template and compose defaults must keep `DOCKER_SEED_ENABLED=false`
+  so copying the template cannot write local demo users, local demo profiles, or
+  placeholder parser/provider config into a cloud database. If cloud seed is
+  explicitly enabled, startup and seed scripts must reject `local-dev-*`,
+  `local-demo-*`, `change-me`, angle-bracket placeholders, and the known local
+  demo AI Gateway service-token hash before writing data.
 
 ---
 

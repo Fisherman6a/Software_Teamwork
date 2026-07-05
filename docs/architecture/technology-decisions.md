@@ -108,7 +108,7 @@
 | DOCX 生成 | Document worker 当前使用内置 Go `SimpleDOCXGenerator`；Pandoc 作为富 DOCX 候选工具链；LibreOffice 暂不引入，保留后续候选 | 内置 Go 生成器：标准库；Pandoc CLI 版本后续在富 DOCX 任务中固定；LibreOffice：暂不引入 | 已固定（当前路径） | 当前路径为内置 Go `SimpleDOCXGenerator`；富 DOCX worker 的运行方式不属于当前本地 Docker 基线。 |
 | MCP 集成 | 官方 MCP Go SDK；暂不拆独立 sidecar | `github.com/modelcontextprotocol/go-sdk@v1.6.1` | 已固定 | QA 负责工具白名单、权限、参数校验、超时和脱敏记录；Document 和 Knowledge 已有 Streamable HTTP MCP server/工具适配；SDK 升级或 sidecar 化另开兼容性任务。 |
 | 本地基础设施 | Docker Compose | Compose 文件格式无 top-level version | 已固定 | 根 `deploy/docker-compose.yml` 只拉取 PostgreSQL、Redis、MinIO、`minio-init` 和 Elasticsearch；业务服务在默认本地联调中全部 host-run。 |
-| 云端依赖 Docker app stack | Docker Compose build | `deploy/docker-compose.cloud.yml` | 已固定 | `./scripts/docker/start.sh` 构建并启动 Auth、File、Knowledge、QA、Document、AI Gateway、Gateway 和 Web 容器；PostgreSQL、Redis、对象存储、Knowledge runtime、PaddleOCR 和模型 provider 均为外部/云端依赖，不启动本地 OCR/runtime/Elasticsearch。 |
+| 云端依赖 Docker app stack | Docker Compose build | `deploy/docker-compose.cloud.yml` | 已固定 | `./scripts/docker/start.sh` 构建并启动 Auth、File、Knowledge、QA、Document、AI Gateway、Gateway 和 Web 容器；PostgreSQL、Redis、对象存储、Knowledge runtime、PaddleOCR 和模型 provider 均为外部/云端依赖，不启动本地 OCR/runtime/Elasticsearch；模板默认 `DOCKER_SEED_ENABLED=false`，不会默认向云数据库写入本地 demo seed。 |
 
 ## 前端版本明细
 
@@ -319,7 +319,7 @@ services/<service>/
 - Go Service CI 按服务路径选择受影响服务，执行 `go test ./...` 和 `go build ./cmd/server`；QA 额外执行 `go build ./cmd/agent`。
 - Goose migration CI 对有 SQL migration 的服务执行 `goose@v3.27.0` apply 校验。
 - Docker / Deploy Checks 验证 `deploy/docker-compose.yml` 的 infra-only config、`deploy/docker-compose.cloud.yml` 的 cloud app stack config、Docker policy 和 Docker environment 诊断；不执行生产部署。
-- 当前仓库不保留生产/准生产 Compose 基线；`deploy/docker-compose.cloud.yml` 是云端依赖启动链路，不等同于生产部署能力。后续如要增加部署能力，需要独立任务重新设计。
+- 当前仓库不保留生产/准生产 Compose 基线；`deploy/docker-compose.cloud.yml` 是明确批准的云端依赖第二启动链路，不等同于生产部署能力。后续如要增加部署能力，需要独立任务重新设计。
 
 ## 后续需要同步的实现任务
 

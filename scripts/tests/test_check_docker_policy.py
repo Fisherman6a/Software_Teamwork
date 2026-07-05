@@ -54,6 +54,7 @@ VALID_COMPOSE = textwrap.dedent(
 
 CLOUD_COMPOSE = textwrap.dedent(
     """
+    # Approved second Docker startup path: cloud app stack may build app/web containers.
     services:
       auth:
         image: ${AUTH_IMAGE:-software-teamwork/auth:cloud}
@@ -196,6 +197,13 @@ class DockerPolicyTests(unittest.TestCase):
 
         self.assertEqual([], issues)
 
+    def test_cloud_compose_requires_explicit_second_path_marker(self) -> None:
+        compose = CLOUD_COMPOSE.replace("# Approved second Docker startup path: cloud app stack may build app/web containers.\n", "")
+
+        issues = self.verify(files={"deploy/docker-compose.cloud.yml": compose})
+
+        self.assertIssueContains(issues, "approved second startup path policy marker")
+
     def test_cloud_compose_rejects_local_infra_services(self) -> None:
         compose = CLOUD_COMPOSE + (
             "\n"
@@ -315,6 +323,7 @@ class DockerPolicyTests(unittest.TestCase):
         self.assertIssueContains(issues, "deploy/docker-compose.production.yml")
         self.assertIssueContains(issues, "deploy/compose.preview.yml")
         self.assertIssueContains(issues, "non-root deploy Compose file")
+        self.assertIssueContains(issues, "only deploy/docker-compose.cloud.yml may define the cloud app stack")
 
     def verify(self, *, files: dict[str, str]) -> list[str]:
         with tempfile.TemporaryDirectory() as directory:

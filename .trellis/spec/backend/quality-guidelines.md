@@ -309,6 +309,15 @@ go run github.com/pressly/goose/v3/cmd/goose@v3.27.0 -dir migrations postgres "$
   `POSTGRES_ADMIN_URL`, `PADDLEOCR_ACCESS_TOKEN`, or
   `AI_GATEWAY_LOCAL_PROVIDER_*`. When seed is enabled, startup should still fail
   before build/up if required seed values are missing.
+- The cloud Docker app stack must default `DOCKER_SEED_ENABLED=false` in both
+  the compose interpolation default and `deploy/docker/cloud.env.example`. This
+  prevents copied cloud templates from writing local demo users, demo model
+  profiles, placeholder parser config, or weak token-style values into a cloud
+  PostgreSQL instance.
+- If cloud seed is explicitly enabled, both `scripts/docker/start.sh` and the
+  container seed entrypoint must reject `local-dev-*`, `local-demo-*`,
+  `change-me`, angle-bracket placeholders, and the known local demo
+  `AI_GATEWAY_SERVICE_TOKEN_HASHES` value before any seed SQL is applied.
 - Docs must distinguish the host-run local integration path from the cloud
   Docker app stack and must not tell users to use the cloud compose file as a
   production deployment baseline.

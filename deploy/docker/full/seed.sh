@@ -1,7 +1,14 @@
 #!/usr/bin/env sh
 set -eu
 
-case "${DOCKER_SEED_ENABLED:-true}" in
+is_false_value() {
+  case "$1" in
+    false|FALSE|False|0|no|NO|No|off|OFF|Off) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+case "${DOCKER_SEED_ENABLED:-false}" in
   false|FALSE|False|0|no|NO|No|off|OFF|Off)
   echo "docker seed: skipped"
   exit 0
@@ -14,6 +21,47 @@ require_env() {
   if [ -z "$value" ]; then
     echo "docker seed: $name is required when DOCKER_SEED_ENABLED is not false" >&2
     exit 1
+  fi
+}
+
+is_unsafe_cloud_value() {
+  value="${1:-}"
+  lower="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  case "$value" in
+    *"<"*|*">"*) return 0 ;;
+  esac
+  case "$lower" in
+    *local-dev*|*local-demo*|*change-me*) return 0 ;;
+    sha256:26c6719c056dabe8530ea09f1e8f7593cbcf98a060731c0fc786a5eb48e71ce7) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+require_cloud_value() {
+  name="$1"
+  require_env "$name"
+  eval "value=\${$name:-}"
+  if is_unsafe_cloud_value "$value"; then
+    echo "docker seed: $name must be replaced before seeding a cloud database" >&2
+    exit 1
+  fi
+}
+
+validate_seed_inputs() {
+  require_cloud_value INTERNAL_SERVICE_TOKEN
+  require_cloud_value AUTH_GATEWAY_ADMIN_SERVICE_TOKEN
+  require_cloud_value GATEWAY_AUTH_ADMIN_SERVICE_TOKEN
+  require_cloud_value TOKEN_HASH_SECRET
+  require_cloud_value AI_GATEWAY_SERVICE_TOKEN_HASHES
+  require_cloud_value AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY
+  require_cloud_value AI_GATEWAY_CREDENTIAL_ENCRYPTION_KEY_REF
+  require_cloud_value POSTGRES_ADMIN_URL
+  require_cloud_value PADDLEOCR_ACCESS_TOKEN
+
+  if ! is_false_value "${AI_GATEWAY_LOCAL_SEED_ENABLED:-true}"; then
+    require_cloud_value AI_GATEWAY_LOCAL_PROVIDER_BASE_URL
+    require_cloud_value AI_GATEWAY_LOCAL_PROVIDER_API_KEY
+    require_cloud_value AI_GATEWAY_LOCAL_CHAT_MODEL
   fi
 }
 
@@ -91,6 +139,7 @@ COMMIT;
 SQL
 }
 
+validate_seed_inputs
 apply_static_seed
 apply_ai_gateway_seed
 apply_paddleocr_cloud_parser_overlay
