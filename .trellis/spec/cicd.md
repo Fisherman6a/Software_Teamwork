@@ -838,8 +838,10 @@ jobs:
 
 ## Docker Infra Compose
 
-Repository Docker usage is infrastructure-only. The root Compose default path
-may pull and start only:
+The root/default local Docker baseline is infrastructure-only. The separate
+cloud Docker app stack is an explicitly approved additive path and must remain
+isolated from this baseline. The root Compose default path may pull and start
+only:
 
 ```text
 postgres
@@ -888,10 +890,13 @@ Rules:
 - Local startup scripts, local seed SQL, and local seed contract files must
   trigger Docker/deploy checks. The policy job must run shell syntax checks for
   `scripts/local/*.sh` and `python3 scripts/verify_local_seed_contract.py`.
-- Business-service Docker artifacts must not be introduced into the current
-  repository baseline. The Docker/deploy detect job and policy checker must
-  reject business-service Dockerfiles, service-level Compose files, and
-  non-root deploy Compose files.
+- Business-service Docker artifacts must not be introduced into the root local
+  baseline. The approved exception is the isolated cloud app stack:
+  `deploy/docker-compose.cloud.yml`, `deploy/docker/cloud.env.example`,
+  `deploy/docker/full/**`, and wrapper scripts under `scripts/docker/**`.
+  The Docker/deploy detect job and policy checker must reject other
+  business-service Dockerfiles, service-level Compose files, and non-root
+  deploy Compose files.
 
 ---
 
@@ -1033,9 +1038,10 @@ workflow sections above. For PRs:
 - Frontend changes are covered by Frontend CI; local `bun run --cwd apps/web check`,
   `bun run --cwd apps/web build`, and targeted tests remain useful PR-before
   evidence.
-- Docker/Compose config checks are covered for the infra-only root Compose,
-  Docker policy docs/scripts, and image-source overlays; full DB integration
-  jobs and cross-service smoke remain future gates until stable workflows land.
+- Docker/Compose config checks are covered for the infra-only root Compose, the
+  cloud Docker app stack compose config, Docker policy docs/scripts, and
+  image-source overlays; full DB integration jobs and cross-service smoke remain
+  future gates until stable workflows land.
 - Documentation changes update README/specs when architecture, commands,
   contracts, or implementation status change.
 

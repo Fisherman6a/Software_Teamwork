@@ -25,6 +25,12 @@ THIRD_PARTY_REGISTRY_PREFIXES = (
     "docker.m.daocloud.io/",
 )
 LOCAL_COMPOSE_FILE = Path("deploy/docker-compose.yml")
+CLOUD_COMPOSE_FILE = Path("deploy/docker-compose.cloud.yml")
+ALLOWED_CLOUD_DOCKER_PREFIX = "deploy/docker/full/"
+ALLOWED_DOCKER_SUPPORT_FILES = {
+    CLOUD_COMPOSE_FILE.as_posix(),
+    "deploy/docker/cloud.env.example",
+}
 ALLOWED_DEFAULT_COMPOSE_SERVICES = ("postgres", "redis", "minio", "minio-init", "elasticsearch")
 ALLOWED_PROFILE_COMPOSE_SERVICES: dict[str, tuple[str, ...]] = {}
 DISALLOWED_DEFAULT_COMPOSE_SERVICES = (
@@ -93,13 +99,21 @@ def validate_no_business_docker_artifacts(root: Path) -> list[str]:
         for filename in files:
             path = current / filename
             rel = path.relative_to(root).as_posix()
-            if rel == LOCAL_COMPOSE_FILE.as_posix():
+            if is_allowed_docker_artifact(rel):
                 continue
             for pattern, label in DISALLOWED_BUSINESS_DOCKER_ARTIFACTS:
                 if pattern.match(rel):
                     issues.append(f"{rel}: {label} is not allowed; local Docker is infra-only")
                     break
     return issues
+
+
+def is_allowed_docker_artifact(rel: str) -> bool:
+    return (
+        rel == LOCAL_COMPOSE_FILE.as_posix()
+        or rel in ALLOWED_DOCKER_SUPPORT_FILES
+        or rel.startswith(ALLOWED_CLOUD_DOCKER_PREFIX)
+    )
 
 
 def should_skip_dockerfile(rel: str) -> bool:
@@ -275,7 +289,7 @@ def validate_compose_file(root: Path, compose_file: Path) -> list[str]:
     if "GOSUMDB=off" in content or re.search(r"GOSUMDB\s*:\s*(?:\$\{[^}]*:-)?off\b", content):
         issues.append(f"{rel}: must not disable Go checksum verification with GOSUMDB=off")
 
-    if "build:" in content:
+    if "build:" in content and rel != CLOUD_COMPOSE_FILE.as_posix():
         issues.append(f"{rel}: Compose must not use `build:`; local Docker is pull-only infrastructure")
     if "GOPROXY:" in content and GO_PROXY_COMPOSE not in content:
         issues.append(f"{rel}: Go build args must default to `{GO_PROXY_COMPOSE}`")

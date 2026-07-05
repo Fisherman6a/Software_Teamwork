@@ -52,6 +52,23 @@ VALID_COMPOSE = textwrap.dedent(
     """
 )
 
+CLOUD_COMPOSE = textwrap.dedent(
+    """
+    services:
+      auth:
+        image: ${AUTH_IMAGE:-software-teamwork/auth:cloud}
+        build:
+          context: ..
+          dockerfile: deploy/docker/full/go-service.Dockerfile
+          args:
+            SERVICE_DIR: services/auth
+            TARGET: ./cmd/server
+            BINARY: auth-server
+            GOPROXY: ${GO_DOCKER_GOPROXY:-https://proxy.golang.org,direct}
+            GOSUMDB: ${GO_DOCKER_GOSUMDB:-sum.golang.org}
+    """
+)
+
 
 VALID_ENV = textwrap.dedent(
     """
@@ -166,6 +183,18 @@ class DockerPolicyTests(unittest.TestCase):
 
         self.assertIssueContains(issues, "must not use latest")
         self.assertIssueContains(issues, "must be exposed through")
+
+    def test_cloud_docker_build_path_is_allowed(self) -> None:
+        issues = self.verify(
+            files={
+                "deploy/docker-compose.cloud.yml": CLOUD_COMPOSE,
+                "deploy/docker/cloud.env.example": "COMPOSE_PROJECT_NAME=software-teamwork-cloud\n",
+                "deploy/docker/full/go-service.Dockerfile": VALID_GO_DOCKERFILE,
+                "deploy/docker/full/.dockerignore": ".git/\n.local/\n",
+            }
+        )
+
+        self.assertEqual([], issues)
 
     def test_dockerfile_regressions_are_reported(self) -> None:
         dockerfile = VALID_GO_DOCKERFILE.replace(

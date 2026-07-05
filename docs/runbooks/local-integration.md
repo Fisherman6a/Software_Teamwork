@@ -1,6 +1,6 @@
 # 本地联调运行手册
 
-默认联调路径只有一条：
+默认本地完整联调路径是 host-run：
 
 ```text
 Docker infra (postgres, redis, minio, minio-init, elasticsearch)
@@ -8,9 +8,21 @@ Docker infra (postgres, redis, minio, minio-init, elasticsearch)
 Real parsing -> host Knowledge runtime API + on-demand worker
 ```
 
-不要启动业务服务容器，不要使用 `--build`，不要手工 export 一长串变量。
+在这条默认 host-run 路径中，不要启动业务服务容器，不要使用 `--build`，不要手工 export 一长串变量。
 `config/` 是默认配置来源；用户从根 `.env.example` 复制未跟踪的 `.env.local` 后，
 脚本通过 `config/ctl` 渲染 `.local/config/<profile>.env` 和 `.env.sh`。
+
+如果本机压力过大，需要把数据库、Redis、对象存储、Knowledge runtime、OCR 和模型 provider 都放到云端，使用独立 Docker app stack：
+
+```text
+Docker app stack (auth, file, knowledge, qa, document, ai-gateway, gateway, web)
+  -> cloud PostgreSQL / Redis / object storage
+  -> cloud Knowledge runtime
+  -> PaddleOCR cloud parser
+  -> cloud model provider
+```
+
+这条路径入口是 `./scripts/docker/start.sh`，不使用根级 `deploy/docker-compose.yml`，也不启动本地 Knowledge runtime worker 或本地 OCR。
 
 Issue #125 的 MCP 与跨服务 smoke 汇总入口见
 [`Issue #125 MCP and Cross-Service Smoke`](./issue-125-smoke.md)。只有对应 slice
@@ -127,10 +139,52 @@ docker rmi \
   2>/dev/null || true
 ```
 
+## 云端依赖 Docker app stack
+
+这条路径适合本机 CPU/内存不足，或希望 OCR/解析/模型全部走云端时使用。它构建并运行业务服务容器和前端容器，但不启动本地 infra、Knowledge runtime 或本地 OCR。
+
+一次性准备：
+
+```bash
+cp deploy/docker/cloud.env.example .env.docker.cloud
+```
+
+编辑 `.env.docker.cloud`，替换所有 `<...>` 占位值。最少需要云端 PostgreSQL、Redis、对象存储、Knowledge runtime token、PaddleOCR token 和模型 provider key/model。启动脚本会在发现关键占位值未替换时直接失败，避免先构建镜像再在容器里报配置错。
+
+启动：
+
+```bash
+./scripts/docker/start.sh
+```
+
+浏览器入口：
+
+```text
+http://localhost:18080
+```
+
+查看日志：
+
+```bash
+docker compose -f deploy/docker-compose.cloud.yml --env-file .env.docker.cloud logs -f
+```
+
+停止和清理：
+
+```bash
+./scripts/docker/stop.sh
+./scripts/docker/clean.sh --yes
+```
+
+云端 Docker path 的 migration 和 seed 在容器内执行。`POSTGRES_ADMIN_URL` 用于静态 seed 中的 `\connect`；如果 app 用户没有 DDL 权限，使用各服务 `*_MIGRATION_DATABASE_URL` 覆盖 migration 连接串。`AI_GATEWAY_LOCAL_SEED_ENABLED=true` 会写入云端模型 provider profile，`PADDLEOCR_ACCESS_TOKEN` 会把默认 parser config 切到 `paddleocr_cloud`。
+
+不要把 `.env.docker.cloud` 提交到仓库。它不经过 `config/ctl` 渲染，也不会被 `./scripts/local/start.sh` 使用。
+
 ## 启动后应该看到什么
 
 - 前端：`http://localhost:5173`
 - Gateway：`http://localhost:8080`
+- 云端 Docker app stack 前端：`http://localhost:18080`
 - 本机 OpenAI-compatible 模型服务默认地址：`http://localhost:11434/v1`
 - 默认 demo 管理员：`admin` / `LocalDemoAdmin#12345`
 - 默认 demo 超管：`superadmin` / `LocalDemoAdmin#12345`
@@ -216,6 +270,10 @@ client 与 Document 工具，不代表完整 QA Agent + LLM 链路通过。Issue
 - `stop.sh`：按 `.local/run/` 中记录的进程组停止后端和 runtime，避免留下真实服务占用端口。
 - `clean.sh`：停止 host-run 进程并删除本地 infra Compose 数据卷；不删除 Docker images、
   `.env.local`、`.local/tools` 或 `.local/bin`。
+- `scripts/docker/start.sh`：校验 `.env.docker.cloud` 后对 `deploy/docker-compose.cloud.yml`
+  执行 `up -d --build`，用于云端依赖 Docker app stack。
+- `scripts/docker/stop.sh` / `scripts/docker/clean.sh`：只管理 `deploy/docker-compose.cloud.yml`
+  创建的 app stack 容器和本地卷，不停止 host-run 后端，也不清理根级 infra 数据卷。
 - `config/`：默认配置和环境 profile；根 `.env.example`：本地 secret 模板；
   `.env.local`：未跟踪本地配置。脚本只渲染 `.local/config/` 运行时产物。
 - 这些本地入口脚本都必须在命令行输出彩色的开始、成功、警告和失败摘要。失败摘要应
