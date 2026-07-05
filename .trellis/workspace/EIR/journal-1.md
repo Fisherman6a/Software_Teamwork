@@ -483,3 +483,36 @@ Added Gateway managed Redis username/TLS support, relaxed cloud Docker seed-disa
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Fix Docker cloud boundary and seed safety
+
+**Date**: 2026-07-05
+**Task**: Fix Docker cloud boundary and seed safety
+**Branch**: `EIR9264/feat/docker-cloud-startup`
+
+### Summary
+
+Made the cloud Docker app stack an explicit second startup path in policy/docs, defaulted cloud seed to disabled, rejected local demo placeholders in wrapper and seed entrypoints, and added regression coverage for the boundary and seed safety behavior.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d60fc511` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
